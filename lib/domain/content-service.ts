@@ -236,17 +236,20 @@ function publicWhere(
   kind: ContentKind,
   query: Partial<ContentListQuery> & { campusId?: string },
 ) {
+  const searchableFields =
+    kind === 'resource'
+      ? ['title', 'summary', 'courseCode']
+      : kind === 'marketplace'
+        ? ['title', 'description', 'pickupArea']
+        : ['title', 'company', 'description', 'location'];
   const search = query.search
     ? {
-        OR: [
-          { title: { contains: query.search, mode: 'insensitive' } },
-          {
-            [kind === 'resource' ? 'summary' : 'description']: {
-              contains: query.search,
-              mode: 'insensitive',
-            },
+        OR: searchableFields.map((field) => ({
+          [field]: {
+            contains: query.search,
+            mode: 'insensitive',
           },
-        ],
+        })),
       }
     : {};
   return {
@@ -329,7 +332,9 @@ export async function listPublicContent(
   kind: ContentKind,
   query: Partial<ContentListQuery> & { campusId?: string },
 ) {
-  const page = Math.min(Math.max(query.page ?? 1, 1), 10_000);
+  // Keep offset pagination bounded so public discovery cannot request
+  // unbounded database scans while preserving stable page URLs.
+  const page = Math.min(Math.max(query.page ?? 1, 1), 50);
   const pageSize = Math.min(Math.max(query.pageSize ?? 12, 1), 50);
   const delegate = delegateFor(adapter, kind);
   if (!delegate.findMany || !delegate.count)

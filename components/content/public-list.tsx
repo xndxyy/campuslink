@@ -83,6 +83,7 @@ export function PublicList({
                   <option value="LIKE_NEW">近乎全新</option>
                   <option value="GOOD">良好</option>
                   <option value="FAIR">有使用痕迹</option>
+                  <option value="POOR">明显磨损</option>
                 </select>
                 <input
                   defaultValue={query.minPriceCents}

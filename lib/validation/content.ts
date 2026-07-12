@@ -48,6 +48,7 @@ export const marketplaceConditions = [
   'LIKE_NEW',
   'GOOD',
   'FAIR',
+  'POOR',
 ] as const;
 
 export const createResourceSchema = z
@@ -127,9 +128,9 @@ export const contentListQuerySchema = z
       .nonnegative()
       .max(MAX_PRICE_CENTS)
       .optional(),
-    page: z.coerce.number().int().min(1).max(10_000).default(1),
+    page: z.coerce.number().int().min(1).max(50).default(1),
     pageSize: z.coerce.number().int().min(1).max(50).default(12),
-    search: z.string().trim().max(100).optional(),
+    search: z.string().trim().max(80).optional(),
     tag: z.string().trim().max(32).optional(),
   })
   .strict();

@@ -12,7 +12,10 @@ const source = readFileSync(
 describe('submission form async event safety', () => {
   it('captures the form before awaiting and resets the captured element', () => {
     const capture = source.indexOf('const form = event.currentTarget;');
-    const firstAwait = source.indexOf('await ', source.indexOf('async function submit'));
+    const firstAwait = source.indexOf(
+      'await ',
+      source.indexOf('async function submit'),
+    );
     expect(capture).toBeGreaterThan(-1);
     expect(capture).toBeLessThan(firstAwait);
     expect(source).toContain('new FormData(form)');

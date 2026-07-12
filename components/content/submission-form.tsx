@@ -15,9 +15,10 @@ export function SubmissionForm({ kind }: { kind: FormKind }) {
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     setState('pending');
     setMessage('');
-    const values = Object.fromEntries(new FormData(event.currentTarget));
+    const values = Object.fromEntries(new FormData(form));
     const body: Record<string, unknown> = { ...values };
     if (kind !== 'job') body.assetIds = assetIds;
     if (kind === 'resource') {
@@ -45,7 +46,7 @@ export function SubmissionForm({ kind }: { kind: FormKind }) {
         throw new Error(result?.message ?? '提交失败，请稍后重试。');
       setState('success');
       setMessage('已进入审核队列。你可以在“我的提交”查看状态。');
-      event.currentTarget.reset();
+      form.reset();
       setAssetIds([]);
     } catch (error) {
       setState('error');
@@ -115,6 +116,7 @@ export function SubmissionForm({ kind }: { kind: FormKind }) {
                 <option value="LIKE_NEW">近乎全新</option>
                 <option value="GOOD">状态良好</option>
                 <option value="FAIR">有使用痕迹</option>
+                <option value="POOR">明显磨损</option>
               </select>
             </label>
           </div>

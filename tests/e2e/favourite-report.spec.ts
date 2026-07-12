@@ -5,7 +5,16 @@ import { hasCompleteE2eEnvironment } from '../helpers/e2e-environment';
 const reportDetails = 'E2E report submitted through the real published detail.';
 let db: Pool | undefined;
 let reporterId = '';
+let setupStartedAt: Date | undefined;
+let contactAuditId = '';
 const targetId = process.env.E2E_PUBLISHED_MARKETPLACE_ID ?? '';
+
+async function deleteCapturedContactAudit() {
+  if (!db || !contactAuditId) return;
+  const id = contactAuditId;
+  await db.query(`DELETE FROM "AuditLog" WHERE id = $1`, [id]);
+  contactAuditId = '';
+}
 
 test.skip(
   !hasCompleteE2eEnvironment(process.env),
@@ -70,6 +79,10 @@ test.beforeAll(async () => {
          AND "targetId" = $2 AND status = 'OPEN'`,
       [reporterId, targetId],
     );
+    const marker = await client.query<{ startedAt: Date }>(
+      `SELECT clock_timestamp() AS "startedAt"`,
+    );
+    setupStartedAt = marker.rows[0]?.startedAt;
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -79,30 +92,38 @@ test.beforeAll(async () => {
   }
 });
 
+test.afterEach(async () => {
+  await deleteCapturedContactAudit();
+});
+
 test.afterAll(async () => {
   if (!db) return;
-  const client = await db.connect();
   try {
-    if (reporterId && targetId) {
-      await client.query('BEGIN');
-      await client.query(
-        `DELETE FROM "Favourite"
-         WHERE "userId" = $1 AND "targetType" = 'MARKETPLACE_ITEM' AND "targetId" = $2`,
-        [reporterId, targetId],
-      );
-      await client.query(
-        `DELETE FROM "Report"
-         WHERE "reporterId" = $1 AND "targetType" = 'MARKETPLACE_ITEM'
-           AND "targetId" = $2 AND details = $3`,
-        [reporterId, targetId, reportDetails],
-      );
-      await client.query('COMMIT');
+    await deleteCapturedContactAudit();
+    const client = await db.connect();
+    try {
+      if (reporterId && targetId) {
+        await client.query('BEGIN');
+        await client.query(
+          `DELETE FROM "Favourite"
+           WHERE "userId" = $1 AND "targetType" = 'MARKETPLACE_ITEM' AND "targetId" = $2`,
+          [reporterId, targetId],
+        );
+        await client.query(
+          `DELETE FROM "Report"
+           WHERE "reporterId" = $1 AND "targetType" = 'MARKETPLACE_ITEM'
+             AND "targetId" = $2 AND details = $3`,
+          [reporterId, targetId, reportDetails],
+        );
+        await client.query('COMMIT');
+      }
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
   } finally {
-    client.release();
     await db.end();
   }
 });
@@ -141,5 +162,19 @@ test('verified member favourites, reports, and requests marketplace contact', as
   await expect(page.locator('.revealed-contact')).toHaveCount(0);
   await page.getByRole('button', { name: 'Request contact' }).click();
   await expect(page.locator('.revealed-contact')).toBeVisible();
+  if (!db || !setupStartedAt) {
+    throw new Error('E2E database fixture was not initialized.');
+  }
+  const auditResult = await db.query<{ id: string }>(
+    `SELECT id FROM "AuditLog"
+     WHERE "actorId" = $1 AND "subjectType" = 'MARKETPLACE_ITEM'
+       AND "subjectId" = $2 AND action = 'MARKETPLACE_CONTACT_REQUESTED'
+       AND "createdAt" > $3
+     ORDER BY "createdAt" DESC, id DESC
+     LIMIT 1`,
+    [reporterId, targetId, setupStartedAt],
+  );
+  expect(auditResult.rows[0]).toBeDefined();
+  contactAuditId = auditResult.rows[0]!.id;
   await expect(page).not.toHaveURL(/contact=/);
 });

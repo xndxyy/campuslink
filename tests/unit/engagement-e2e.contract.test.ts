@@ -22,4 +22,16 @@ describe('engagement live E2E isolation contract', () => {
     expect(source).toContain("name: 'Remove favourite'");
     expect(source).not.toMatch(/Report received\|open report already exists/);
   });
+
+  it('captures and deletes only the contact audit created by this run', () => {
+    expect(source).toContain('setupStartedAt');
+    expect(source).toContain('contactAuditId');
+    expect(source).toContain('MARKETPLACE_CONTACT_REQUESTED');
+    expect(source).toMatch(/"createdAt"\s*>\s*\$3/);
+    expect(source).toContain('test.afterEach');
+    const auditDeletes = source.match(/DELETE FROM "AuditLog"[^`]+/g) ?? [];
+    expect(auditDeletes).toHaveLength(1);
+    expect(auditDeletes[0]).toMatch(/WHERE id = \$1/);
+    expect(auditDeletes[0]).not.toContain('actorId');
+  });
 });

@@ -373,7 +373,14 @@ export async function listOwnedContent(
   adapter: ContentAdapter,
   actor: ContentActor,
   kind: ContentKind,
-): Promise<Array<ContentRecord & { decisionReason: string | null }>> {
+): Promise<
+  Array<
+    ContentRecord & {
+      decisionAction: string | null;
+      decisionReason: string | null;
+    }
+  >
+> {
   const delegate = delegateFor(adapter, kind);
   if (!delegate.findMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
@@ -384,8 +391,14 @@ export async function listOwnedContent(
   if (!adapter.moderationAction || items.length === 0) {
     return items.map((item) => ({
       ...(item as ContentRecord),
+      decisionAction: null,
       decisionReason: null,
-    })) as Array<ContentRecord & { decisionReason: string | null }>;
+    })) as Array<
+      ContentRecord & {
+        decisionAction: string | null;
+        decisionReason: string | null;
+      }
+    >;
   }
   const subjectType =
     kind === 'resource'
@@ -395,22 +408,41 @@ export async function listOwnedContent(
         : 'JOB_POST';
   const decisions = await adapter.moderationAction.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    select: { action: true, reason: true, subjectId: true },
+    select: {
+      action: true,
+      createdAt: true,
+      id: true,
+      reason: true,
+      subjectId: true,
+    },
     where: {
-      action: { in: ['REJECT', 'HIDE'] },
+      action: {
+        in: ['APPROVE', 'REJECT', 'HIDE', 'RESTORE', 'ARCHIVE'],
+      },
       subjectId: { in: items.map((item) => item.id) },
       subjectType,
     },
   });
-  const reasons = new Map<string, string>();
+  const latest = new Map<string, { action: string; reason: string }>();
   for (const decision of decisions) {
     const id = String(decision.subjectId);
-    if (!reasons.has(id)) reasons.set(id, String(decision.reason));
+    if (!latest.has(id)) {
+      latest.set(id, {
+        action: String(decision.action),
+        reason: String(decision.reason),
+      });
+    }
   }
   return items.map((item) => ({
     ...(item as ContentRecord),
-    decisionReason: reasons.get(item.id) ?? null,
-  })) as Array<ContentRecord & { decisionReason: string | null }>;
+    decisionAction: latest.get(item.id)?.action ?? null,
+    decisionReason: latest.get(item.id)?.reason ?? null,
+  })) as Array<
+    ContentRecord & {
+      decisionAction: string | null;
+      decisionReason: string | null;
+    }
+  >;
 }
 
 export async function archiveOwnedContent(

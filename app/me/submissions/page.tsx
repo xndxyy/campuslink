@@ -67,7 +67,8 @@ export default async function MySubmissionsPage() {
                 </span>
                 {item.decisionReason ? (
                   <p className="decision-reason">
-                    Moderator decision: {String(item.decisionReason)}
+                    Latest moderator decision ({String(item.decisionAction)}):{' '}
+                    {String(item.decisionReason)}
                   </p>
                 ) : null}
                 <OwnerActions

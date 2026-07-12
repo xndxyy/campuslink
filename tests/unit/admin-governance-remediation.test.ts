@@ -55,7 +55,7 @@ describe('admin governance route remediation', () => {
             contentType: 'application/pdf',
             id: 'asset_1',
             kind: 'RESOURCE_DOCUMENT',
-            sizeBytes: 4096n,
+            sizeBytes: BigInt('4096'),
           },
         ],
         author: { id: 'author_1', name: 'Author' },

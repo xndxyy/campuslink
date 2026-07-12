@@ -87,6 +87,7 @@ export async function createReport(
         throw new ReportOwnContentError();
       return tx.report.create({
         data: {
+          campusId: actor.campusId,
           details: input.details,
           reason: input.reason,
           reporterId: actor.id,
@@ -136,6 +137,7 @@ export async function listReporterReports(
     skip: (page - 1) * pageSize,
     take: pageSize,
     where: {
+      campusId: actor.campusId,
       reporterId: actor.id,
       status: { in: ['OPEN', 'TRIAGED', 'RESOLVED', 'DISMISSED'] },
     },

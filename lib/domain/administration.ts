@@ -71,6 +71,38 @@ function adminReason(reason: string) {
   return value;
 }
 
+function isSerializationFailure(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    code?: unknown;
+    meta?: { code?: unknown };
+  };
+  return (
+    candidate.code === 'P2034' ||
+    candidate.code === '40001' ||
+    candidate.meta?.code === '40001'
+  );
+}
+
+async function serializableTransaction<T>(
+  adapter: AdministrationAdapter,
+  operation: (tx: AdministrationAdapter) => Promise<T>,
+) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await adapter.$transaction(operation, {
+        isolationLevel: 'Serializable',
+      });
+    } catch (error) {
+      if (!isSerializationFailure(error)) throw error;
+      if (attempt === 2) {
+        throw new AdminConflictError('Concurrent administration change');
+      }
+    }
+  }
+  throw new AdminConflictError('Concurrent administration change');
+}
+
 export async function listManagedUsers(
   adapter: AdministrationAdapter,
   actor: StaffActor,
@@ -126,83 +158,80 @@ export async function updateManagedUser(
   if ((!input.role && !input.status) || (input.role && input.status)) {
     throw new AdminValidationError('Change exactly one user property');
   }
-  return adapter.$transaction(
-    async (tx) => {
-      const user = await tx.user.findFirst({
-        select: {
-          campusId: true,
-          emailVerifiedAt: true,
-          id: true,
-          role: true,
-          status: true,
-        },
-        where: { campusId: actor.campusId, id: input.userId },
-      });
-      if (!user) throw new AdminConflictError();
-      const currentRole = user.role as StaffRole;
-      const currentStatus = user.status as ManagedUserStatus;
-      if (
-        input.role &&
-        input.role !== 'STUDENT' &&
-        (currentStatus !== 'ACTIVE' || !user.emailVerifiedAt)
-      ) {
-        throw new AdminConflictError(
-          'Pending or unverified users cannot be staff',
-        );
-      }
-      const removesActiveAdmin =
-        currentRole === 'ADMIN' &&
-        currentStatus === 'ACTIVE' &&
-        ((input.role !== undefined && input.role !== 'ADMIN') ||
-          (input.status !== undefined && input.status !== 'ACTIVE'));
-      if (removesActiveAdmin) {
-        const activeAdmins = await tx.user.count({
-          where: {
-            campusId: actor.campusId,
-            role: 'ADMIN',
-            status: 'ACTIVE',
-          },
-        });
-        if (activeAdmins <= 1)
-          throw new AdminConflictError('Final active admin');
-      }
-
-      const data = input.role ? { role: input.role } : { status: input.status };
-      const changed = await tx.user.updateMany({
-        data,
+  return serializableTransaction(adapter, async (tx) => {
+    const user = await tx.user.findFirst({
+      select: {
+        campusId: true,
+        emailVerifiedAt: true,
+        id: true,
+        role: true,
+        status: true,
+      },
+      where: { campusId: actor.campusId, id: input.userId },
+    });
+    if (!user) throw new AdminConflictError();
+    const currentRole = user.role as StaffRole;
+    const currentStatus = user.status as ManagedUserStatus;
+    if (
+      input.role &&
+      input.role !== 'STUDENT' &&
+      (currentStatus !== 'ACTIVE' || !user.emailVerifiedAt)
+    ) {
+      throw new AdminConflictError(
+        'Pending or unverified users cannot be staff',
+      );
+    }
+    const removesActiveAdmin =
+      currentRole === 'ADMIN' &&
+      currentStatus === 'ACTIVE' &&
+      ((input.role !== undefined && input.role !== 'ADMIN') ||
+        (input.status !== undefined && input.status !== 'ACTIVE'));
+    if (removesActiveAdmin) {
+      const activeAdmins = await tx.user.count({
         where: {
           campusId: actor.campusId,
-          id: input.userId,
-          role: currentRole,
-          status: currentStatus,
+          role: 'ADMIN',
+          status: 'ACTIVE',
         },
       });
-      if (changed.count !== 1) throw new AdminConflictError();
+      if (activeAdmins <= 1) throw new AdminConflictError('Final active admin');
+    }
 
-      const revokeSessions =
-        input.status === 'SUSPENDED' ||
-        (input.role !== undefined &&
-          roleRank[input.role] < roleRank[currentRole]);
-      if (revokeSessions) {
-        await tx.session.deleteMany({ where: { userId: input.userId } });
-      }
-      const action = input.role ? 'USER_ROLE_CHANGED' : 'USER_STATUS_CHANGED';
-      const details = input.role
-        ? { from: currentRole, reason, to: input.role }
-        : { from: currentStatus, reason, to: input.status };
-      await tx.auditLog.create({
-        data: {
-          action,
-          actorId: actor.id,
-          details,
-          subjectId: input.userId,
-          subjectType: 'USER',
-        },
-      });
-      return { id: input.userId, ...data, sessionsRevoked: revokeSessions };
-    },
-    { isolationLevel: 'Serializable' },
-  );
+    const data = input.role ? { role: input.role } : { status: input.status };
+    const changed = await tx.user.updateMany({
+      data,
+      where: {
+        campusId: actor.campusId,
+        id: input.userId,
+        role: currentRole,
+        status: currentStatus,
+      },
+    });
+    if (changed.count !== 1) throw new AdminConflictError();
+
+    const revokeSessions =
+      input.status === 'SUSPENDED' ||
+      (input.role !== undefined &&
+        roleRank[input.role] < roleRank[currentRole]);
+    if (revokeSessions) {
+      await tx.session.deleteMany({ where: { userId: input.userId } });
+    }
+    const action = input.role ? 'USER_ROLE_CHANGED' : 'USER_STATUS_CHANGED';
+    const details = input.role
+      ? { from: currentRole, reason, to: input.role }
+      : { from: currentStatus, reason, to: input.status };
+    await tx.auditLog.create({
+      data: {
+        action,
+        actorId: actor.id,
+        campusId: actor.campusId,
+        details,
+        subjectId: input.userId,
+        subjectType: 'USER',
+      },
+    });
+    return { id: input.userId, ...data, sessionsRevoked: revokeSessions };
+  });
 }
 
 const domainPattern =
@@ -239,6 +268,7 @@ export async function updateCampusConfig(
       data: {
         action: 'CAMPUS_CONFIG_CHANGED',
         actorId: actor.id,
+        campusId: actor.campusId,
         details: {
           allowedEmailDomain: {
             from: campus.allowedEmailDomain,

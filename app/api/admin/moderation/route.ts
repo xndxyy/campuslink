@@ -5,8 +5,9 @@ import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
 import { getDb } from '@/lib/db';
 import { adminErrorResponse, adminJson } from '@/lib/domain/admin-route';
 import {
-  listPendingContent,
+  listModerationContent,
   moderateContent,
+  toModerationQueueDto,
   type ModerationAdapter,
   type StaffActor,
 } from '@/lib/domain/moderation';
@@ -66,14 +67,31 @@ export async function handleModerationMutation(
   }
 }
 
-export async function GET() {
+const queueSchema = z
+  .object({
+    pageSize: z.coerce.number().int().min(1).max(200).optional(),
+    status: z.enum(['PENDING', 'PUBLISHED', 'HIDDEN']).default('PENDING'),
+  })
+  .strict();
+
+export async function GET(request: Request) {
   try {
     const user = await requireRole(['MODERATOR', 'ADMIN']);
-    const items = await listPendingContent(
+    const parsed = queueSchema.safeParse(
+      Object.fromEntries(new URL(request.url).searchParams),
+    );
+    if (!parsed.success) {
+      return adminJson(
+        { message: 'Invalid moderation queue request.' },
+        { status: 400 },
+      );
+    }
+    const items = await listModerationContent(
       getDb() as unknown as ModerationAdapter,
       { campusId: user.campusId, id: user.id, role: user.role },
+      parsed.data,
     );
-    return adminJson({ items });
+    return adminJson({ items: toModerationQueueDto(items) });
   } catch (error) {
     return adminErrorResponse(error);
   }

@@ -109,6 +109,8 @@ model Campus {
   resources          Resource[]
   marketplaceItems   MarketplaceItem[]
   jobPosts           JobPost[]
+  reports            Report[]
+  auditLogs          AuditLog[]
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
 }
@@ -268,6 +270,7 @@ model Favourite {
 
 model Report {
   id            String           @id @default(cuid())
+  campusId      String
   reporterId    String
   targetType    ReportTargetType
   targetId      String
@@ -275,6 +278,7 @@ model Report {
   details       String?          @db.Text
   status        ReportStatus     @default(OPEN)
   assigneeId    String?
+  campus        Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
   reporter      User             @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
   assignee      User?            @relation("ReportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   createdAt     DateTime         @default(now())
@@ -282,6 +286,7 @@ model Report {
 
   @@index([targetType, targetId, status])
   @@index([assigneeId, status])
+  @@index([campusId, status, createdAt, id])
 }
 
 model ModerationAction {
@@ -301,14 +306,17 @@ model ModerationAction {
 
 model AuditLog {
   id          String                 @id @default(cuid())
+  campusId    String
   actorId     String?
   action      String                 @db.VarChar(100)
   subjectType ModerationSubjectType?
   subjectId   String?
   details     Json?
+  campus      Campus                 @relation(fields: [campusId], references: [id], onDelete: Restrict)
   actor       User?                  @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
   createdAt   DateTime               @default(now())
 
   @@index([subjectType, subjectId, createdAt])
   @@index([actorId, createdAt])
+  @@index([campusId, createdAt, id])
 }

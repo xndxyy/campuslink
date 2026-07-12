@@ -5,8 +5,10 @@ import { hasCompleteE2eEnvironment } from '../helpers/e2e-environment';
 const reportDetails = 'E2E report submitted through the real published detail.';
 let db: Pool | undefined;
 let reporterId = '';
+let reporterCampusId = '';
 let setupStartedAt: Date | undefined;
 let contactAuditId = '';
+let sessionId = '';
 const targetId = process.env.E2E_PUBLISHED_MARKETPLACE_ID ?? '';
 
 async function deleteCapturedContactAudit() {
@@ -57,6 +59,7 @@ test.beforeAll(async () => {
       throw new Error('E2E verified reporter is not provisioned and active.');
     }
     reporterId = reporter.id;
+    reporterCampusId = reporter.campusId;
     if (!target || target.status !== 'PUBLISHED') {
       throw new Error('E2E marketplace target is not published.');
     }
@@ -104,6 +107,11 @@ test.afterAll(async () => {
     try {
       if (reporterId && targetId) {
         await client.query('BEGIN');
+        if (sessionId) {
+          await client.query(`DELETE FROM "Session" WHERE id = $1`, [
+            sessionId,
+          ]);
+        }
         await client.query(
           `DELETE FROM "Favourite"
            WHERE "userId" = $1 AND "targetType" = 'MARKETPLACE_ITEM' AND "targetId" = $2`,
@@ -140,6 +148,15 @@ test('verified member favourites, reports, and requests marketplace contact', as
     .fill(process.env.E2E_VERIFIED_PASSWORD!);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
+  if (db && setupStartedAt) {
+    const session = await db.query<{ id: string }>(
+      `SELECT id FROM "Session"
+       WHERE "userId" = $1 AND "createdAt" >= $2
+       ORDER BY "createdAt" DESC, id DESC LIMIT 1`,
+      [reporterId, setupStartedAt],
+    );
+    sessionId = session.rows[0]?.id ?? '';
+  }
 
   await page.goto(`/marketplace/${targetId}`);
   const favourite = page.getByRole('button', { name: 'Add favourite' });
@@ -167,12 +184,12 @@ test('verified member favourites, reports, and requests marketplace contact', as
   }
   const auditResult = await db.query<{ id: string }>(
     `SELECT id FROM "AuditLog"
-     WHERE "actorId" = $1 AND "subjectType" = 'MARKETPLACE_ITEM'
-       AND "subjectId" = $2 AND action = 'MARKETPLACE_CONTACT_REQUESTED'
-       AND "createdAt" > $3
+     WHERE "campusId" = $1 AND "actorId" = $2 AND "subjectType" = 'MARKETPLACE_ITEM'
+       AND "subjectId" = $3 AND action = 'MARKETPLACE_CONTACT_REQUESTED'
+       AND "createdAt" > $4
      ORDER BY "createdAt" DESC, id DESC
      LIMIT 1`,
-    [reporterId, targetId, setupStartedAt],
+    [reporterCampusId, reporterId, targetId, setupStartedAt],
   );
   expect(auditResult.rows[0]).toBeDefined();
   contactAuditId = auditResult.rows[0]!.id;

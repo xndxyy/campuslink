@@ -3,7 +3,13 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export function ReportActionForm({ reportId }: { reportId: string }) {
+export function ReportActionForm({
+  reportId,
+  status,
+}: {
+  reportId: string;
+  status: 'OPEN' | 'TRIAGED';
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -18,8 +24,9 @@ export function ReportActionForm({ reportId }: { reportId: string }) {
       const response = await fetch('/api/admin/reports', {
         body: JSON.stringify({
           action,
-          hideTarget:
-            action === 'RESOLVE' && formData.get('hideTarget') === 'on',
+          ...(action === 'RESOLVE'
+            ? { hideTarget: formData.get('hideTarget') === 'on' }
+            : {}),
           reason: formData.get('reason'),
           reportId,
         }),
@@ -52,10 +59,18 @@ export function ReportActionForm({ reportId }: { reportId: string }) {
           <h2 id={titleId}>Resolve report</h2>
           <label>
             Outcome
-            <select defaultValue="TRIAGE" name="action">
-              <option value="TRIAGE">Triage and assign to me</option>
-              <option value="DISMISS">Dismiss</option>
-              <option value="RESOLVE">Resolve</option>
+            <select
+              defaultValue={status === 'OPEN' ? 'TRIAGE' : 'RESOLVE'}
+              name="action"
+            >
+              {status === 'OPEN' ? (
+                <option value="TRIAGE">Triage and assign to me</option>
+              ) : (
+                <>
+                  <option value="RESOLVE">Resolve</option>
+                  <option value="DISMISS">Dismiss</option>
+                </>
+              )}
             </select>
           </label>
           <label>

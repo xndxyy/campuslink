@@ -81,7 +81,7 @@ describeWithDatabase('database schema constraints', () => {
   });
 
   it('rejects duplicate open reports for the same reporter and target', async () => {
-    if (!reporterId) {
+    if (!reporterId || !campusId) {
       throw new Error('Test reporter setup failed');
     }
 
@@ -89,6 +89,7 @@ describeWithDatabase('database schema constraints', () => {
 
     const initialReport = await db.report.create({
       data: {
+        campusId,
         reporterId,
         targetType: 'RESOURCE',
         targetId,
@@ -100,6 +101,7 @@ describeWithDatabase('database schema constraints', () => {
     await expect(
       db.report.create({
         data: {
+          campusId,
           reporterId,
           targetType: 'RESOURCE',
           targetId,
@@ -116,6 +118,7 @@ describeWithDatabase('database schema constraints', () => {
 
     const reopenedReport = await db.report.create({
       data: {
+        campusId,
         reporterId,
         targetType: 'RESOURCE',
         targetId,

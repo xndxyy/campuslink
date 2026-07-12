@@ -2,6 +2,7 @@ export type StaffRole = 'STUDENT' | 'MODERATOR' | 'ADMIN';
 export type ContentSubjectType = 'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST';
 export type ContentModerationAction =
   'APPROVE' | 'REJECT' | 'HIDE' | 'RESTORE' | 'ARCHIVE';
+export type ModerationContentStatus = 'PENDING' | 'PUBLISHED' | 'HIDDEN';
 
 export interface StaffActor {
   campusId: string;
@@ -28,7 +29,9 @@ export interface ModerationAdapter {
   auditLog: CreateDelegate;
   jobPost: ContentDelegate;
   marketplaceItem: ContentDelegate;
-  moderationAction: CreateDelegate;
+  moderationAction: CreateDelegate & {
+    findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
+  };
   report: {
     findFirst(
       args: Record<string, unknown>,
@@ -136,6 +139,7 @@ export async function moderateContent(
       data: {
         action: transition.event,
         actorId: actor.id,
+        campusId: actor.campusId,
         details: { from: transition.from, reason, to: transition.to },
         subjectId: input.subjectId,
         subjectType: input.subjectType,
@@ -153,16 +157,17 @@ const sharedPendingSelect = {
   updatedAt: true,
 };
 
-export async function listPendingContent(
+export async function listModerationContent(
   adapter: ModerationAdapter,
   actor: StaffActor,
-  query: { pageSize?: number } = {},
+  query: { pageSize?: number; status?: ModerationContentStatus } = {},
 ): Promise<
   Array<Record<string, unknown> & { subjectType: ContentSubjectType }>
 > {
   requireStaff(actor);
   const take = Math.max(1, Math.min(query.pageSize ?? 100, 200));
-  const where = { campusId: actor.campusId, status: 'PENDING' };
+  const status = query.status ?? 'PENDING';
+  const where = { campusId: actor.campusId, status };
   const orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
   const [resources, marketplace, jobs] = await Promise.all([
     adapter.resource.findMany({
@@ -231,6 +236,37 @@ export async function listPendingContent(
     .slice(0, take);
 }
 
+export function listPendingContent(
+  adapter: ModerationAdapter,
+  actor: StaffActor,
+  query: { pageSize?: number } = {},
+) {
+  return listModerationContent(adapter, actor, {
+    ...query,
+    status: 'PENDING',
+  });
+}
+
+export function toModerationQueueDto(
+  items: Array<Record<string, unknown> & { subjectType: ContentSubjectType }>,
+) {
+  return items.map((item) => ({
+    ...item,
+    assets: Array.isArray(item.assets)
+      ? item.assets.map((asset) => {
+          const record = asset as Record<string, unknown>;
+          return {
+            ...record,
+            sizeBytes:
+              typeof record.sizeBytes === 'bigint'
+                ? record.sizeBytes.toString(10)
+                : String(record.sizeBytes),
+          };
+        })
+      : [],
+  }));
+}
+
 const severity = {
   PROHIBITED: 0,
   HARASSMENT: 1,
@@ -261,9 +297,48 @@ export async function listModerationReports(
       updatedAt: true,
     },
     take,
-    where: { status: { in: ['OPEN', 'TRIAGED'] } },
+    where: {
+      campusId: actor.campusId,
+      status: { in: ['OPEN', 'TRIAGED'] },
+    },
   });
-  return reports.sort((left, right) => {
+  const subjectIds = [
+    ...reports.map((report) => String(report.id)),
+    ...reports.map((report) => String(report.targetId)),
+  ];
+  const history =
+    subjectIds.length === 0
+      ? []
+      : await adapter.moderationAction.findMany({
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            action: true,
+            actor: { select: { id: true, name: true } },
+            actorId: true,
+            createdAt: true,
+            id: true,
+            reason: true,
+            subjectId: true,
+            subjectType: true,
+          },
+          where: {
+            subjectId: { in: subjectIds },
+            subjectType: {
+              in: ['REPORT', 'RESOURCE', 'MARKETPLACE_ITEM', 'JOB_POST'],
+            },
+          },
+        });
+  const enriched: Array<
+    Record<string, unknown> & { history: Record<string, unknown>[] }
+  > = reports.map((report) => ({
+    ...report,
+    history: history.filter(
+      (entry) =>
+        String(entry.subjectId) === String(report.id) ||
+        String(entry.subjectId) === String(report.targetId),
+    ),
+  }));
+  return enriched.sort((left, right) => {
     const leftSeverity =
       severity[String(left.reason) as keyof typeof severity] ?? 9;
     const rightSeverity =
@@ -285,17 +360,14 @@ async function changeReportStatus(
   requireStaff(actor);
   const reason = decisionReason(input.reason);
   const status = input.action === 'TRIAGE' ? 'TRIAGED' : 'DISMISSED';
+  const currentStatus = input.action === 'TRIAGE' ? 'OPEN' : 'TRIAGED';
   return adapter.$transaction(async (tx) => {
     const changed = await tx.report.updateMany({
       data: { assigneeId: actor.id, status },
       where: {
+        campusId: actor.campusId,
         id: input.reportId,
-        status: {
-          in:
-            input.action === 'TRIAGE'
-              ? ['OPEN', 'TRIAGED']
-              : ['OPEN', 'TRIAGED'],
-        },
+        status: currentStatus,
       },
     });
     if (changed.count !== 1) throw new ModerationConflictError();
@@ -312,6 +384,7 @@ async function changeReportStatus(
       data: {
         action: `REPORT_${status}`,
         actorId: actor.id,
+        campusId: actor.campusId,
         details: { reason, status },
         subjectId: input.reportId,
         subjectType: 'REPORT',
@@ -347,12 +420,20 @@ export async function resolveReport(
   return adapter.$transaction(async (tx) => {
     const report = await tx.report.findFirst({
       select: { id: true, status: true, targetId: true, targetType: true },
-      where: { id: input.reportId, status: { in: ['OPEN', 'TRIAGED'] } },
+      where: {
+        campusId: actor.campusId,
+        id: input.reportId,
+        status: 'TRIAGED',
+      },
     });
     if (!report) throw new ModerationConflictError();
     const changed = await tx.report.updateMany({
       data: { assigneeId: actor.id, status: 'RESOLVED' },
-      where: { id: input.reportId, status: { in: ['OPEN', 'TRIAGED'] } },
+      where: {
+        campusId: actor.campusId,
+        id: input.reportId,
+        status: 'TRIAGED',
+      },
     });
     if (changed.count !== 1) throw new ModerationConflictError();
 
@@ -393,6 +474,7 @@ export async function resolveReport(
       data: {
         action: 'REPORT_RESOLVED',
         actorId: actor.id,
+        campusId: actor.campusId,
         details: { hiddenTarget: input.hideTarget, reason },
         subjectId: input.reportId,
         subjectType: 'REPORT',
@@ -412,6 +494,7 @@ export async function resolveReport(
         data: {
           action: 'CONTENT_HIDDEN_FROM_REPORT',
           actorId: actor.id,
+          campusId: actor.campusId,
           details: { reason, reportId: input.reportId },
           subjectId: String(report.targetId),
           subjectType: String(report.targetType),

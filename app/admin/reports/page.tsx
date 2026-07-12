@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { ReportActionForm } from '@/components/admin/report-action-form';
 import { requireRole } from '@/lib/auth/guards';
 import { getDb } from '@/lib/db';
@@ -19,6 +21,13 @@ async function loadReports() {
   } catch {
     return { error: true, items: [] };
   }
+}
+
+function targetHref(targetType: string, targetId: string) {
+  if (targetType === 'RESOURCE') return `/resources/${targetId}`;
+  if (targetType === 'MARKETPLACE_ITEM') return `/marketplace/${targetId}`;
+  if (targetType === 'JOB_POST') return `/jobs/${targetId}`;
+  return '#';
 }
 
 export default async function ReportsPage() {
@@ -55,10 +64,37 @@ export default async function ReportsPage() {
               <p>
                 {String(report.details ?? 'No additional reporter details.')}
               </p>
+              <Link
+                href={targetHref(
+                  String(report.targetType),
+                  String(report.targetId),
+                )}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open target details
+              </Link>
               <small>
                 Received {new Date(String(report.createdAt)).toLocaleString()}
               </small>
-              <ReportActionForm reportId={String(report.id)} />
+              <ol aria-label="Prior moderation history" className="audit-list">
+                {((report.history ?? []) as Array<Record<string, unknown>>).map(
+                  (entry) => (
+                    <li key={String(entry.id)}>
+                      <time>
+                        {new Date(String(entry.createdAt)).toLocaleString()}
+                      </time>
+                      <strong>{String(entry.action)}</strong>
+                      <span>{String(entry.subjectType)}</span>
+                      <p>{String(entry.reason)}</p>
+                    </li>
+                  ),
+                )}
+              </ol>
+              <ReportActionForm
+                reportId={String(report.id)}
+                status={String(report.status) as 'OPEN' | 'TRIAGED'}
+              />
             </article>
           ))}
         </div>

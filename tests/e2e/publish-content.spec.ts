@@ -1,5 +1,9 @@
 import path from 'node:path';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { expect, test } from '@playwright/test';
+import { hash } from 'bcryptjs';
+import { Pool } from 'pg';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
 
 const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
@@ -8,6 +12,106 @@ test.skip(
   !runSharedAccountE2e,
   'Requires complete live E2E services and provisioned accounts.',
 );
+
+function required(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required for live E2E.`);
+  return value;
+}
+
+function storageClient() {
+  return new S3Client({
+    credentials: {
+      accessKeyId: required('S3_ACCESS_KEY_ID'),
+      secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+    },
+    endpoint: required('S3_ENDPOINT'),
+    forcePathStyle: required('S3_FORCE_PATH_STYLE') === 'true',
+    region: required('S3_REGION'),
+  });
+}
+
+async function createRunScopedPublisher() {
+  const runId = randomUUID();
+  const id = `e2e-publisher-${runId}`;
+  const email = `publisher-${runId}@campuslink.test`;
+  const password = randomBytes(32).toString('base64url');
+  const passwordHash = await hash(password, 12);
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    const campus = await db.query<{ campusId: string }>(
+      `SELECT "campusId" FROM "User" WHERE email = $1`,
+      [process.env.E2E_VERIFIED_EMAIL],
+    );
+    if (!campus.rows[0])
+      throw new Error('E2E publisher campus is unavailable.');
+    await db.query(
+      `INSERT INTO "User"
+        (id, "campusId", name, email, "passwordHash", role, status,
+         "emailVerifiedAt", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, 'STUDENT', 'ACTIVE', now(), now(), now())`,
+      [
+        id,
+        campus.rows[0].campusId,
+        'Run-scoped Publisher',
+        email,
+        passwordHash,
+      ],
+    );
+    return { db, email, id, password, runId };
+  } catch (error) {
+    await db.end();
+    throw error;
+  }
+}
+
+async function cleanupRunScopedPublisher(db: Pool, userId: string) {
+  const assets = await db.query<{ storageKey: string }>(
+    `SELECT "storageKey" FROM "Asset" WHERE "ownerId" = $1`,
+    [userId],
+  );
+  const storage = storageClient();
+  const storageResults = await Promise.allSettled(
+    assets.rows.map(({ storageKey }) =>
+      storage.send(
+        new DeleteObjectCommand({
+          Bucket: required('S3_BUCKET'),
+          Key: storageKey,
+        }),
+      ),
+    ),
+  );
+  try {
+    await db.query(`DELETE FROM "User" WHERE id = $1`, [userId]);
+  } finally {
+    await db.end();
+    storage.destroy();
+  }
+  const failedDelete = storageResults.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  if (failedDelete) throw failedDelete.reason;
+}
+
+test.afterEach(async ({ page }) => {
+  const sessionCookie = (await page.context().cookies()).find(
+    (cookie) =>
+      cookie.name === 'campuslink-dev-session' ||
+      cookie.name === '__Host-campuslink-session',
+  );
+  if (!sessionCookie) return;
+  const sessionTokenHash = createHash('sha256')
+    .update(sessionCookie.value)
+    .digest('hex');
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  try {
+    await db.query(`DELETE FROM "Session" WHERE "sessionTokenHash" = $1`, [
+      sessionTokenHash,
+    ]);
+  } finally {
+    await db.end();
+  }
+});
 
 async function signIn(
   page: import('@playwright/test').Page,
@@ -24,65 +128,65 @@ async function signIn(
 test('verified student publishes resource, marketplace item, and job through real forms', async ({
   page,
 }) => {
-  const runId = Date.now().toString(36);
-  const resourceTitle = `E2E algorithms notes ${runId}`;
-  const marketplaceTitle = `E2E textbook ${runId}`;
-  const jobTitle = `E2E weekend assistant ${runId}`;
-  await signIn(
-    page,
-    process.env.E2E_VERIFIED_EMAIL!,
-    process.env.E2E_VERIFIED_PASSWORD!,
-  );
+  const publisher = await createRunScopedPublisher();
+  const resourceTitle = `E2E algorithms notes ${publisher.runId}`;
+  const marketplaceTitle = `E2E textbook ${publisher.runId}`;
+  const jobTitle = `E2E weekend assistant ${publisher.runId}`;
+  try {
+    await signIn(page, publisher.email, publisher.password);
 
-  await page.goto('/submit/resource');
-  await page.locator('input[name="title"]').fill(resourceTitle);
-  await page
-    .locator('textarea[name="summary"]')
-    .fill('Complete E2E lecture notes with worked examples and exercises.');
-  await page.locator('input[name="tags"]').fill('e2e, algorithms');
-  await page
-    .locator('input[type="file"]')
-    .first()
-    .setInputFiles(path.resolve('tests/fixtures/resource.pdf'));
-  await expect(page.getByText('Upload is ready.')).toBeVisible();
-  await page.locator('button[type="submit"]').last().click();
-  await expect(page.locator('[aria-live="polite"]').last()).toContainText(
-    '审核',
-  );
+    await page.goto('/submit/resource');
+    await page.locator('input[name="title"]').fill(resourceTitle);
+    await page
+      .locator('textarea[name="summary"]')
+      .fill('Complete E2E lecture notes with worked examples and exercises.');
+    await page.locator('input[name="tags"]').fill('e2e, algorithms');
+    await page
+      .locator('input[type="file"]')
+      .first()
+      .setInputFiles(path.resolve('tests/fixtures/resource.pdf'));
+    await expect(page.getByText('Upload is ready.')).toBeVisible();
+    await page.locator('button[type="submit"]').last().click();
+    await expect(page.locator('[aria-live="polite"]').last()).toContainText(
+      '审核',
+    );
 
-  await page.goto('/submit/marketplace');
-  await page.locator('input[name="title"]').fill(marketplaceTitle);
-  await page
-    .locator('textarea[name="description"]')
-    .fill('A carefully used E2E discrete mathematics textbook.');
-  await page.locator('input[name="price"]').fill('19.99');
-  await page.locator('input[name="pickupArea"]').fill('North library');
-  await page.locator('textarea[name="contact"]').fill('Private campus inbox');
-  await page
-    .locator('input[type="file"]')
-    .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
-  await expect(page.getByText('Upload is ready.')).toBeVisible();
-  await page.locator('button[type="submit"]').last().click();
-  await expect(page.locator('[aria-live="polite"]').last()).toContainText(
-    '审核',
-  );
+    await page.goto('/submit/marketplace');
+    await page.locator('input[name="title"]').fill(marketplaceTitle);
+    await page
+      .locator('textarea[name="description"]')
+      .fill('A carefully used E2E discrete mathematics textbook.');
+    await page.locator('input[name="price"]').fill('19.99');
+    await page.locator('input[name="pickupArea"]').fill('North library');
+    await page.locator('textarea[name="contact"]').fill('Private campus inbox');
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
+    await expect(page.getByText('Upload is ready.')).toBeVisible();
+    await page.locator('button[type="submit"]').last().click();
+    await expect(page.locator('[aria-live="polite"]').last()).toContainText(
+      '审核',
+    );
 
-  await page.goto('/submit/job');
-  await page.locator('input[name="company"]').fill('E2E Campus Cafe');
-  await page.locator('input[name="title"]').fill(jobTitle);
-  await page
-    .locator('textarea[name="description"]')
-    .fill('Help serve students during the E2E weekend lunch shift.');
-  await page.locator('input[name="location"]').fill('Student centre');
-  await page.locator('input[name="payText"]').fill('$20/hour');
-  await page.locator('button[type="submit"]').click();
-  await expect(page.locator('[aria-live="polite"]')).toContainText('审核');
+    await page.goto('/submit/job');
+    await page.locator('input[name="company"]').fill('E2E Campus Cafe');
+    await page.locator('input[name="title"]').fill(jobTitle);
+    await page
+      .locator('textarea[name="description"]')
+      .fill('Help serve students during the E2E weekend lunch shift.');
+    await page.locator('input[name="location"]').fill('Student centre');
+    await page.locator('input[name="payText"]').fill('$20/hour');
+    await page.locator('button[type="submit"]').click();
+    await expect(page.locator('[aria-live="polite"]')).toContainText('审核');
 
-  await page.goto('/me/submissions');
-  for (const title of [resourceTitle, marketplaceTitle, jobTitle]) {
-    const row = page.locator('article').filter({ hasText: title }).first();
-    await expect(row).toBeVisible();
-    await expect(row).toContainText('PENDING');
+    await page.goto('/me/submissions');
+    for (const title of [resourceTitle, marketplaceTitle, jobTitle]) {
+      const row = page.locator('article').filter({ hasText: title }).first();
+      await expect(row).toBeVisible();
+      await expect(row).toContainText('PENDING');
+    }
+  } finally {
+    await cleanupRunScopedPublisher(publisher.db, publisher.id);
   }
 });
 

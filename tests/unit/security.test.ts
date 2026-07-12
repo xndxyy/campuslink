@@ -70,6 +70,18 @@ describe('release security boundary', () => {
     expect(csp).not.toContain('campuslink.127.0.0.1');
   });
 
+  it('rejects loopback HTTP storage origins from the production CSP', () => {
+    const production = buildSecurityHeaders(
+      'production',
+      'http://127.0.0.1:9000',
+      'campuslink',
+      true,
+    );
+    expect(production.headers['Content-Security-Policy']).not.toContain(
+      'http://127.0.0.1:9000',
+    );
+  });
+
   it('reads a bounded JSON body by actual UTF-8 bytes', async () => {
     const body = JSON.stringify({ value: '🎓'.repeat(10) });
     const request = new Request('https://app.example/api/test', {

@@ -9,12 +9,19 @@ const source = readFileSync(
 
 describe('engagement live E2E isolation contract', () => {
   it('establishes and cleans deterministic database preconditions', () => {
+    expect(source).toContain('randomUUID()');
+    expect(source).toContain('INSERT INTO "User"');
+    expect(source).toContain('INSERT INTO "MarketplaceItem"');
     expect(source).toContain('new Pool');
     expect(source).toContain('test.beforeAll');
     expect(source).toContain('test.afterAll');
-    expect(source).toContain('DELETE FROM "Favourite"');
-    expect(source).toContain('DELETE FROM "Report"');
-    expect(source).toMatch(/sellerId\s*===\s*reporterId/);
+    expect(source).toContain('DELETE FROM "Report" WHERE id = $1');
+    expect(source).toContain('DELETE FROM "MarketplaceItem" WHERE id = $1');
+    expect(source).toContain('DELETE FROM "User" WHERE id = $1');
+    expect(source).not.toMatch(
+      /DELETE FROM "Report"[\s\S]{0,200}"reporterId" = \$1/,
+    );
+    expect(source).toMatch(/source\.sellerId\s*===\s*reporterId/);
   });
 
   it('exercises both favourite states through the real browser flow', () => {
@@ -24,14 +31,11 @@ describe('engagement live E2E isolation contract', () => {
   });
 
   it('captures and deletes only the contact audit created by this run', () => {
-    expect(source).toContain('setupStartedAt');
-    expect(source).toContain('clock_timestamp()::timestamp::text');
-    expect(source).toContain('"createdAt" > $4::timestamp');
     expect(source).toContain('contactAuditId');
+    expect(source).toContain('reportId');
     expect(source).toContain('MARKETPLACE_CONTACT_REQUESTED');
     expect(source).toMatch(/"campusId"\s*=\s*\$1/);
-    expect(source).toMatch(/"createdAt"\s*>\s*\$4/);
-    expect(source).toContain('test.afterEach');
+    expect(source).toContain('test.afterAll');
     const auditDeletes = source.match(/DELETE FROM "AuditLog"[^`]+/g) ?? [];
     expect(auditDeletes).toHaveLength(1);
     expect(auditDeletes[0]).toMatch(/WHERE id = \$1/);

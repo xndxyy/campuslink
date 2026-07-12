@@ -1,25 +1,21 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
+import { hash } from 'bcryptjs';
 import { Pool } from 'pg';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
 
 const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
-
-const reportDetails = 'E2E report submitted through the real published detail.';
+const runId = randomUUID();
+const password = randomBytes(32).toString('base64url');
+const reporterId = `e2e-engagement-user-${runId}`;
+const reporterEmail = `engagement-${runId}@campuslink.test`;
+const targetId = `e2e-engagement-item-${runId}`;
+const reportDetails = `E2E report submitted through the real published detail ${runId}.`;
 let db: Pool | undefined;
-let reporterId = '';
 let reporterCampusId = '';
-let setupStartedAt: string | undefined;
+let reportId = '';
 let contactAuditId = '';
 let sessionId = '';
-const targetId = process.env.E2E_PUBLISHED_MARKETPLACE_ID ?? '';
-
-async function deleteCapturedContactAudit() {
-  if (!db || !contactAuditId) return;
-  const id = contactAuditId;
-  await db.query(`DELETE FROM "AuditLog" WHERE id = $1`, [id]);
-  contactAuditId = '';
-}
 
 test.skip(
   !runSharedAccountE2e,
@@ -29,66 +25,58 @@ test.skip(
 test.beforeAll(async () => {
   if (!runSharedAccountE2e) return;
   db = new Pool({ connectionString: process.env.DATABASE_URL });
+  const passwordHash = await hash(password, 12);
   const client = await db.connect();
   try {
-    await client.query('BEGIN');
-    const reporterResult = await client.query<{
+    const sourceTarget = await client.query<{
       campusId: string;
-      emailVerifiedAt: Date | null;
-      id: string;
-      status: string;
-    }>(
-      `SELECT id, "campusId", "emailVerifiedAt", status::text
-       FROM "User" WHERE email = $1`,
-      [process.env.E2E_VERIFIED_EMAIL],
-    );
-    const targetResult = await client.query<{
-      campusId: string;
-      id: string;
       sellerId: string;
       status: string;
     }>(
-      `SELECT id, "campusId", "sellerId", status::text
+      `SELECT "campusId", "sellerId", status::text
        FROM "MarketplaceItem" WHERE id = $1`,
-      [targetId],
+      [process.env.E2E_PUBLISHED_MARKETPLACE_ID],
     );
-    const reporter = reporterResult.rows[0];
-    const target = targetResult.rows[0];
-    if (
-      !reporter ||
-      reporter.status !== 'ACTIVE' ||
-      !reporter.emailVerifiedAt
-    ) {
-      throw new Error('E2E verified reporter is not provisioned and active.');
+    const source = sourceTarget.rows[0];
+    if (!source || source.status !== 'PUBLISHED') {
+      throw new Error('E2E marketplace source is not provisioned.');
     }
-    reporterId = reporter.id;
-    reporterCampusId = reporter.campusId;
-    if (!target || target.status !== 'PUBLISHED') {
-      throw new Error('E2E marketplace target is not published.');
-    }
-    if (target.campusId !== reporter.campusId) {
-      throw new Error('E2E marketplace target must share the reporter campus.');
-    }
-    if (target.sellerId === reporterId) {
+    reporterCampusId = source.campusId;
+    if (source.sellerId === reporterId) {
       throw new Error(
-        'E2E marketplace target must not be owned by the reporter.',
+        'E2E marketplace target must not be owned by reporterId.',
       );
     }
+
+    await client.query('BEGIN');
     await client.query(
-      `DELETE FROM "Favourite"
-       WHERE "userId" = $1 AND "targetType" = 'MARKETPLACE_ITEM' AND "targetId" = $2`,
-      [reporterId, targetId],
+      `INSERT INTO "User"
+        (id, "campusId", name, email, "passwordHash", role, status,
+         "emailVerifiedAt", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, 'STUDENT', 'ACTIVE', now(), now(), now())`,
+      [
+        reporterId,
+        reporterCampusId,
+        'Engagement E2E Reporter',
+        reporterEmail,
+        passwordHash,
+      ],
     );
     await client.query(
-      `DELETE FROM "Report"
-       WHERE "reporterId" = $1 AND "targetType" = 'MARKETPLACE_ITEM'
-         AND "targetId" = $2 AND status = 'OPEN'`,
-      [reporterId, targetId],
+      `INSERT INTO "MarketplaceItem"
+        (id, "sellerId", "campusId", title, description, "priceCents",
+         condition, "pickupArea", contact, status, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, 2500, 'GOOD', $6, $7, 'PUBLISHED', now(), now())`,
+      [
+        targetId,
+        source.sellerId,
+        reporterCampusId,
+        `E2E engagement item ${runId}`,
+        'Run-scoped marketplace listing for engagement browser coverage.',
+        'North library',
+        'seller@campuslink.test',
+      ],
     );
-    const marker = await client.query<{ startedAt: string }>(
-      `SELECT clock_timestamp()::timestamp::text AS "startedAt"`,
-    );
-    setupStartedAt = marker.rows[0]?.startedAt;
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
@@ -98,43 +86,37 @@ test.beforeAll(async () => {
   }
 });
 
-test.afterEach(async () => {
-  await deleteCapturedContactAudit();
-});
-
 test.afterAll(async () => {
   if (!db) return;
+  const client = await db.connect();
   try {
-    await deleteCapturedContactAudit();
-    const client = await db.connect();
-    try {
-      if (reporterId && targetId) {
-        await client.query('BEGIN');
-        if (sessionId) {
-          await client.query(`DELETE FROM "Session" WHERE id = $1`, [
-            sessionId,
-          ]);
-        }
-        await client.query(
-          `DELETE FROM "Favourite"
-           WHERE "userId" = $1 AND "targetType" = 'MARKETPLACE_ITEM' AND "targetId" = $2`,
-          [reporterId, targetId],
-        );
-        await client.query(
-          `DELETE FROM "Report"
-           WHERE "reporterId" = $1 AND "targetType" = 'MARKETPLACE_ITEM'
-             AND "targetId" = $2 AND details = $3`,
-          [reporterId, targetId, reportDetails],
-        );
-        await client.query('COMMIT');
-      }
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    await client.query('BEGIN');
+    if (sessionId) {
+      await client.query(`DELETE FROM "Session" WHERE id = $1`, [sessionId]);
     }
+    if (contactAuditId) {
+      await client.query(`DELETE FROM "AuditLog" WHERE id = $1`, [
+        contactAuditId,
+      ]);
+    }
+    if (reportId) {
+      await client.query(`DELETE FROM "Report" WHERE id = $1`, [reportId]);
+    }
+    await client.query(
+      `DELETE FROM "Favourite"
+       WHERE "userId" = $1 AND "targetType" = 'MARKETPLACE_ITEM' AND "targetId" = $2`,
+      [reporterId, targetId],
+    );
+    await client.query(`DELETE FROM "MarketplaceItem" WHERE id = $1`, [
+      targetId,
+    ]);
+    await client.query(`DELETE FROM "User" WHERE id = $1`, [reporterId]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
   } finally {
+    client.release();
     await db.end();
   }
 });
@@ -143,12 +125,8 @@ test('verified member favourites, reports, and requests marketplace contact', as
   page,
 }) => {
   await page.goto('/auth/sign-in');
-  await page
-    .locator('input[name="email"]')
-    .fill(process.env.E2E_VERIFIED_EMAIL!);
-  await page
-    .locator('input[name="password"]')
-    .fill(process.env.E2E_VERIFIED_PASSWORD!);
+  await page.locator('input[name="email"]').fill(reporterEmail);
+  await page.locator('input[name="password"]').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
   const sessionCookie = (await page.context().cookies()).find(
@@ -163,8 +141,7 @@ test('verified member favourites, reports, and requests marketplace contact', as
     .update(sessionCookie.value)
     .digest('hex');
   const session = await db.query<{ id: string }>(
-    `SELECT id FROM "Session"
-     WHERE "sessionTokenHash" = $1`,
+    `SELECT id FROM "Session" WHERE "sessionTokenHash" = $1`,
     [sessionTokenHash],
   );
   expect(session.rows[0]).toBeDefined();
@@ -187,21 +164,25 @@ test('verified member favourites, reports, and requests marketplace contact', as
   await dialog.getByLabel('Optional details').fill(reportDetails);
   await dialog.getByRole('button', { name: 'Submit report' }).click();
   await expect(page.getByText(/Report received/)).toBeVisible();
+  const report = await db.query<{ id: string }>(
+    `SELECT id FROM "Report"
+     WHERE "reporterId" = $1 AND "targetType" = 'MARKETPLACE_ITEM'
+       AND "targetId" = $2 AND details = $3`,
+    [reporterId, targetId, reportDetails],
+  );
+  expect(report.rows[0]).toBeDefined();
+  reportId = report.rows[0]!.id;
 
   await expect(page.locator('.revealed-contact')).toHaveCount(0);
   await page.getByRole('button', { name: 'Request contact' }).click();
   await expect(page.locator('.revealed-contact')).toBeVisible();
-  if (!db || !setupStartedAt) {
-    throw new Error('E2E database fixture was not initialized.');
-  }
   const auditResult = await db.query<{ id: string }>(
     `SELECT id FROM "AuditLog"
      WHERE "campusId" = $1 AND "actorId" = $2 AND "subjectType" = 'MARKETPLACE_ITEM'
        AND "subjectId" = $3 AND action = 'MARKETPLACE_CONTACT_REQUESTED'
-       AND "createdAt" > $4::timestamp
      ORDER BY "createdAt" DESC, id DESC
      LIMIT 1`,
-    [reporterCampusId, reporterId, targetId, setupStartedAt],
+    [reporterCampusId, reporterId, targetId],
   );
   expect(auditResult.rows[0]).toBeDefined();
   contactAuditId = auditResult.rows[0]!.id;

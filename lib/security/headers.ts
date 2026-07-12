@@ -2,12 +2,16 @@ import { randomBytes } from 'node:crypto';
 
 type Environment = 'development' | 'production' | 'test';
 
-function allowedStorageOrigin(endpoint?: string): string | null {
+function allowedStorageOrigin(
+  environment: Environment,
+  endpoint?: string,
+): string | null {
   if (!endpoint) return null;
   try {
     const parsed = new URL(endpoint);
     if (parsed.protocol === 'https:') return parsed.origin;
     if (
+      environment !== 'production' &&
       parsed.protocol === 'http:' &&
       ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname)
     ) {
@@ -46,7 +50,7 @@ export function buildSecurityHeaders(
   forcePathStyle = false,
 ) {
   const nonce = randomBytes(16).toString('base64url');
-  const storageOrigin = allowedStorageOrigin(storageEndpoint);
+  const storageOrigin = allowedStorageOrigin(environment, storageEndpoint);
   const virtualStorageOrigin = virtualHostStorageOrigin(
     storageEndpoint,
     storageBucket,

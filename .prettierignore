@@ -1,0 +1,10 @@
+.next
+node_modules
+coverage
+playwright-report
+test-results
+design
+docs
+README.md
+next-env.d.ts
+package-lock.json

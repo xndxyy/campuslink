@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -191,4 +192,24 @@ export function createS3UploadStorage(
       }
     },
   };
+}
+
+export async function createPresignedGetUrl(
+  key: string,
+  contentType: string,
+  disposition: 'inline' | 'attachment',
+  expiresInSeconds = 120,
+  config = getStorageConfig(),
+  client = createS3Client(config),
+) {
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      ResponseContentDisposition: disposition,
+      ResponseContentType: contentType,
+    }),
+    { expiresIn: expiresInSeconds },
+  );
 }

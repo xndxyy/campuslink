@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { OwnerActions } from '@/components/content/owner-actions';
 import { requireVerifiedUser } from '@/lib/auth/guards';
 import { getDb } from '@/lib/db';
 import {
@@ -17,9 +18,9 @@ async function loadGroups() {
       listOwnedContent(adapter, actor, 'job'),
     ]);
     return [
-      ['学习资源', resources],
-      ['二手物品', marketplace],
-      ['校园工作', jobs],
+      ['学习资源', 'resource', resources],
+      ['二手物品', 'marketplace', marketplace],
+      ['校园工作', 'job', jobs],
     ] as const;
   } catch {
     return null;
@@ -50,7 +51,7 @@ export default async function MySubmissionsPage() {
           新建提交
         </Link>
       </header>
-      {groups.map(([label, items]) => (
+      {groups.map(([label, kind, items]) => (
         <section className="owner-group" key={label}>
           <h2>{label}</h2>
           {items.length === 0 ? (
@@ -64,6 +65,11 @@ export default async function MySubmissionsPage() {
                 >
                   {String(item.status)}
                 </span>
+                <OwnerActions
+                  id={item.id}
+                  kind={kind}
+                  status={String(item.status)}
+                />
               </article>
             ))
           )}

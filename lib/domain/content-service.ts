@@ -1,13 +1,18 @@
-import { ContentStatus, transitionContentStatus } from './content-status';
+import { ContentStatus } from './content-status';
 import type {
   ContentListQuery,
   CreateJobInput,
   CreateMarketplaceItemInput,
   CreateResourceInput,
+  UpdateJobInput,
+  UpdateMarketplaceItemInput,
+  UpdateResourceInput,
 } from '@/lib/validation/content';
 
 type Role = 'STUDENT' | 'MODERATOR' | 'ADMIN';
-type ContentKind = 'resource' | 'marketplace' | 'job';
+export type ContentKind = 'resource' | 'marketplace' | 'job';
+export type UpdateContentInput =
+  UpdateResourceInput | UpdateMarketplaceItemInput | UpdateJobInput;
 
 export interface ContentActor {
   campusId: string;
@@ -40,11 +45,18 @@ interface Delegate {
     data: Record<string, unknown>;
     where: { id: string };
   }) => Promise<ContentRecord>;
+  updateMany?: (args: {
+    data: Record<string, unknown>;
+    where: Record<string, unknown>;
+  }) => Promise<{ count: number }>;
 }
 
 export interface ContentAdapter {
   $transaction<T>(operation: (tx: ContentAdapter) => Promise<T>): Promise<T>;
   asset: {
+    findFirst?(
+      args: Record<string, unknown>,
+    ): Promise<Record<string, unknown> | null>;
     findMany(args: { where: { id: { in: string[] } } }): Promise<AssetRecord[]>;
     updateMany(args: {
       data: { marketplaceItemId?: string; resourceId?: string };
@@ -134,8 +146,11 @@ export async function createResource(
       data: { resourceId: created.id },
       where: {
         id: { in: input.assetIds },
+        kind: { in: ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'] },
         marketplaceItemId: null,
+        ownerId: actor.id,
         resourceId: null,
+        status: 'READY',
       },
     });
     if (attached.count !== input.assetIds.length)
@@ -174,8 +189,11 @@ export async function createMarketplaceItem(
       data: { marketplaceItemId: created.id },
       where: {
         id: { in: input.assetIds },
+        kind: 'MARKETPLACE_IMAGE',
         marketplaceItemId: null,
+        ownerId: actor.id,
         resourceId: null,
+        status: 'READY',
       },
     });
     if (attached.count !== input.assetIds.length)
@@ -245,6 +263,12 @@ function publicWhere(
           },
         }
       : {}),
+    ...(kind === 'job' && query.company
+      ? { company: { contains: query.company, mode: 'insensitive' } }
+      : {}),
+    ...(kind === 'job' && query.location
+      ? { location: { contains: query.location, mode: 'insensitive' } }
+      : {}),
   };
 }
 
@@ -259,7 +283,11 @@ function publicSelect(kind: ContentKind) {
   if (kind === 'resource') {
     return {
       ...shared,
-      assets: { select: { id: true, kind: true } },
+      assets: {
+        select: { contentType: true, id: true, kind: true, sizeBytes: true },
+        where: { status: 'READY' },
+      },
+      author: { select: { name: true } },
       courseCode: true,
       summary: true,
       tags: true,
@@ -268,11 +296,15 @@ function publicSelect(kind: ContentKind) {
   if (kind === 'marketplace') {
     return {
       ...shared,
-      assets: { select: { id: true, kind: true } },
+      assets: {
+        select: { contentType: true, id: true, kind: true, sizeBytes: true },
+        where: { status: 'READY' },
+      },
       condition: true,
       description: true,
       pickupArea: true,
       priceCents: true,
+      seller: { select: { name: true } },
       // Contact is deliberately absent until the audited request-contact flow.
     };
   }
@@ -282,6 +314,7 @@ function publicSelect(kind: ContentKind) {
     description: true,
     location: true,
     payText: true,
+    author: { select: { name: true } },
   };
 }
 
@@ -343,43 +376,18 @@ export async function archiveOwnedContent(
   id: string,
 ) {
   const delegate = delegateFor(adapter, kind);
-  if (!delegate.findFirst) throw new Error('Unsupported adapter');
+  if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
-  const current = await delegate.findFirst({
-    where: { id, [ownerField]: actor.id },
-  });
-  if (!current) throw new ContentNotFoundError();
-  const currentStatus = current.status as ContentStatus;
-  if (
-    ![ContentStatus.PENDING, ContentStatus.PUBLISHED].includes(currentStatus)
-  ) {
-    throw new ContentConflictError();
-  }
-  transitionContentStatus(currentStatus, ContentStatus.ARCHIVED);
-  return delegate.update({
+  const changed = await delegate.updateMany({
     data: { status: ContentStatus.ARCHIVED },
-    where: { id },
+    where: {
+      id,
+      [ownerField]: actor.id,
+      status: { in: [ContentStatus.PENDING, ContentStatus.PUBLISHED] },
+    },
   });
-}
-
-export async function returnRejectedToDraft(
-  adapter: ContentAdapter,
-  actor: ContentActor,
-  kind: ContentKind,
-  id: string,
-) {
-  const delegate = delegateFor(adapter, kind);
-  if (!delegate.findFirst) throw new Error('Unsupported adapter');
-  const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
-  const current = await delegate.findFirst({
-    where: { id, [ownerField]: actor.id },
-  });
-  if (!current) throw new ContentNotFoundError();
-  transitionContentStatus(current.status as ContentStatus, ContentStatus.DRAFT);
-  return delegate.update({
-    data: { status: ContentStatus.DRAFT },
-    where: { id },
-  });
+  if (changed.count !== 1) throw new ContentConflictError();
+  return { id, status: ContentStatus.ARCHIVED };
 }
 
 export async function submitOwnedDraft(
@@ -389,18 +397,114 @@ export async function submitOwnedDraft(
   id: string,
 ) {
   const delegate = delegateFor(adapter, kind);
+  if (!delegate.updateMany) throw new Error('Unsupported adapter');
+  const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
+  const assetInvariant =
+    kind === 'resource'
+      ? {
+          assets: {
+            some: {
+              kind: 'RESOURCE_DOCUMENT',
+              ownerId: actor.id,
+              status: 'READY',
+            },
+          },
+        }
+      : kind === 'marketplace'
+        ? {
+            assets: {
+              some: {
+                kind: 'MARKETPLACE_IMAGE',
+                ownerId: actor.id,
+                status: 'READY',
+              },
+            },
+          }
+        : {};
+  const changed = await delegate.updateMany({
+    data: { status: ContentStatus.PENDING },
+    where: {
+      ...assetInvariant,
+      id,
+      [ownerField]: actor.id,
+      status: ContentStatus.DRAFT,
+    },
+  });
+  if (changed.count !== 1) throw new ContentConflictError();
+  return { id, status: ContentStatus.PENDING };
+}
+
+export async function editOwnedContent(
+  adapter: ContentAdapter,
+  actor: ContentActor,
+  kind: ContentKind,
+  id: string,
+  input: UpdateContentInput,
+) {
+  const delegate = delegateFor(adapter, kind);
+  if (!delegate.updateMany) throw new Error('Unsupported adapter');
+  const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
+  const changed = await delegate.updateMany({
+    data: { ...input, status: ContentStatus.DRAFT },
+    where: {
+      id,
+      [ownerField]: actor.id,
+      status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
+    },
+  });
+  if (changed.count !== 1) throw new ContentConflictError();
+  return { id, status: ContentStatus.DRAFT };
+}
+
+export async function getOwnedContent(
+  adapter: ContentAdapter,
+  actor: ContentActor,
+  kind: ContentKind,
+  id: string,
+) {
+  const delegate = delegateFor(adapter, kind);
   if (!delegate.findFirst) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
-  const current = await delegate.findFirst({
+  return delegate.findFirst({
+    select: {
+      ...publicSelect(kind),
+      ...(kind === 'marketplace' ? { contact: true } : {}),
+    },
     where: { id, [ownerField]: actor.id },
   });
-  if (!current) throw new ContentNotFoundError();
-  transitionContentStatus(
-    current.status as ContentStatus,
-    ContentStatus.PENDING,
-  );
-  return delegate.update({
-    data: { status: ContentStatus.PENDING },
-    where: { id },
+}
+
+export async function authorizeAssetRead(
+  adapter: ContentAdapter,
+  actor: ContentActor | null,
+  assetId: string,
+) {
+  if (!adapter.asset.findFirst) throw new Error('Unsupported adapter');
+  const asset = await adapter.asset.findFirst({
+    select: {
+      contentType: true,
+      kind: true,
+      marketplaceItem: { select: { status: true } },
+      ownerId: true,
+      resource: { select: { status: true } },
+      status: true,
+      storageKey: true,
+    },
+    where: { id: assetId },
   });
+  if (!asset || asset.status !== 'READY') throw new ContentForbiddenError();
+  const resource = asset.resource as { status?: unknown } | null;
+  const marketplaceItem = asset.marketplaceItem as { status?: unknown } | null;
+  const published =
+    resource?.status === ContentStatus.PUBLISHED ||
+    marketplaceItem?.status === ContentStatus.PUBLISHED;
+  const privileged = actor?.role === 'MODERATOR' || actor?.role === 'ADMIN';
+  if (!published && !privileged && asset.ownerId !== actor?.id) {
+    throw new ContentForbiddenError();
+  }
+  return {
+    contentType: String(asset.contentType),
+    kind: String(asset.kind),
+    storageKey: String(asset.storageKey),
+  };
 }

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 
 import type { ContentRecord } from '@/lib/domain/content-service';
 import type { PublicContentKind } from '@/lib/domain/public-content';
@@ -11,6 +12,10 @@ export function PublicDetail({
   kind: PublicContentKind;
 }) {
   const description = String(item.summary ?? item.description ?? '');
+  const author = (item.author ?? item.seller) as { name?: unknown } | undefined;
+  const assets = Array.isArray(item.assets)
+    ? (item.assets as Array<{ contentType: string; id: string; kind: string }>)
+    : [];
   return (
     <main className="page-shell detail-page">
       <Link
@@ -40,10 +45,41 @@ export function PublicDetail({
               ? `${String(item.company)} · ${String(item.location)} · ${String(item.payText)}`
               : null}
           </p>
+          <p className="author-line">
+            发布者：{String(author?.name ?? '校园成员')}
+          </p>
         </header>
+        {assets.some((asset) => asset.kind.endsWith('_IMAGE')) ? (
+          <div className="asset-gallery">
+            {assets
+              .filter((asset) => asset.kind.endsWith('_IMAGE'))
+              .map((asset) => (
+                <Image
+                  alt={`${String(item.title)} 配图`}
+                  height={720}
+                  key={asset.id}
+                  src={`/api/assets/${asset.id}/read`}
+                  unoptimized
+                  width={1080}
+                />
+              ))}
+          </div>
+        ) : null}
         <div className="prose-plain">
           <p>{description}</p>
         </div>
+        {assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT') ? (
+          <section className="asset-downloads" aria-label="资源附件">
+            <h2>资源附件</h2>
+            {assets
+              .filter((asset) => asset.kind === 'RESOURCE_DOCUMENT')
+              .map((asset, index) => (
+                <a href={`/api/assets/${asset.id}/read`} key={asset.id}>
+                  下载文档 {index + 1} · {asset.contentType}
+                </a>
+              ))}
+          </section>
+        ) : null}
         {kind === 'marketplace' ? (
           <aside className="privacy-note">
             为保护发布者隐私，联系方式不会公开展示。联系请求功能将在受审计流程中开放。

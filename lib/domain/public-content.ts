@@ -13,13 +13,17 @@ export async function loadPublicList(
   raw: Record<string, string | string[] | undefined>,
 ) {
   const normalized = Object.fromEntries(
-    Object.entries(raw).map(([key, value]) => [
-      key,
-      Array.isArray(value) ? value[0] : value,
-    ]),
+    Object.entries(raw)
+      .map(([key, value]) => [key, Array.isArray(value) ? value[0] : value])
+      .filter((entry) => entry[1] !== '' && entry[1] !== undefined),
   );
   const query = contentListQuerySchema.parse(normalized);
-  return listPublicContent(getDb() as unknown as ContentAdapter, kind, query);
+  const result = await listPublicContent(
+    getDb() as unknown as ContentAdapter,
+    kind,
+    query,
+  );
+  return { ...result, query };
 }
 
 export function loadPublicDetail(kind: PublicContentKind, id: string) {

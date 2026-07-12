@@ -14,6 +14,8 @@ export default async function MarketplacePage({
       error: '市集数据库暂时不可用，请稍后再来。',
       items: [],
       page: 1,
+      pageSize: 12,
+      query: {},
       total: 0,
     };
   }
@@ -23,6 +25,8 @@ export default async function MarketplacePage({
       items={result.items}
       kind="marketplace"
       page={result.page}
+      pageSize={result.pageSize}
+      query={result.query}
       total={result.total}
     />
   );

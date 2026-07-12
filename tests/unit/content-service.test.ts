@@ -180,19 +180,17 @@ describe('content service', () => {
         status: 'DRAFT',
       }),
     });
-    expect(adapter.asset.updateMany).toHaveBeenCalledWith(
-      {
-        data: { resourceId: 'resource_1' },
-        where: {
-          id: { in: ['doc_1'] },
-          kind: { in: ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'] },
-          marketplaceItemId: null,
-          ownerId: actor.id,
-          resourceId: null,
-          status: 'READY',
-        },
+    expect(adapter.asset.updateMany).toHaveBeenCalledWith({
+      data: { resourceId: 'resource_1' },
+      where: {
+        id: { in: ['doc_1'] },
+        kind: { in: ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'] },
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
       },
-    );
+    });
     expect(adapter.resource.update).toHaveBeenCalledWith({
       data: { status: 'PENDING' },
       where: { id: 'resource_1' },

@@ -1,7 +1,11 @@
 import Link from 'next/link';
 import { getDb } from '@/lib/db';
+import { mergeRecentContent } from '@/lib/domain/recent-content';
+
+export const dynamic = 'force-dynamic';
 
 type Recent = {
+  createdAt: Date;
   id: string;
   title: string;
   type: 'resources' | 'marketplace' | 'jobs';
@@ -13,32 +17,35 @@ async function recentContent(): Promise<{ error?: string; items: Recent[] }> {
     const [resources, marketplace, jobs] = await Promise.all([
       db.resource.findMany({
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, title: true },
-        take: 3,
+        select: { createdAt: true, id: true, title: true },
+        take: 6,
         where: { status: 'PUBLISHED' },
       }),
       db.marketplaceItem.findMany({
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, title: true },
-        take: 3,
+        select: { createdAt: true, id: true, title: true },
+        take: 6,
         where: { status: 'PUBLISHED' },
       }),
       db.jobPost.findMany({
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, title: true },
-        take: 3,
+        select: { createdAt: true, id: true, title: true },
+        take: 6,
         where: { status: 'PUBLISHED' },
       }),
     ]);
     return {
-      items: [
-        ...resources.map((item) => ({ ...item, type: 'resources' as const })),
-        ...marketplace.map((item) => ({
-          ...item,
-          type: 'marketplace' as const,
-        })),
-        ...jobs.map((item) => ({ ...item, type: 'jobs' as const })),
-      ].slice(0, 6),
+      items: mergeRecentContent(
+        [
+          resources.map((item) => ({ ...item, type: 'resources' as const })),
+          marketplace.map((item) => ({
+            ...item,
+            type: 'marketplace' as const,
+          })),
+          jobs.map((item) => ({ ...item, type: 'jobs' as const })),
+        ],
+        6,
+      ),
     };
   } catch {
     return {

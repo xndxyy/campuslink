@@ -40,8 +40,15 @@ describe('owned content workflows', () => {
       title: 'Weekend assistant',
     });
     expect(updateMany).toHaveBeenCalledWith({
-      data: expect.objectContaining({ status: 'DRAFT', title: 'Weekend assistant' }),
-      where: { authorId: actor.id, id: 'job_1', status: { in: ['DRAFT', 'REJECTED'] } },
+      data: expect.objectContaining({
+        status: 'DRAFT',
+        title: 'Weekend assistant',
+      }),
+      where: {
+        authorId: actor.id,
+        id: 'job_1',
+        status: { in: ['DRAFT', 'REJECTED'] },
+      },
     });
   });
 
@@ -49,8 +56,11 @@ describe('owned content workflows', () => {
     const { db } = adapter(0);
     await expect(
       editOwnedContent(db, actor, 'job', 'job_1', {
-        company: 'Campus Cafe', description: 'A revised and complete weekend role description.',
-        location: 'Student centre', payText: '$20/hour', title: 'Weekend assistant',
+        company: 'Campus Cafe',
+        description: 'A revised and complete weekend role description.',
+        location: 'Student centre',
+        payText: '$20/hour',
+        title: 'Weekend assistant',
       }),
     ).rejects.toBeInstanceOf(ContentConflictError);
   });
@@ -60,7 +70,11 @@ describe('owned content workflows', () => {
     await archiveOwnedContent(db, actor, 'resource', 'resource_1');
     expect(updateMany).toHaveBeenCalledWith({
       data: { status: 'ARCHIVED' },
-      where: { authorId: actor.id, id: 'resource_1', status: { in: ['PENDING', 'PUBLISHED'] } },
+      where: {
+        authorId: actor.id,
+        id: 'resource_1',
+        status: { in: ['PENDING', 'PUBLISHED'] },
+      },
     });
   });
 
@@ -70,7 +84,13 @@ describe('owned content workflows', () => {
     expect(updateMany).toHaveBeenCalledWith({
       data: { status: 'PENDING' },
       where: {
-        assets: { some: { kind: 'RESOURCE_DOCUMENT', ownerId: actor.id, status: 'READY' } },
+        assets: {
+          some: {
+            kind: 'RESOURCE_DOCUMENT',
+            ownerId: actor.id,
+            status: 'READY',
+          },
+        },
         authorId: actor.id,
         id: 'resource_1',
         status: 'DRAFT',

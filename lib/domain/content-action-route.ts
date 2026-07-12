@@ -11,10 +11,15 @@ import {
   type ContentAdapter,
   ContentConflictError,
   ContentNotFoundError,
-  returnRejectedToDraft,
+  editOwnedContent,
   submitOwnedDraft,
 } from './content-service';
 import type { PublicContentKind } from './public-content';
+import {
+  updateJobSchema,
+  updateMarketplaceItemSchema,
+  updateResourceSchema,
+} from '@/lib/validation/content';
 
 export async function handleContentAction(
   request: Request,
@@ -30,17 +35,31 @@ export async function handleContentAction(
     const user = await requireVerifiedUser();
     const body = (await request.json().catch(() => null)) as {
       action?: unknown;
+      data?: unknown;
     } | null;
     const actor = { campusId: user.campusId, id: user.id, role: user.role };
     const adapter = getDb() as unknown as ContentAdapter;
-    const result =
-      body?.action === 'archive'
+    const editSchema =
+      kind === 'resource'
+        ? updateResourceSchema
+        : kind === 'marketplace'
+          ? updateMarketplaceItemSchema
+          : updateJobSchema;
+    const parsedEdit =
+      body?.action === 'edit' ? editSchema.safeParse(body.data) : null;
+    if (parsedEdit && !parsedEdit.success) {
+      return NextResponse.json(
+        { message: 'Invalid content details.' },
+        { status: 400 },
+      );
+    }
+    const result = parsedEdit?.success
+      ? await editOwnedContent(adapter, actor, kind, id, parsedEdit.data)
+      : body?.action === 'archive'
         ? await archiveOwnedContent(adapter, actor, kind, id)
-        : body?.action === 'return-draft'
-          ? await returnRejectedToDraft(adapter, actor, kind, id)
-          : body?.action === 'submit'
-            ? await submitOwnedDraft(adapter, actor, kind, id)
-            : null;
+        : body?.action === 'submit'
+          ? await submitOwnedDraft(adapter, actor, kind, id)
+          : null;
     if (!result)
       return NextResponse.json(
         { message: 'Invalid content action.' },

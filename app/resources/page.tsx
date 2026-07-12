@@ -14,6 +14,8 @@ export default async function ResourcesPage({
       error: '资源数据库暂时不可用，请稍后再来。',
       items: [],
       page: 1,
+      pageSize: 12,
+      query: {},
       total: 0,
     };
   }
@@ -23,6 +25,8 @@ export default async function ResourcesPage({
       items={result.items}
       kind="resource"
       page={result.page}
+      pageSize={result.pageSize}
+      query={result.query}
       total={result.total}
     />
   );

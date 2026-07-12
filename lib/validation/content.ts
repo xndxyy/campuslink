@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const htmlLike = /<\/?[a-z][^>]*>|javascript\s*:/i;
+export const MAX_PRICE_CENTS = 2_147_483_647;
 
 function plainText(min: number, max: number, label: string) {
   return z
@@ -37,7 +38,10 @@ const price = z
     const [whole, fraction = ''] = value.split('.');
     return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
   })
-  .refine(Number.isSafeInteger, 'Price is too large');
+  .refine(
+    (value) => Number.isSafeInteger(value) && value <= MAX_PRICE_CENTS,
+    'Price is too large',
+  );
 
 export const marketplaceConditions = [
   'NEW',
@@ -89,12 +93,40 @@ export const createJobSchema = z
   })
   .strict();
 
+export const updateResourceSchema = createResourceSchema.omit({
+  assetIds: true,
+});
+export const updateMarketplaceItemSchema = z
+  .object({
+    condition: z.enum(marketplaceConditions),
+    contact: plainText(3, 300, 'Contact preference'),
+    description: plainText(20, 5_000, 'Description'),
+    pickupArea: plainText(2, 200, 'Pickup area'),
+    price,
+    title: plainText(3, 200, 'Title'),
+  })
+  .strict()
+  .transform(({ price, ...value }) => ({ ...value, priceCents: price }));
+export const updateJobSchema = createJobSchema;
+
 export const contentListQuerySchema = z
   .object({
     condition: z.enum(marketplaceConditions).optional(),
+    company: z.string().trim().max(200).optional(),
     courseCode: z.string().trim().max(64).optional(),
-    maxPriceCents: z.coerce.number().int().nonnegative().optional(),
-    minPriceCents: z.coerce.number().int().nonnegative().optional(),
+    location: z.string().trim().max(200).optional(),
+    maxPriceCents: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_PRICE_CENTS)
+      .optional(),
+    minPriceCents: z.coerce
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_PRICE_CENTS)
+      .optional(),
     page: z.coerce.number().int().min(1).max(10_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(50).default(12),
     search: z.string().trim().max(100).optional(),
@@ -107,4 +139,9 @@ export type CreateMarketplaceItemInput = z.output<
   typeof createMarketplaceItemSchema
 >;
 export type CreateJobInput = z.output<typeof createJobSchema>;
+export type UpdateResourceInput = z.output<typeof updateResourceSchema>;
+export type UpdateMarketplaceItemInput = z.output<
+  typeof updateMarketplaceItemSchema
+>;
+export type UpdateJobInput = z.output<typeof updateJobSchema>;
 export type ContentListQuery = z.output<typeof contentListQuerySchema>;

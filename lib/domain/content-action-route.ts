@@ -6,6 +6,7 @@ import {
 } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
 import { getDb } from '@/lib/db';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import {
   archiveOwnedContent,
   type ContentAdapter,
@@ -33,10 +34,18 @@ export async function handleContentAction(
     );
   try {
     const user = await requireVerifiedUser();
-    const body = (await request.json().catch(() => null)) as {
-      action?: unknown;
-      data?: unknown;
-    } | null;
+    const body = (await readBoundedJson(request).catch((error) => error)) as
+      | JsonBodyError
+      | {
+          action?: unknown;
+          data?: unknown;
+        };
+    if (body instanceof JsonBodyError) {
+      return NextResponse.json(
+        { message: 'Invalid content action.' },
+        { status: body.status },
+      );
+    }
     const actor = { campusId: user.campusId, id: user.id, role: user.role };
     const adapter = getDb() as unknown as ContentAdapter;
     const editSchema =

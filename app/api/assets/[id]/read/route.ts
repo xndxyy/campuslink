@@ -41,7 +41,10 @@ export async function handleAssetRead(
       asset.contentType,
       inline ? 'inline' : 'attachment',
     );
-    return NextResponse.redirect(url, 307);
+    const response = NextResponse.redirect(url, 307);
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    if (!inline) response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   } catch (error) {
     if (error instanceof ContentAuthenticationRequiredError)
       return NextResponse.json(

@@ -7,6 +7,7 @@ import {
   VerificationRequiredError,
 } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import {
   createUploadIntent,
   type ValidatedUploadIntent,
@@ -48,7 +49,13 @@ export async function handleUploadIntent(
 
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
-    const body = await request.json().catch(() => null);
+    const body = await readBoundedJson(request).catch((error) => error);
+    if (body instanceof JsonBodyError) {
+      return NextResponse.json(
+        { message: 'Invalid upload details.' },
+        { status: body.status },
+      );
+    }
     const parsed = uploadIntentSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(

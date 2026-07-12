@@ -26,6 +26,7 @@ const pendingAsset: UploadAssetRecord = {
   id: 'asset_01JUPLOADTEST',
   kind: 'RESOURCE_DOCUMENT',
   ownerId: 'user_01JOWNERTEST',
+  scanStatus: 'PENDING',
   sizeBytes: BigInt(1_024),
   status: 'PENDING',
   storageKey: 'campus/user_01JOWNERTEST/asset_01JUPLOADTEST.pdf',

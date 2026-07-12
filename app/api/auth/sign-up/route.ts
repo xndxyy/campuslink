@@ -7,6 +7,7 @@ import {
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 
 export const runtime = 'nodejs';
 
@@ -44,7 +45,7 @@ function rateLimited(
 
 async function getBody(request: Request): Promise<unknown> {
   return wantsJson(request)
-    ? request.json().catch(() => null)
+    ? readBoundedJson(request).catch((error) => error)
     : Object.fromEntries(await request.formData());
 }
 
@@ -59,7 +60,14 @@ export async function POST(request: Request) {
     return rateLimited(request, json, clientLimit.retryAfterSeconds);
   }
 
-  const parsed = signUpSchema.safeParse(await getBody(request));
+  const body = await getBody(request);
+  if (body instanceof JsonBodyError) {
+    return NextResponse.json(
+      { message: 'Invalid registration details.' },
+      { status: body.status },
+    );
+  }
+  const parsed = signUpSchema.safeParse(body);
   if (!parsed.success) {
     return json
       ? NextResponse.json(

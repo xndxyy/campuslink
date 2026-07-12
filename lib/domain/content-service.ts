@@ -26,7 +26,16 @@ interface AssetRecord {
   marketplaceItemId: string | null;
   ownerId: string;
   resourceId: string | null;
+  scanStatus?: 'NOT_REQUIRED' | 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR';
   status: string;
+}
+
+interface DocumentScanPolicy {
+  requireCleanDocuments?: boolean;
+}
+
+function requireCleanDocuments(policy?: DocumentScanPolicy) {
+  return policy?.requireCleanDocuments ?? process.env.NODE_ENV === 'production';
 }
 
 export interface ContentRecord {
@@ -108,6 +117,7 @@ function validateAssets(
   assetIds: string[],
   actor: ContentActor,
   allowedKinds: AssetRecord['kind'][],
+  policy?: DocumentScanPolicy,
 ) {
   if (
     assets.length !== assetIds.length ||
@@ -122,21 +132,34 @@ function validateAssets(
   ) {
     throw new ContentConflictError();
   }
+  if (
+    requireCleanDocuments(policy) &&
+    assets.some(
+      (asset) =>
+        asset.kind === 'RESOURCE_DOCUMENT' && asset.scanStatus !== 'CLEAN',
+    )
+  ) {
+    throw new ContentConflictError('Document malware scan has not passed');
+  }
 }
 
 export async function createResource(
   adapter: ContentAdapter,
   actor: ContentActor,
   input: CreateResourceInput,
+  policy?: DocumentScanPolicy,
 ) {
   return adapter.$transaction(async (tx) => {
     const assets = await tx.asset.findMany({
       where: { id: { in: input.assetIds } },
     });
-    validateAssets(assets, input.assetIds, actor, [
-      'RESOURCE_DOCUMENT',
-      'RESOURCE_IMAGE',
-    ]);
+    validateAssets(
+      assets,
+      input.assetIds,
+      actor,
+      ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'],
+      policy,
+    );
     if (!assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT')) {
       throw new ContentConflictError('Resource requires a document');
     }
@@ -471,6 +494,7 @@ export async function submitOwnedDraft(
   actor: ContentActor,
   kind: ContentKind,
   id: string,
+  policy?: DocumentScanPolicy,
 ) {
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
@@ -479,9 +503,18 @@ export async function submitOwnedDraft(
     kind === 'resource'
       ? {
           assets: {
+            ...(requireCleanDocuments(policy)
+              ? {
+                  none: {
+                    kind: 'RESOURCE_DOCUMENT',
+                    scanStatus: { not: 'CLEAN' },
+                  },
+                }
+              : {}),
             some: {
               kind: 'RESOURCE_DOCUMENT',
               ownerId: actor.id,
+              ...(requireCleanDocuments(policy) ? { scanStatus: 'CLEAN' } : {}),
               status: 'READY',
             },
           },
@@ -554,6 +587,7 @@ export async function authorizeAssetRead(
   adapter: ContentAdapter,
   actor: ContentActor | null,
   assetId: string,
+  policy?: DocumentScanPolicy,
 ) {
   if (!adapter.asset.findFirst) throw new Error('Unsupported adapter');
   const asset = await adapter.asset.findFirst({
@@ -563,12 +597,20 @@ export async function authorizeAssetRead(
       marketplaceItem: { select: { status: true } },
       ownerId: true,
       resource: { select: { status: true } },
+      scanStatus: true,
       status: true,
       storageKey: true,
     },
     where: { id: assetId },
   });
   if (!asset || asset.status !== 'READY') throw new ContentForbiddenError();
+  if (
+    requireCleanDocuments(policy) &&
+    asset.kind === 'RESOURCE_DOCUMENT' &&
+    asset.scanStatus !== 'CLEAN'
+  ) {
+    throw new ContentForbiddenError();
+  }
   const resource = asset.resource as { status?: unknown } | null;
   const marketplaceItem = asset.marketplaceItem as { status?: unknown } | null;
   const published =

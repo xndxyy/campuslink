@@ -9,6 +9,7 @@ import {
 } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
 import { getDb } from '@/lib/db';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 
 import {
   type ContentActor,
@@ -46,7 +47,14 @@ export async function handleCreateContent<T>(
 
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
-    const parsed = schema.safeParse(await request.json().catch(() => null));
+    const body = await readBoundedJson(request).catch((error) => error);
+    if (body instanceof JsonBodyError) {
+      return NextResponse.json(
+        { message: 'Invalid content details.' },
+        { status: body.status },
+      );
+    }
+    const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { message: 'Invalid content details.' },

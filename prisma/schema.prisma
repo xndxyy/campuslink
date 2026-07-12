@@ -32,6 +32,14 @@ enum AssetStatus {
   CLEANING
 }
 
+enum AssetScanStatus {
+  NOT_REQUIRED
+  PENDING
+  CLEAN
+  INFECTED
+  ERROR
+}
+
 enum ContentStatus {
   DRAFT
   PENDING
@@ -182,6 +190,9 @@ model Asset {
   contentType       String           @db.VarChar(255)
   sizeBytes         BigInt
   status            AssetStatus      @default(PENDING)
+  scanStatus        AssetScanStatus  @default(NOT_REQUIRED)
+  scanSha256        String?          @db.VarChar(64)
+  scannedAt         DateTime?
   uploadExpiresAt   DateTime?
   owner             User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   resource          Resource?        @relation("ResourceAssets", fields: [resourceId], references: [id], onDelete: SetNull)
@@ -191,6 +202,7 @@ model Asset {
 
   @@index([ownerId, kind, status])
   @@index([status, uploadExpiresAt])
+  @@index([kind, scanStatus, status])
   @@index([resourceId])
   @@index([marketplaceItemId])
 }

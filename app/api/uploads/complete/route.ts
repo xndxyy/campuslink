@@ -7,6 +7,7 @@ import {
   VerificationRequiredError,
 } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import { StorageObjectNotFoundError } from '@/lib/storage/client';
 import {
   completeUpload,
@@ -44,9 +45,14 @@ export async function handleCompleteUpload(
 
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
-    const parsed = completeUploadSchema.safeParse(
-      await request.json().catch(() => null),
-    );
+    const body = await readBoundedJson(request).catch((error) => error);
+    if (body instanceof JsonBodyError) {
+      return NextResponse.json(
+        { message: 'Invalid upload completion details.' },
+        { status: body.status },
+      );
+    }
+    const parsed = completeUploadSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { message: 'Invalid upload completion details.' },

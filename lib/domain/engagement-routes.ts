@@ -13,6 +13,7 @@ import {
 } from '@/lib/auth/rate-limit';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
 import { getDb } from '@/lib/db';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 
 import {
   addFavourite,
@@ -106,9 +107,10 @@ async function handleFavouriteMutation(
   if (failed) return failed;
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
-    const parsed = favouriteSchema.safeParse(
-      await request.json().catch(() => null),
-    );
+    const body = await readBoundedJson(request).catch((error) => error);
+    if (body instanceof JsonBodyError)
+      return json({ message: 'Invalid favourite details.' }, body.status);
+    const parsed = favouriteSchema.safeParse(body);
     if (!parsed.success)
       return json({ message: 'Invalid favourite details.' }, 400);
     const actor = { campusId: user.campusId, id: user.id };
@@ -159,9 +161,10 @@ export async function handleReportPost(
   if (failed) return failed;
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
-    const parsed = reportSchema.safeParse(
-      await request.json().catch(() => null),
-    );
+    const body = await readBoundedJson(request).catch((error) => error);
+    if (body instanceof JsonBodyError)
+      return json({ message: 'Invalid report details.' }, body.status);
+    const parsed = reportSchema.safeParse(body);
     if (!parsed.success)
       return json({ message: 'Invalid report details.' }, 400);
     const actor = { campusId: user.campusId, id: user.id };

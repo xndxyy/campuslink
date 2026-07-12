@@ -15,6 +15,7 @@ export interface UploadAssetRecord {
   id: string;
   kind: UploadKind;
   ownerId: string;
+  scanStatus: 'NOT_REQUIRED' | 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR';
   sizeBytes: bigint;
   status: UploadAssetStatus;
   storageKey: string;
@@ -208,6 +209,7 @@ export async function createUploadIntent(
     id: assetId,
     kind: input.kind,
     ownerId,
+    scanStatus: input.kind === 'RESOURCE_DOCUMENT' ? 'PENDING' : 'NOT_REQUIRED',
     sizeBytes: BigInt(input.sizeBytes),
     status: 'PENDING',
     storageKey,

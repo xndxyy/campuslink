@@ -97,4 +97,31 @@ describe('owned content workflows', () => {
       },
     });
   });
+
+  it('requires every attached document to be clean in production resubmission', async () => {
+    const { db, updateMany } = adapter();
+    await submitOwnedDraft(db, actor, 'resource', 'resource_1', {
+      requireCleanDocuments: true,
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      data: { status: 'PENDING' },
+      where: {
+        assets: {
+          none: {
+            kind: 'RESOURCE_DOCUMENT',
+            scanStatus: { not: 'CLEAN' },
+          },
+          some: {
+            kind: 'RESOURCE_DOCUMENT',
+            ownerId: actor.id,
+            scanStatus: 'CLEAN',
+            status: 'READY',
+          },
+        },
+        authorId: actor.id,
+        id: 'resource_1',
+        status: 'DRAFT',
+      },
+    });
+  });
 });

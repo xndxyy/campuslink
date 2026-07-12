@@ -13,10 +13,13 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e": "playwright test",
+    "e2e:provision": "tsx scripts/provision-e2e.ts",
+    "verify:release": "tsx scripts/verify-release.ts",
     "format:check": "prettier --check .",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed"
   },
   "dependencies": {

@@ -25,6 +25,7 @@ const readyAsset = {
   kind: 'RESOURCE_DOCUMENT',
   ownerId: 'owner_1',
   resource: { status: 'PUBLISHED' },
+  scanStatus: 'CLEAN',
   marketplaceItem: null,
   status: 'READY',
   storageKey: 'private/secret-key.pdf',
@@ -97,6 +98,17 @@ describe('asset read authorization', () => {
         db({ ...readyAsset, status: 'PENDING' }),
         { campusId: 'campus_1', id: 'owner_1', role: 'STUDENT' },
         'asset_1',
+      ),
+    ).rejects.toBeInstanceOf(ContentForbiddenError);
+  });
+
+  it('never signs an unscanned published document when scanning is required', async () => {
+    await expect(
+      authorizeAssetRead(
+        db({ ...readyAsset, scanStatus: 'PENDING' }),
+        { campusId: 'campus_1', id: 'student_2', role: 'STUDENT' },
+        'asset_1',
+        { requireCleanDocuments: true },
       ),
     ).rejects.toBeInstanceOf(ContentForbiddenError);
   });

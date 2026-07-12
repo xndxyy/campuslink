@@ -3,7 +3,10 @@
 CampusLink uploads files directly from the browser to an S3-compatible service.
 The application creates a pending database intent, signs a five-minute,
 write-once PUT for its exact content type and byte length, and verifies the
-stored object's key, size, and content type before marking the asset ready. The
+stored object's key, size, and content type before marking the asset ready. A
+resource document is independently marked scan-pending; ready does not mean
+malware-clean. Production binding, publication, restoration, and signed reads
+require the authenticated scanner callback to record a clean SHA-256 verdict. The
 signature includes `content-length`, `content-type`, and `if-none-match`; the
 browser sends `Content-Type` and `If-None-Match: *`, while the browser-managed
 request body supplies `Content-Length`. This flow does not issue download URLs.
@@ -14,7 +17,8 @@ it does not allocate a replacement until the server has rejected the old one.
 
 ## Local MinIO
 
-Start PostgreSQL and MinIO with `docker compose up -d postgres minio`. Use the
+Start PostgreSQL and MinIO with
+`docker compose up -d postgres minio minio-init`. Use the
 `S3_*` defaults in `.env.example`; `S3_FORCE_PATH_STYLE=true` is required for
 the local endpoint. The integration test creates the configured bucket when it
 does not exist. A browser deployment must also configure MinIO bucket CORS to

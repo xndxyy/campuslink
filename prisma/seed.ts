@@ -149,6 +149,8 @@ async function main() {
         kind: AssetKind.RESOURCE_DOCUMENT,
         contentType: 'application/pdf',
         sizeBytes: BigInt(262144),
+        scanStatus: 'CLEAN',
+        scannedAt: new Date(),
         status: AssetStatus.READY,
       },
       create: {
@@ -158,6 +160,8 @@ async function main() {
         kind: AssetKind.RESOURCE_DOCUMENT,
         contentType: 'application/pdf',
         sizeBytes: BigInt(262144),
+        scanStatus: 'CLEAN',
+        scannedAt: new Date(),
         status: AssetStatus.READY,
       },
     });

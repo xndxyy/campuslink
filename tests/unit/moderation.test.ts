@@ -119,6 +119,64 @@ describe('audited content moderation', () => {
     expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it('atomically refuses to publish a resource unless every document is clean', async () => {
+    const db = adapter();
+    await moderateContent(
+      db,
+      moderator,
+      {
+        action: 'APPROVE',
+        reason: 'Reviewed against the campus publishing policy.',
+        subjectId: 'resource_1',
+        subjectType: 'RESOURCE',
+      },
+      { requireCleanDocuments: true },
+    );
+
+    expect(db.resource.updateMany).toHaveBeenCalledWith({
+      data: { status: 'PUBLISHED' },
+      where: {
+        assets: {
+          none: {
+            kind: 'RESOURCE_DOCUMENT',
+            scanStatus: { not: 'CLEAN' },
+          },
+          some: {
+            kind: 'RESOURCE_DOCUMENT',
+            scanStatus: 'CLEAN',
+            status: 'READY',
+          },
+        },
+        campusId: moderator.campusId,
+        id: 'resource_1',
+        status: 'PENDING',
+      },
+    });
+  });
+
+  it('applies the same clean-document gate when restoring hidden resources', async () => {
+    const db = adapter();
+    await moderateContent(
+      db,
+      moderator,
+      {
+        action: 'RESTORE',
+        reason: 'The corrected resource is ready for publication.',
+        subjectId: 'resource_1',
+        subjectType: 'RESOURCE',
+      },
+      { requireCleanDocuments: true },
+    );
+    expect(db.resource.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          assets: expect.any(Object),
+          status: 'HIDDEN',
+        }),
+      }),
+    );
+  });
+
   it('requires a trimmed decision reason between 5 and 1000 characters', async () => {
     const db = adapter();
     await expect(

@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
 import { getDb } from '@/lib/db';
 import { adminErrorResponse, adminJson } from '@/lib/domain/admin-route';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import {
   dismissReport,
   listModerationReports,
@@ -51,7 +52,14 @@ export async function POST(request: Request) {
   }
   try {
     const user = await requireRole(['MODERATOR', 'ADMIN']);
-    const parsed = schema.safeParse(await request.json().catch(() => null));
+    const body = await readBoundedJson(request).catch((error) => error);
+    if (body instanceof JsonBodyError) {
+      return adminJson(
+        { message: 'Invalid report action.' },
+        { status: body.status },
+      );
+    }
+    const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return adminJson({ message: 'Invalid report action.' }, { status: 400 });
     }

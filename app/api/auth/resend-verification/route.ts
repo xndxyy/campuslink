@@ -7,6 +7,7 @@ import {
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
+import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 
 export const runtime = 'nodejs';
 
@@ -24,7 +25,7 @@ function wantsJson(request: Request): boolean {
 
 async function getBody(request: Request): Promise<unknown> {
   return wantsJson(request)
-    ? request.json().catch(() => null)
+    ? readBoundedJson(request).catch((error) => error)
     : Object.fromEntries(await request.formData());
 }
 
@@ -62,7 +63,11 @@ export async function POST(request: Request) {
     return rateLimited(request, json, clientLimit.retryAfterSeconds);
   }
 
-  const parsed = resendVerificationSchema.safeParse(await getBody(request));
+  const body = await getBody(request);
+  if (body instanceof JsonBodyError) {
+    return NextResponse.json(acknowledgement, { status: body.status });
+  }
+  const parsed = resendVerificationSchema.safeParse(body);
   if (!parsed.success) {
     return json
       ? NextResponse.json(acknowledgement, { status: 202 })

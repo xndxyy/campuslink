@@ -110,14 +110,36 @@ export async function moderateContent(
     subjectId: string;
     subjectType: ContentSubjectType;
   },
+  policy: { requireCleanDocuments?: boolean } = {},
 ) {
   requireStaff(actor);
   const reason = decisionReason(input.reason);
   const transition = contentTransitions[input.action];
   return adapter.$transaction(async (tx) => {
+    const requireCleanDocuments =
+      policy.requireCleanDocuments ?? process.env.NODE_ENV === 'production';
+    const cleanDocumentInvariant =
+      requireCleanDocuments &&
+      (input.action === 'APPROVE' || input.action === 'RESTORE') &&
+      input.subjectType === 'RESOURCE'
+        ? {
+            assets: {
+              none: {
+                kind: 'RESOURCE_DOCUMENT',
+                scanStatus: { not: 'CLEAN' },
+              },
+              some: {
+                kind: 'RESOURCE_DOCUMENT',
+                scanStatus: 'CLEAN',
+                status: 'READY',
+              },
+            },
+          }
+        : {};
     const changed = await contentDelegate(tx, input.subjectType).updateMany({
       data: { status: transition.to },
       where: {
+        ...cleanDocumentInvariant,
         campusId: actor.campusId,
         id: input.subjectId,
         status: Array.isArray(transition.from)

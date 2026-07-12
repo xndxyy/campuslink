@@ -10,7 +10,9 @@ describe('release contract', () => {
     expect(existsSync(resolve(root, 'proxy.ts'))).toBe(true);
     const proxy = read('proxy.ts');
     expect(proxy).toContain("requestHeaders.set('x-nonce'");
-    expect(proxy).toContain("response.headers.set('Content-Security-Policy'");
+    expect(proxy).toMatch(
+      /response\.headers\.set\(\s*'Content-Security-Policy'/,
+    );
     expect(proxy).toContain('private, no-store');
     expect(proxy).not.toContain('middleware');
   });
@@ -33,6 +35,7 @@ describe('release contract', () => {
     ];
     for (const path of paths) {
       expect(read(path), path).not.toContain('request.json()');
+      expect(read(path), path).not.toContain('.catch(() => null)');
     }
   });
 
@@ -54,5 +57,29 @@ describe('release contract', () => {
     expect(workflow).toContain('playwright-report');
     expect(workflow).not.toContain('ALLOW_SKIPPED_INTEGRATION');
     expect(workflow).not.toContain('ALLOW_SKIPPED_E2E');
+    expect(read('package.json')).not.toContain('--pass-with-no-tests');
+    expect(read('vitest.integration.config.ts')).not.toContain(
+      'passWithNoTests',
+    );
+  });
+
+  it('ships a real, authenticated malware scan callback and database status', () => {
+    expect(
+      existsSync(
+        resolve(root, 'app/api/internal/uploads/scan-result/route.ts'),
+      ),
+    ).toBe(true);
+    const schema = read('prisma/schema.prisma');
+    expect(schema).toContain('enum AssetScanStatus');
+    expect(schema).toMatch(/model Asset[\s\S]*scanStatus\s+AssetScanStatus/);
+    expect(read('lib/storage/scanning.ts')).toContain('recordAssetScanResult');
+    expect(read('lib/security/runtime-config.ts')).toContain(
+      'UPLOAD_SCANNER_CALLBACK_SECRET',
+    );
+    expect(
+      read(
+        'prisma/migrations/20260713013000_add_asset_malware_scan/migration.sql',
+      ),
+    ).toMatch(/UPDATE "Resource"[\s\S]*status" = 'HIDDEN'/);
   });
 });

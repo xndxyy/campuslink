@@ -1,13 +1,19 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDbClient } from '@/lib/db';
+import { handleAssetScanCallback } from '@/app/api/internal/uploads/scan-result/route';
+import {
+  type ContentAdapter,
+  createResource,
+} from '@/lib/domain/content-service';
 import {
   createS3Client,
   createS3UploadStorage,
@@ -19,6 +25,10 @@ import {
   createUploadIntent,
   UploadForbiddenError,
 } from '@/lib/storage/policy';
+import {
+  createPrismaAssetScanRepository,
+  recordAssetScanResult,
+} from '@/lib/storage/scanning';
 import { validateUpload } from '@/lib/validation/upload';
 import { hasCompleteIntegrationEnvironment } from '@/tests/helpers/integration-environment';
 
@@ -89,7 +99,7 @@ describeWithStorage('direct storage uploads', () => {
     await db.$disconnect();
   });
 
-  it('uploads a PDF and atomically marks the asset ready', async () => {
+  it('keeps a real PDF unpublished until an authenticated scanner records CLEAN', async () => {
     const validated = validateUpload({
       contentType: 'application/pdf',
       fileName: 'integration.pdf',
@@ -113,8 +123,9 @@ describeWithStorage('direct storage uploads', () => {
     });
     storageKeys.push(asset.storageKey);
 
+    const bytes = Buffer.alloc(1_024, 1);
     const uploadResponse = await fetch(intent.uploadUrl, {
-      body: Buffer.alloc(1_024, 1),
+      body: bytes,
       headers: intent.requiredHeaders,
       method: 'PUT',
     });
@@ -124,7 +135,115 @@ describeWithStorage('direct storage uploads', () => {
     ).resolves.toEqual({ assetId: intent.assetId, status: 'READY' });
     await expect(
       db.asset.findUniqueOrThrow({ where: { id: intent.assetId } }),
-    ).resolves.toMatchObject({ status: 'READY' });
+    ).resolves.toMatchObject({ scanStatus: 'PENDING', status: 'READY' });
+
+    const actor = { campusId, id: ownerId, role: 'STUDENT' as const };
+    const input = {
+      assetIds: [intent.assetId],
+      courseCode: 'SEC-101',
+      summary: 'A real integration document awaiting a malware verdict.',
+      tags: ['security'],
+      title: 'Scanner integration resource',
+    };
+    await expect(
+      createResource(db as unknown as ContentAdapter, actor, input, {
+        requireCleanDocuments: true,
+      }),
+    ).rejects.toThrow('Document malware scan has not passed');
+
+    const scannerSecret = 'scanner-integration-secret-0123456789';
+    const scanResponse = await handleAssetScanCallback(
+      new Request('http://localhost/api/internal/uploads/scan-result', {
+        body: JSON.stringify({
+          assetId: intent.assetId,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+          verdict: 'CLEAN',
+        }),
+        headers: {
+          authorization: `Bearer ${scannerSecret}`,
+          'content-type': 'application/json',
+        },
+        method: 'POST',
+      }),
+      {
+        record: (input) =>
+          recordAssetScanResult(input, {
+            repository: createPrismaAssetScanRepository(db),
+            storage: createS3UploadStorage(),
+          }),
+        secret: scannerSecret,
+      },
+    );
+    expect(scanResponse.status).toBe(200);
+    await expect(
+      db.asset.findUniqueOrThrow({ where: { id: intent.assetId } }),
+    ).resolves.toMatchObject({ scanStatus: 'CLEAN', status: 'READY' });
+    await expect(
+      createResource(db as unknown as ContentAdapter, actor, input, {
+        requireCleanDocuments: true,
+      }),
+    ).resolves.toMatchObject({ status: 'PENDING' });
+  });
+
+  it('rejects an infected real object before deleting it from storage', async () => {
+    const validated = validateUpload({
+      contentType: 'application/pdf',
+      fileName: 'infected.pdf',
+      kind: 'RESOURCE_DOCUMENT',
+      sizeBytes: 64,
+    });
+    if (!validated.success) throw new Error('Integration fixture is invalid.');
+    const dependencies = {
+      repository: createPrismaAssetRepository(db),
+      storage: createS3UploadStorage(),
+    };
+    const intent = await createUploadIntent(
+      ownerId,
+      validated.data,
+      dependencies,
+    );
+    const asset = await db.asset.findUniqueOrThrow({
+      where: { id: intent.assetId },
+    });
+    storageKeys.push(asset.storageKey);
+    const bytes = Buffer.alloc(64, 9);
+    const upload = await fetch(intent.uploadUrl, {
+      body: bytes,
+      headers: intent.requiredHeaders,
+      method: 'PUT',
+    });
+    expect(upload.ok).toBe(true);
+    await completeUpload(ownerId, intent.assetId, dependencies);
+
+    await recordAssetScanResult(
+      {
+        assetId: intent.assetId,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        verdict: 'INFECTED',
+      },
+      {
+        repository: createPrismaAssetScanRepository(db),
+        storage: createS3UploadStorage(),
+      },
+    );
+    await expect(
+      db.asset.findUniqueOrThrow({ where: { id: intent.assetId } }),
+    ).resolves.toMatchObject({ scanStatus: 'INFECTED', status: 'REJECTED' });
+
+    const config = getStorageConfig();
+    const client = createS3Client(config);
+    try {
+      await expect(
+        client.send(
+          new HeadObjectCommand({
+            Bucket: config.bucket,
+            Key: asset.storageKey,
+          }),
+        ),
+      ).rejects.toBeDefined();
+    } finally {
+      client.destroy();
+    }
   });
 
   it('allows only one racing write and rejects later overwrite reuse', async () => {

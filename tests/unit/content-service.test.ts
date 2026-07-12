@@ -22,6 +22,7 @@ type Asset = {
   marketplaceItemId: string | null;
   ownerId: string;
   resourceId: string | null;
+  scanStatus?: 'NOT_REQUIRED' | 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR';
   status: 'PENDING' | 'READY';
 };
 
@@ -215,6 +216,28 @@ describe('content service', () => {
       where: { id: 'resource_1' },
     });
     expect(result.status).toBe('PENDING');
+  });
+
+  it('fails closed when production tries to attach an unscanned document', async () => {
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        scanStatus: 'PENDING',
+        status: 'READY',
+      },
+    ]);
+
+    await expect(
+      createResource(serviceAdapter, actor, resourceInput, {
+        requireCleanDocuments: true,
+      }),
+    ).rejects.toThrow('Document malware scan has not passed');
+    expect(adapter.resource.create).not.toHaveBeenCalled();
+    expect(adapter.asset.updateMany).not.toHaveBeenCalled();
   });
 
   it('fails before submit when an asset changes after the read', async () => {

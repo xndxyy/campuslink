@@ -58,40 +58,6 @@ const policyByKind: Readonly<
   RESOURCE_IMAGE: { maxSizeBytes: MAX_IMAGE_SIZE_BYTES, types: imageTypes },
 };
 
-const recognizedPriorExtensions = new Set([
-  ...Object.keys(documentTypes),
-  ...Object.keys(imageTypes),
-  'apk',
-  'app',
-  'bat',
-  'cmd',
-  'com',
-  'cjs',
-  'dll',
-  'dmg',
-  'docm',
-  'dotm',
-  'exe',
-  'htm',
-  'html',
-  'iso',
-  'jar',
-  'js',
-  'mjs',
-  'msi',
-  'potm',
-  'pps',
-  'ppsm',
-  'pptm',
-  'ps1',
-  'scr',
-  'sh',
-  'svg',
-  'vbs',
-  'xlsm',
-  'xltm',
-]);
-
 export function normalizeContentType(contentType: string): string {
   return contentType.trim().toLowerCase();
 }
@@ -134,9 +100,7 @@ export const uploadIntentSchema = rawUploadSchema.transform(
       return z.NEVER;
     }
 
-    if (
-      parts.slice(1, -1).some((part) => recognizedPriorExtensions.has(part))
-    ) {
+    if (parts.length !== 2 || !parts[0]) {
       context.addIssue({
         code: 'custom',
         message: 'Double file extensions are not allowed.',

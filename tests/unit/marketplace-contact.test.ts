@@ -68,8 +68,8 @@ describe('marketplace contact requests', () => {
       },
       select: { id: true },
     });
-    expect(JSON.stringify(vi.mocked(db.auditLog.create).mock.calls)).not.toContain(
-      'seller@campus.example',
-    );
+    expect(
+      JSON.stringify(vi.mocked(db.auditLog.create).mock.calls),
+    ).not.toContain('seller@campus.example');
   });
 });

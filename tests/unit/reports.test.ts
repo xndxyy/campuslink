@@ -97,7 +97,10 @@ describe('reports domain', () => {
         updatedAt: new Date('2026-07-12T13:00:00Z'),
       },
     ]);
-    const reports = await listReporterReports(db, actor, { page: 1, pageSize: 10 });
+    const reports = await listReporterReports(db, actor, {
+      page: 1,
+      pageSize: 10,
+    });
     expect(reports.items[0]).toEqual(
       expect.objectContaining({
         outcome: 'Your report is under review.',

@@ -3,6 +3,7 @@ import Image from 'next/image';
 
 import type { ContentRecord } from '@/lib/domain/content-service';
 import type { PublicContentKind } from '@/lib/domain/public-content';
+import { EngagementActions } from './engagement-actions';
 
 export function documentAccessLink(assetId: string, canDownload: boolean) {
   return canDownload
@@ -14,8 +15,14 @@ export function PublicDetail({
   item,
   kind,
   canDownloadDocuments = false,
+  engagement,
 }: {
   canDownloadDocuments?: boolean;
+  engagement?: {
+    initialFavourited: boolean;
+    isOwner: boolean;
+    signedIn: boolean;
+  };
   item: ContentRecord;
   kind: PublicContentKind;
 }) {
@@ -76,6 +83,9 @@ export function PublicDetail({
         <div className="prose-plain">
           <p>{description}</p>
         </div>
+        {engagement ? (
+          <EngagementActions id={item.id} kind={kind} {...engagement} />
+        ) : null}
         {assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT') ? (
           <section className="asset-downloads" aria-label="资源附件">
             <h2>资源附件</h2>
@@ -94,7 +104,7 @@ export function PublicDetail({
               })}
           </section>
         ) : null}
-        {kind === 'marketplace' ? (
+        {kind === 'marketplace' && !engagement ? (
           <aside className="privacy-note">
             为保护发布者隐私，联系方式不会公开展示。联系请求功能将在受审计流程中开放。
           </aside>

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { PublicDetail } from '@/components/content/public-detail';
 import { loadPublicDetail } from '@/lib/domain/public-content';
+import { loadEngagementViewerState } from '@/lib/domain/engagement-view';
 
 export default async function MarketplaceDetailPage({
   params,
@@ -20,6 +21,11 @@ export default async function MarketplaceDetailPage({
   }
   if (!item) notFound();
   return (
-    <PublicDetail canDownloadDocuments={false} item={item} kind="marketplace" />
+    <PublicDetail
+      canDownloadDocuments={false}
+      engagement={await loadEngagementViewerState('marketplace', id)}
+      item={item}
+      kind="marketplace"
+    />
   );
 }

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { PublicDetail } from '@/components/content/public-detail';
 import { loadPublicDetail } from '@/lib/domain/public-content';
 import { getCurrentUser } from '@/lib/auth/auth-service';
+import { loadEngagementViewerState } from '@/lib/domain/engagement-view';
 
 export default async function ResourceDetailPage({
   params,
@@ -23,6 +24,7 @@ export default async function ResourceDetailPage({
   return (
     <PublicDetail
       canDownloadDocuments={Boolean(await getCurrentUser())}
+      engagement={await loadEngagementViewerState('resource', id)}
       item={item}
       kind="resource"
     />

@@ -70,6 +70,14 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum ReportReason {
+  SPAM
+  MISLEADING
+  HARASSMENT
+  PROHIBITED
+  OTHER
+}
+
 enum ModerationSubjectType {
   USER
   ASSET
@@ -256,7 +264,7 @@ model Report {
   reporterId    String
   targetType    ReportTargetType
   targetId      String
-  reason        String           @db.VarChar(500)
+  reason        ReportReason
   details       String?          @db.Text
   status        ReportStatus     @default(OPEN)
   assigneeId    String?

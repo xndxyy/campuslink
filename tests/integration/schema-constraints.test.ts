@@ -92,7 +92,8 @@ describeWithDatabase('database schema constraints', () => {
         reporterId,
         targetType: 'RESOURCE',
         targetId,
-        reason: 'Duplicate open-report constraint test',
+        details: 'Duplicate open-report constraint test',
+        reason: 'OTHER',
       },
     });
 
@@ -102,7 +103,8 @@ describeWithDatabase('database schema constraints', () => {
           reporterId,
           targetType: 'RESOURCE',
           targetId,
-          reason: 'Duplicate open-report constraint test',
+          details: 'Duplicate open-report constraint test',
+          reason: 'OTHER',
         },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
@@ -117,7 +119,8 @@ describeWithDatabase('database schema constraints', () => {
         reporterId,
         targetType: 'RESOURCE',
         targetId,
-        reason: 'A dismissed report may be reported again',
+        details: 'A dismissed report may be reported again',
+        reason: 'OTHER',
       },
     });
 

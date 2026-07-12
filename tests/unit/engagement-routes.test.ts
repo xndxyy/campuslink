@@ -6,7 +6,10 @@ import {
   handleMarketplaceContactPost,
   handleReportPost,
 } from '@/lib/domain/engagement-routes';
-import { ReportDuplicateError, ReportOwnContentError } from '@/lib/domain/reports';
+import {
+  ReportDuplicateError,
+  ReportOwnContentError,
+} from '@/lib/domain/reports';
 
 const user = {
   campusId: 'campus_1',
@@ -18,7 +21,11 @@ const user = {
   status: 'ACTIVE' as const,
 };
 
-function request(path: string, body?: unknown, origin = 'http://localhost:3000') {
+function request(
+  path: string,
+  body?: unknown,
+  origin = 'http://localhost:3000',
+) {
   return new Request(`http://localhost${path}`, {
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: { 'content-type': 'application/json', origin },
@@ -118,7 +125,9 @@ describe('engagement routes', () => {
       },
     );
     expect(own.status).toBe(403);
-    await expect(own.json()).resolves.toEqual({ message: 'Cannot report own content' });
+    await expect(own.json()).resolves.toEqual({
+      message: 'Cannot report own content',
+    });
 
     const duplicate = await handleReportPost(
       request('/api/reports', {
@@ -143,7 +152,12 @@ describe('engagement routes', () => {
       'market_1',
       {
         contact,
-        limiter: { consume: vi.fn(async () => ({ allowed: false, retryAfterSeconds: 30 })) },
+        limiter: {
+          consume: vi.fn(async () => ({
+            allowed: false,
+            retryAfterSeconds: 30,
+          })),
+        },
         resolveUser: async () => user,
       },
     );
@@ -157,12 +171,16 @@ describe('engagement routes', () => {
       'market_1',
       {
         contact,
-        limiter: { consume: vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 })) },
+        limiter: {
+          consume: vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 })),
+        },
         resolveUser: async () => user,
       },
     );
     expect(success.status).toBe(200);
-    await expect(success.json()).resolves.toEqual({ contact: 'seller@campus.example' });
+    await expect(success.json()).resolves.toEqual({
+      contact: 'seller@campus.example',
+    });
     expect(success.headers.get('cache-control')).toContain('no-store');
   });
 
@@ -174,12 +192,15 @@ describe('engagement routes', () => {
         contact: vi.fn(async () => {
           throw new Error('postgres password secret seller@campus.example');
         }),
-        limiter: { consume: vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 })) },
+        limiter: {
+          consume: vi.fn(async () => ({ allowed: true, retryAfterSeconds: 0 })),
+        },
         resolveUser: async () => user,
       },
     );
     expect(response.status).toBe(500);
-    expect(await response.text()).not.toContain('secret');
-    expect(await response.clone().text()).not.toContain('seller@campus.example');
+    const body = await response.text();
+    expect(body).not.toContain('secret');
+    expect(body).not.toContain('seller@campus.example');
   });
 });

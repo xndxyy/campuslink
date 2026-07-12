@@ -27,6 +27,7 @@ export default function RootLayout({
             <Link href="/marketplace">市集</Link>
             <Link href="/jobs">工作</Link>
             <Link href="/me/submissions">我的提交</Link>
+            <Link href="/me/favourites">Favourites</Link>
           </nav>
           <Link className="header-action" href="/submit/resource">
             发布内容

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { PublicDetail } from '@/components/content/public-detail';
 import { loadPublicDetail } from '@/lib/domain/public-content';
+import { loadEngagementViewerState } from '@/lib/domain/engagement-view';
 
 export default async function JobDetailPage({
   params,
@@ -19,5 +20,12 @@ export default async function JobDetailPage({
     );
   }
   if (!item) notFound();
-  return <PublicDetail canDownloadDocuments={false} item={item} kind="job" />;
+  return (
+    <PublicDetail
+      canDownloadDocuments={false}
+      engagement={await loadEngagementViewerState('job', id)}
+      item={item}
+      kind="job"
+    />
+  );
 }

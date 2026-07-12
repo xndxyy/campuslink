@@ -422,6 +422,96 @@ select {
   background: var(--sky);
   font-size: 0.9rem;
 }
+.engagement-panel {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 3px solid var(--navy);
+}
+.engagement-buttons,
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.engagement-buttons button,
+.dialog-actions button {
+  border: 1px solid var(--navy);
+  background: white;
+  color: var(--navy);
+  padding: 0.7rem 0.9rem;
+  font: 800 0.82rem var(--sans);
+}
+.engagement-buttons button[aria-pressed='true'] {
+  background: var(--navy);
+  color: white;
+}
+.engagement-buttons button:focus-visible,
+.dialog-actions button:focus-visible,
+.report-form select:focus-visible,
+.report-form textarea:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+}
+.engagement-buttons button:disabled,
+.dialog-actions button:disabled {
+  opacity: 0.55;
+}
+.owner-marker,
+.revealed-contact {
+  padding: 0.65rem 0.8rem;
+  background: var(--sky);
+  margin: 0;
+}
+.action-hint,
+.action-message {
+  margin: 0.8rem 0 0;
+  font-size: 0.85rem;
+}
+.engagement-panel dialog {
+  width: min(34rem, calc(100% - 2rem));
+  border: 2px solid var(--navy);
+  padding: 0;
+  box-shadow: 10px 10px 0 var(--sky);
+}
+.engagement-panel dialog::backdrop {
+  background: rgba(7, 31, 55, 0.6);
+}
+.report-form {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+.report-form label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 800;
+}
+.report-form select,
+.report-form textarea {
+  width: 100%;
+  border: 1px solid var(--navy);
+  padding: 0.65rem;
+  font: inherit;
+}
+.favourite-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+.favourite-grid article {
+  border-top: 5px solid var(--green);
+  background: rgba(255, 255, 255, 0.86);
+  padding: 1.4rem;
+}
+.favourite-grid article p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.favourite-grid article a {
+  border-bottom: 2px solid var(--green);
+  font-weight: 800;
+}
 .author-line {
   color: var(--muted);
   font-size: 0.9rem;

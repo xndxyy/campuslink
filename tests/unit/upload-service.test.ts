@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { StorageObjectNotFoundError } from '@/lib/storage/client';
 import {
   cleanupStaleUploads,
   completeUpload,
@@ -134,6 +135,23 @@ describe('upload service', () => {
       from: 'PENDING',
       ownerId: pendingAsset.ownerId,
       to: 'READY',
+    });
+  });
+
+  it('rejects a pending intent when completion cannot find its object', async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.storage.headObject).mockRejectedValue(
+      new StorageObjectNotFoundError(),
+    );
+
+    await expect(
+      completeUpload(pendingAsset.ownerId, pendingAsset.id, dependencies),
+    ).rejects.toBeInstanceOf(UploadMismatchError);
+    expect(dependencies.repository.transitionStatus).toHaveBeenCalledWith({
+      assetId: pendingAsset.id,
+      from: 'PENDING',
+      ownerId: pendingAsset.ownerId,
+      to: 'REJECTED',
     });
   });
 

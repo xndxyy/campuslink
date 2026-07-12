@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container": "#e5eeff",
+                    "tertiary-fixed-dim": "#c3c7cb",
+                    "on-primary": "#ffffff",
+                    "tertiary-container": "#3c4144",
+                    "error": "#ba1a1a",
+                    "surface-tint": "#4059aa",
+                    "on-tertiary": "#ffffff",
+                    "on-secondary-fixed": "#002113",
+                    "secondary": "#006c49",
+                    "on-background": "#0b1c30",
+                    "primary-container": "#1e3a8a",
+                    "on-secondary": "#ffffff",
+                    "error-container": "#ffdad6",
+                    "on-secondary-container": "#00714d",
+                    "primary-fixed": "#dce1ff",
+                    "on-primary-fixed-variant": "#264191",
+                    "on-error": "#ffffff",
+                    "tertiary": "#262b2e",
+                    "on-primary-fixed": "#00164e",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-bright": "#f8f9ff",
+                    "on-surface-variant": "#444651",
+                    "on-tertiary-fixed-variant": "#43474b",
+                    "on-secondary-fixed-variant": "#005236",
+                    "inverse-primary": "#b6c4ff",
+                    "outline-variant": "#c5c5d3",
+                    "surface-container-low": "#eff4ff",
+                    "surface": "#f8f9ff",
+                    "secondary-fixed-dim": "#4edea3",
+                    "on-error-container": "#93000a",
+                    "tertiary-fixed": "#dfe3e7",
+                    "secondary-fixed": "#6ffbbe",
+                    "primary-fixed-dim": "#b6c4ff",
+                    "on-surface": "#0b1c30",
+                    "inverse-surface": "#213145",
+                    "inverse-on-surface": "#eaf1ff",
+                    "surface-dim": "#cbdbf5",
+                    "secondary-container": "#6cf8bb",
+                    "surface-variant": "#d3e4fe",
+                    "background": "#f8f9ff",
+                    "on-tertiary-fixed": "#171c1f",
+                    "outline": "#757682",
+                    "on-primary-container": "#90a8ff",
+                    "surface-container-high": "#dce9ff",
+                    "surface-container-highest": "#d3e4fe",
+                    "primary": "#00236f",
+                    "on-tertiary-container": "#a8adb1"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-max": "1280px",
+                    "sm": "16px",
+                    "lg": "40px",
+                    "base": "4px",
+                    "xl": "64px",
+                    "md": "24px",
+                    "gutter": "24px",
+                    "xs": "8px"
+            },
+            "fontFamily": {
+                    "headline-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "display": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "label-md": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "body-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "display": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "label-md": ["14px", {"lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .success-bg-gradient {
+            background: radial-gradient(circle at 50% 50%, rgba(111, 251, 190, 0.15) 0%, rgba(248, 249, 255, 0) 70%);
+        }
+        @keyframes scaleIn {
+            0% { transform: scale(0.9); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-scale-in {
+            animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        @keyframes checkmarkGrow {
+            0% { stroke-dashoffset: 48; opacity: 0; }
+            100% { stroke-dashoffset: 0; opacity: 1; }
+        }
+        .checkmark-path {
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: checkmarkGrow 0.5s ease-out 0.2s forwards;
+        }
+    </style>
+</head>
+<body class="bg-background font-body-md text-on-background min-h-screen relative overflow-hidden">
+<!-- Main Background (Simulating the App State) -->
+<main class="fixed inset-0 z-0 p-lg max-w-container-max mx-auto overflow-y-auto opacity-40 blur-sm pointer-events-none">
+<header class="flex justify-between items-center mb-xl">
+<div class="font-headline-md text-headline-md font-bold text-primary">CampusBridge</div>
+<div class="flex gap-md">
+<div class="w-10 h-10 rounded-full bg-surface-variant"></div>
+</div>
+</header>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
+<div class="h-48 rounded-xl bg-surface-container-high"></div>
+<div class="h-48 rounded-xl bg-surface-container-high"></div>
+<div class="h-48 rounded-xl bg-surface-container-high"></div>
+<div class="md:col-span-2 h-96 rounded-xl bg-surface-container"></div>
+<div class="h-96 rounded-xl bg-surface-container-low"></div>
+</div>
+</main>
+<!-- Modal Overlay -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center p-sm backdrop-blur-sm bg-on-background/20 transition-opacity duration-300" id="modal-overlay">
+<!-- Success Confirmation Modal -->
+<div class="bg-surface-container-lowest w-full max-w-[440px] rounded-xl shadow-xl overflow-hidden animate-scale-in relative">
+<!-- Atmospheric Background Decor -->
+<div class="absolute top-0 left-0 w-full h-40 success-bg-gradient pointer-events-none"></div>
+<div class="relative px-md py-lg flex flex-col items-center text-center">
+<!-- Animated Success Icon Container -->
+<div class="mb-md w-24 h-24 rounded-full bg-secondary-container/20 flex items-center justify-center relative">
+<!-- Rotating outer ring effect -->
+<div class="absolute inset-0 rounded-full border-2 border-secondary/10 border-dashed animate-[spin_10s_linear_infinite]"></div>
+<!-- Large Material Symbol Success Icon -->
+<span class="material-symbols-outlined text-[64px] text-secondary leading-none select-none" style="font-variation-settings: 'FILL' 1;">
+                        check_circle
+                    </span>
+</div>
+<!-- Text Content -->
+<h1 class="font-headline-md text-headline-md text-on-surface mb-xs">举报已提交</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mb-lg leading-relaxed max-w-[320px]">
+                    感谢您的监督，我们将尽快审核处理，共同维护社区环境。
+                </p>
+<!-- Primary Action Button -->
+<button class="w-full py-md px-lg bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container hover:shadow-lg transition-all duration-200 active:scale-[0.98] focus:ring-4 focus:ring-primary/20 outline-none" onclick="closeModal()">
+                    我知道了
+                </button>
+<!-- Secondary Info (Implicit Feedback) -->
+<div class="mt-md flex items-center gap-xs text-on-surface-variant/60">
+<span class="material-symbols-outlined text-[16px]">info</span>
+<span class="font-label-sm text-label-sm">通常在 24 小时内完成审核</span>
+</div>
+</div>
+<!-- Subtle brand mark in footer of modal -->
+<div class="bg-surface-container-low/50 py-sm border-t border-outline-variant/10 flex justify-center">
+<span class="font-label-sm text-label-sm text-on-surface-variant/40 tracking-widest uppercase">CampusBridge Security</span>
+</div>
+</div>
+</div>
+<!-- Micro-interaction Toast (Experimental alternative mentioned in prompt) -->
+<div class="fixed top-8 left-1/2 -translate-x-1/2 z-[110] transform translate-y-[-200%] opacity-0 transition-all duration-500 ease-in-out pointer-events-none" id="success-toast">
+<div class="bg-secondary text-on-secondary px-md py-sm rounded-full flex items-center gap-sm shadow-lg border border-secondary-fixed/20">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="font-label-md text-label-md">操作成功</span>
+</div>
+</div>
+<script>
+        // Modal Dismissal Logic
+        function closeModal() {
+            const overlay = document.getElementById('modal-overlay');
+            const modal = overlay.querySelector('div');
+            
+            // Exit animation
+            modal.style.transition = 'all 0.2s ease-in';
+            modal.style.transform = 'scale(0.95)';
+            modal.style.opacity = '0';
+            overlay.style.opacity = '0';
+            
+            setTimeout(() => {
+                overlay.classList.add('hidden');
+                showToast(); // Show toast as a secondary confirmation if modal closed
+            }, 200);
+        }
+
+        // Show a temporary toast for extra confirmation
+        function showToast() {
+            const toast = document.getElementById('success-toast');
+            toast.style.transform = 'translate(-50%, 0)';
+            toast.style.opacity = '1';
+            
+            setTimeout(() => {
+                toast.style.transform = 'translate(-50%, -200%)';
+                toast.style.opacity = '0';
+            }, 3000);
+        }
+
+        // Escape key support
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+    </script>
+</body></html>

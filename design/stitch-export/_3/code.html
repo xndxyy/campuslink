@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CampusBridge - 校园兼职招聘</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error": "#ffffff",
+                    "inverse-on-surface": "#eaf1ff",
+                    "outline": "#757682",
+                    "tertiary-fixed": "#dfe3e7",
+                    "surface-container-highest": "#d3e4fe",
+                    "surface-tint": "#4059aa",
+                    "primary": "#00236f",
+                    "on-tertiary": "#ffffff",
+                    "secondary-fixed": "#6ffbbe",
+                    "background": "#f8f9ff",
+                    "on-background": "#0b1c30",
+                    "surface-bright": "#f8f9ff",
+                    "error": "#ba1a1a",
+                    "surface-dim": "#cbdbf5",
+                    "tertiary": "#262b2e",
+                    "outline-variant": "#c5c5d3",
+                    "on-primary": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "error-container": "#ffdad6",
+                    "on-tertiary-fixed-variant": "#43474b",
+                    "on-secondary-fixed-variant": "#005236",
+                    "on-primary-fixed": "#00164e",
+                    "on-primary-fixed-variant": "#264191",
+                    "inverse-surface": "#213145",
+                    "surface-container-lowest": "#ffffff",
+                    "on-primary-container": "#90a8ff",
+                    "on-secondary-container": "#00714d",
+                    "inverse-primary": "#b6c4ff",
+                    "primary-container": "#1e3a8a",
+                    "surface": "#f8f9ff",
+                    "secondary-fixed-dim": "#4edea3",
+                    "primary-fixed": "#dce1ff",
+                    "surface-container-low": "#eff4ff",
+                    "primary-fixed-dim": "#b6c4ff",
+                    "on-surface-variant": "#444651",
+                    "on-secondary-fixed": "#002113",
+                    "surface-container-high": "#dce9ff",
+                    "on-error-container": "#93000a",
+                    "surface-variant": "#d3e4fe",
+                    "secondary-container": "#6cf8bb",
+                    "secondary": "#006c49",
+                    "tertiary-container": "#3c4144",
+                    "on-surface": "#0b1c30",
+                    "on-tertiary-fixed": "#171c1f",
+                    "surface-container": "#e5eeff",
+                    "on-tertiary-container": "#a8adb1",
+                    "tertiary-fixed-dim": "#c3c7cb"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "lg": "40px",
+                    "gutter": "24px",
+                    "md": "24px",
+                    "base": "4px",
+                    "xl": "64px",
+                    "sm": "16px",
+                    "container-max": "1280px",
+                    "xs": "8px"
+            },
+            "fontFamily": {
+                    "body-lg": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "body-md": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "label-md": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "display": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                    "label-md": ["14px", {"lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                    "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                    "display": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8f9ff;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-md border-b border-outline-variant/30 shadow-sm transition-all duration-200">
+<div class="flex items-center justify-between px-lg max-w-container-max mx-auto h-16">
+<div class="flex items-center gap-xl">
+<span class="font-headline-md text-headline-md font-bold text-primary">CampusBridge</span>
+<nav class="hidden md:flex items-center gap-md">
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-primary transition-colors" href="#">Resources</a>
+<a class="font-body-md text-body-md text-on-surface-variant hover:text-primary transition-colors" href="#">Marketplace</a>
+<a class="font-body-md text-body-md text-primary border-b-2 border-primary pb-1" href="#">Jobs</a>
+</nav>
+</div>
+<div class="flex items-center gap-md flex-1 justify-end">
+<div class="relative hidden sm:block max-w-xs w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full py-2 pl-10 pr-4 text-body-md focus:ring-2 focus:ring-primary/20" placeholder="搜索兼职职位..." type="text"/>
+</div>
+<div class="flex items-center gap-sm">
+<button class="p-2 hover:bg-surface-container-low rounded-lg transition-all active:scale-95">
+<span class="material-symbols-outlined text-primary">notifications</span>
+</button>
+<button class="p-2 hover:bg-surface-container-low rounded-lg transition-all active:scale-95">
+<span class="material-symbols-outlined text-primary">account_circle</span>
+</button>
+</div>
+</div>
+</div>
+</header>
+<main class="mt-24 px-lg max-w-container-max mx-auto w-full flex-grow">
+<!-- Hero Section -->
+<section class="mb-lg">
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-md">
+<div>
+<h1 class="font-display text-display text-primary leading-tight">兼职广场</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant mt-2 max-w-2xl">探索校园周边的优质工作机会，平衡学业与成长，开启职场第一步。</p>
+</div>
+<div class="flex gap-xs">
+<button class="bg-primary text-on-primary px-sm py-2 rounded-lg font-label-md flex items-center gap-2 hover:opacity-90 transition-all">
+<span class="material-symbols-outlined" style="font-variation-settings: 'opsz' 20">post_add</span>
+                        发布职位
+                    </button>
+</div>
+</div>
+</section>
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-gutter mb-xl">
+<!-- Sidebar Filters -->
+<aside class="lg:col-span-1 flex flex-col gap-md">
+<div class="bg-surface-container-lowest p-md rounded-xl shadow-sm border border-outline-variant/10">
+<h3 class="font-headline-sm text-headline-sm mb-md">职位筛选</h3>
+<div class="flex flex-col gap-md">
+<div>
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase mb-base block">工作类型</label>
+<div class="flex flex-col gap-xs mt-2">
+<label class="flex items-center gap-xs cursor-pointer group">
+<input checked="" class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+<span class="font-body-md text-body-md group-hover:text-primary transition-colors">On-campus (校内)</span>
+</label>
+<label class="flex items-center gap-xs cursor-pointer group">
+<input checked="" class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+<span class="font-body-md text-body-md group-hover:text-primary transition-colors">Off-campus (校外)</span>
+</label>
+<label class="flex items-center gap-xs cursor-pointer group">
+<input checked="" class="rounded border-outline-variant text-primary focus:ring-primary" type="checkbox"/>
+<span class="font-body-md text-body-md group-hover:text-primary transition-colors">Remote (远程)</span>
+</label>
+</div>
+</div>
+<div>
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase mb-base block">薪资范围</label>
+<select class="w-full bg-surface-container-low border border-outline-variant rounded-lg text-body-md py-2 mt-2 focus:ring-primary/20">
+<option>所有薪资</option>
+<option>20-30 元/小时</option>
+<option>30-50 元/小时</option>
+<option>50+ 元/小时</option>
+</select>
+</div>
+<div>
+<label class="font-label-sm text-label-sm text-on-surface-variant uppercase mb-base block">热门标签</label>
+<div class="flex flex-wrap gap-xs mt-2">
+<span class="bg-secondary-container/20 text-on-secondary-container px-2 py-1 rounded-full text-label-sm cursor-pointer hover:bg-secondary-container/40 transition-colors">技术类</span>
+<span class="bg-secondary-container/20 text-on-secondary-container px-2 py-1 rounded-full text-label-sm cursor-pointer hover:bg-secondary-container/40 transition-colors">助教</span>
+<span class="bg-secondary-container/20 text-on-secondary-container px-2 py-1 rounded-full text-label-sm cursor-pointer hover:bg-secondary-container/40 transition-colors">设计</span>
+<span class="bg-secondary-container/20 text-on-secondary-container px-2 py-1 rounded-full text-label-sm cursor-pointer hover:bg-secondary-container/40 transition-colors">行政</span>
+</div>
+</div>
+</div>
+</div>
+<div class="relative rounded-xl overflow-hidden h-48 group">
+<div class="absolute inset-0 bg-primary/40 z-10 flex flex-col justify-end p-md text-on-primary">
+<p class="font-headline-sm text-headline-sm">需要简历诊断？</p>
+<p class="font-body-sm text-body-sm mb-xs">点击咨询校园职业顾问</p>
+</div>
+<img class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" data-alt="A candid, warm photograph of a modern university career center office. A smiling student and a professional career advisor are sitting at a clean desk looking at a laptop screen together. The lighting is soft and natural from large windows, with books and university branding subtly in the background. High-quality corporate-modern photography style with soft focus." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDx5Eb6Kvaml6WCHgMmNxOenWAqtgMtiuDVxvkVHomhlFOcUfjFqhesEoDhZ3EySI_DKkah-sg7xGi-JyPZ__6wdwqM2cAAX55Qgv8hMAL8DfKkgbClhrk8HmzSQo5MDiC8mT8KuPhnNFeLzwVaK4I7-Je98wzoYah6vc41CrGSEzZ7So9najwfHsZMf8YBS6w4zPpT9PzElOGV1ZLx6A7_8mAMAM7UtrzqhJuONsRe-QstdD1Tf0mAUIwo0sOBHpfwRGmKsEYZMCs"/>
+</div>
+</aside>
+<!-- Main Job Listings (Bento/Card Grid) -->
+<div class="lg:col-span-3">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+<!-- Job Card 1: Library Assistant -->
+<div class="bg-surface-container-lowest p-md rounded-xl shadow-sm border border-outline-variant/10 hover:shadow-md transition-all flex flex-col justify-between group">
+<div>
+<div class="flex justify-between items-start mb-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-3xl">menu_book</span>
+</div>
+<span class="bg-secondary-container/10 text-on-secondary-container px-3 py-1 rounded-full text-label-sm font-bold border border-secondary-container/20">On-campus</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm group-hover:text-primary transition-colors">图书馆数字化助理</h3>
+<p class="text-primary font-bold text-lg mt-1">25 元/小时</p>
+<div class="flex flex-wrap gap-xs mt-md">
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">无需经验</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">每周15小时</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">限校内学生</span>
+</div>
+</div>
+<div class="mt-xl flex items-center justify-between">
+<span class="text-label-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">schedule</span> 2小时前发布
+                            </span>
+<button class="bg-primary text-on-primary px-md py-2 rounded-lg font-label-md hover:opacity-90 active:scale-95 transition-all">Apply Now</button>
+</div>
+</div>
+<!-- Job Card 2: UI Designer (Remote) -->
+<div class="bg-surface-container-lowest p-md rounded-xl shadow-sm border border-outline-variant/10 hover:shadow-md transition-all flex flex-col justify-between group">
+<div>
+<div class="flex justify-between items-start mb-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-3xl">palette</span>
+</div>
+<span class="bg-primary-container/10 text-on-primary-container px-3 py-1 rounded-full text-label-sm font-bold border border-primary-container/20">Remote</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm group-hover:text-primary transition-colors">UI/UX 设计实习生</h3>
+<p class="text-primary font-bold text-lg mt-1">45 元/小时</p>
+<div class="flex flex-wrap gap-xs mt-md">
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">熟练使用 Figma</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">远程协作</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">优秀作品集</span>
+</div>
+</div>
+<div class="mt-xl flex items-center justify-between">
+<span class="text-label-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">schedule</span> 1天前发布
+                            </span>
+<button class="bg-primary text-on-primary px-md py-2 rounded-lg font-label-md hover:opacity-90 active:scale-95 transition-all">Apply Now</button>
+</div>
+</div>
+<!-- Job Card 3: Coffee Shop Barista -->
+<div class="bg-surface-container-lowest p-md rounded-xl shadow-sm border border-outline-variant/10 hover:shadow-md transition-all flex flex-col justify-between group">
+<div>
+<div class="flex justify-between items-start mb-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-3xl">coffee</span>
+</div>
+<span class="bg-tertiary-fixed/30 text-on-tertiary-fixed px-3 py-1 rounded-full text-label-sm font-bold border border-outline-variant/20">Off-campus</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm group-hover:text-primary transition-colors">周边咖啡馆兼职咖啡师</h3>
+<p class="text-primary font-bold text-lg mt-1">22 元/小时</p>
+<div class="flex flex-wrap gap-xs mt-md">
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">沟通能力强</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">周末优先</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">提供培训</span>
+</div>
+</div>
+<div class="mt-xl flex items-center justify-between">
+<span class="text-label-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">schedule</span> 5小时前发布
+                            </span>
+<button class="bg-primary text-on-primary px-md py-2 rounded-lg font-label-md hover:opacity-90 active:scale-95 transition-all">Apply Now</button>
+</div>
+</div>
+<!-- Job Card 4: Lab Assistant -->
+<div class="bg-surface-container-lowest p-md rounded-xl shadow-sm border border-outline-variant/10 hover:shadow-md transition-all flex flex-col justify-between group">
+<div>
+<div class="flex justify-between items-start mb-md">
+<div class="w-12 h-12 rounded-lg bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-3xl">biotech</span>
+</div>
+<span class="bg-secondary-container/10 text-on-secondary-container px-3 py-1 rounded-full text-label-sm font-bold border border-secondary-container/20">On-campus</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm group-hover:text-primary transition-colors">生物科学实验室助理</h3>
+<p class="text-primary font-bold text-lg mt-1">35 元/小时</p>
+<div class="flex flex-wrap gap-xs mt-md">
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">限理科大二及以上</span>
+<span class="bg-surface-container-low text-on-surface-variant px-2 py-1 rounded-md text-label-sm">认真严谨</span>
+</div>
+</div>
+<div class="mt-xl flex items-center justify-between">
+<span class="text-label-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">schedule</span> 3天前发布
+                            </span>
+<button class="bg-primary text-on-primary px-md py-2 rounded-lg font-label-md hover:opacity-90 active:scale-95 transition-all">Apply Now</button>
+</div>
+</div>
+</div>
+<!-- Load More / Pagination -->
+<div class="mt-xl flex justify-center">
+<button class="text-primary border-2 border-primary/20 px-xl py-2 rounded-full font-label-md hover:bg-primary/5 transition-all flex items-center gap-2">
+                        加载更多职位
+                        <span class="material-symbols-outlined">expand_more</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<!-- Footer -->
+<footer class="bg-surface-container-low w-full py-md mt-lg border-t border-outline-variant/20">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-md px-lg max-w-container-max mx-auto">
+<div>
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">CampusBridge</span>
+<p class="font-label-sm text-label-sm text-on-surface-variant mt-2">© 2024 CampusBridge Academic Ecosystem</p>
+</div>
+<div class="flex flex-wrap gap-md md:justify-end">
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Contact Support</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Campus Directory</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Privacy Policy</a>
+<a class="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors" href="#">Terms of Service</a>
+</div>
+</div>
+</footer>
+<script>
+        // Simple Micro-interaction for hover effects on buttons
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('mouseenter', () => {
+                if (btn.classList.contains('bg-primary')) {
+                    btn.style.boxShadow = '0 10px 15px -3px rgba(0, 35, 111, 0.2)';
+                }
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.boxShadow = 'none';
+            });
+        });
+    </script>
+</body></html>

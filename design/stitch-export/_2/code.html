@@ -1,0 +1,382 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=block" rel="stylesheet"><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><script id="tailwind-config">try{
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#ffffff",
+                        "inverse-on-surface": "#eaf1ff",
+                        "outline": "#757682",
+                        "tertiary-fixed": "#dfe3e7",
+                        "surface-container-highest": "#d3e4fe",
+                        "surface-tint": "#4059aa",
+                        "primary": "#00236f",
+                        "on-tertiary": "#ffffff",
+                        "secondary-fixed": "#6ffbbe",
+                        "background": "#f8f9ff",
+                        "on-background": "#0b1c30",
+                        "surface-bright": "#f8f9ff",
+                        "error": "#ba1a1a",
+                        "surface-dim": "#cbdbf5",
+                        "tertiary": "#262b2e",
+                        "outline-variant": "#c5c5d3",
+                        "on-primary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed-variant": "#43474b",
+                        "on-secondary-fixed-variant": "#005236",
+                        "on-primary-fixed": "#00164e",
+                        "on-primary-fixed-variant": "#264191",
+                        "inverse-surface": "#213145",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-container": "#90a8ff",
+                        "on-secondary-container": "#00714d",
+                        "inverse-primary": "#b6c4ff",
+                        "primary-container": "#1e3a8a",
+                        "surface": "#f8f9ff",
+                        "secondary-fixed-dim": "#4edea3",
+                        "primary-fixed": "#dce1ff",
+                        "surface-container-low": "#eff4ff",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "on-surface-variant": "#444651",
+                        "on-secondary-fixed": "#002113",
+                        "surface-container-high": "#dce9ff",
+                        "on-error-container": "#93000a",
+                        "surface-variant": "#d3e4fe",
+                        "secondary-container": "#6cf8bb",
+                        "secondary": "#006c49",
+                        "tertiary-container": "#3c4144",
+                        "on-surface": "#0b1c30",
+                        "on-tertiary-fixed": "#171c1f",
+                        "surface-container": "#e5eeff",
+                        "on-tertiary-container": "#a8adb1",
+                        "tertiary-fixed-dim": "#c3c7cb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "lg": "40px",
+                        "gutter": "24px",
+                        "md": "24px",
+                        "base": "4px",
+                        "xl": "64px",
+                        "sm": "16px",
+                        "container-max": "1280px",
+                        "xs": "8px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "label-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "display": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                        "label-md": ["14px", {"lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "display": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}]
+                    }
+                },
+            },
+        }
+    }catch(_e){}</script></head><body class="bg-background text-on-background font-body-md min-h-screen">
+
+    <!-- TopNavBar -->
+    <nav class="fixed top-0 w-full z-50 glass-nav bg-surface/80 border-b border-outline-variant/30 transition-all duration-200">
+        <div class="flex items-center justify-between px-lg max-w-container-max mx-auto h-16">
+            <div class="font-headline-md text-headline-md font-bold text-primary">CampusBridge</div>
+            
+            <div class="hidden md:flex items-center space-x-md">
+                <a href="#" class="font-body-md text-body-md text-primary border-b-2 border-primary pb-1 transition-all duration-200 active:scale-95">Resources</a>
+                <a href="#" class="font-body-md text-body-md text-on-surface-variant hover:text-primary transition-colors transition-all duration-200 active:scale-95">Marketplace</a>
+                <a href="#" class="font-body-md text-body-md text-on-surface-variant hover:text-primary transition-colors transition-all duration-200 active:scale-95">Jobs</a>
+            </div>
+
+            <div class="flex items-center space-x-sm">
+                <div class="relative hidden lg:block">
+                    <input type="text" placeholder="搜索资源..." class="bg-surface-container-low border-none rounded-xl px-md py-xs w-64 focus:ring-2 focus:ring-primary/20 transition-all text-body-sm shadow-sm">
+                    <span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+                </div>
+                <button class="p-xs hover:bg-surface-container-low rounded-lg transition-all duration-200 active:scale-95">
+                    <span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+                </button>
+                <button class="p-xs hover:bg-surface-container-low rounded-lg transition-all duration-200 active:scale-95">
+                    <span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="pt-24 pb-xl px-lg max-w-container-max mx-auto">
+        <!-- Hero Section / Header -->
+        <header class="mb-xl flex flex-col md:flex-row md:items-end justify-between gap-md">
+            <div>
+                <h1 class="font-headline-lg text-headline-lg text-primary mb-xs">资源枢纽</h1>
+                <p class="text-on-surface-variant font-body-lg text-body-lg max-w-2xl">
+                    欢迎来到校园资源共享中心。在这里，您可以发现优质的教学课件、必备软件、电子书籍以及丰富的校园文化资源。
+                </p>
+            </div>
+            <button class="bg-primary text-on-primary px-md py-xs rounded-lg font-label-md flex items-center gap-xs shadow-sm hover:opacity-90 transition-all active:scale-95">
+                <span class="material-symbols-outlined">cloud_upload</span>
+                上传分享
+            </button>
+        </header>
+
+        <!-- Category Tabs -->
+        <div class="flex items-center space-x-xs mb-lg overflow-x-auto pb-xs scrollbar-hide">
+            <button class="px-md py-xs rounded-full bg-secondary-container text-on-secondary-container font-label-md transition-all active:scale-95 whitespace-nowrap">全部资源</button>
+            <button class="px-md py-xs rounded-full bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high font-label-md transition-all active:scale-95 whitespace-nowrap">学习资料</button>
+            <button class="px-md py-xs rounded-full bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high font-label-md transition-all active:scale-95 whitespace-nowrap">常用软件</button>
+            <button class="px-md py-xs rounded-full bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high font-label-md transition-all active:scale-95 whitespace-nowrap">电子图书</button>
+            <button class="px-md py-xs rounded-full bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high font-label-md transition-all active:scale-95 whitespace-nowrap">影视娱乐</button>
+        </div>
+
+        <!-- Bento Grid Layout -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-md">
+            
+            <!-- Resource Card 1: Study Material -->
+            <div class="bg-surface-container-lowest rounded-xl resource-card-shadow flex flex-col p-md border border-outline-variant/10">
+                <div class="flex justify-between items-start mb-md">
+                    <div class="w-12 h-12 rounded-lg bg-primary-container/10 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-display" style="font-size: 24px;">menu_book</span>
+                    </div>
+                    <span class="px-xs py-1 rounded-full bg-secondary-container/20 text-on-secondary-container text-label-sm">学习资料</span>
+                </div>
+                <h3 class="font-headline-sm text-headline-sm text-on-surface mb-xs line-clamp-1">高等数学期末复习全攻略</h3>
+                <p class="text-on-surface-variant text-body-sm mb-lg">包含历年真题解析与考点总结，适用于大一各专业...</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-label-sm text-on-surface-variant font-medium">贡献者: 张晓明</span>
+                        <span class="text-label-sm text-outline flex items-center gap-1">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">download</span> 1,248 次下载
+                        </span>
+                    </div>
+                    <button class="p-xs rounded-lg text-on-surface-variant hover:text-error transition-colors group/report relative" title="举报违规内容">
+  <span class="material-symbols-outlined" style="font-size: 20px;">flag</span>
+</button><button class="bg-primary-container text-on-primary-container p-xs rounded-lg hover:bg-primary-container/80 transition-colors">
+                        <span class="material-symbols-outlined">download</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resource Card 2: Software -->
+            <div class="bg-surface-container-lowest rounded-xl resource-card-shadow flex flex-col p-md border border-outline-variant/10">
+                <div class="flex justify-between items-start mb-md">
+                    <div class="w-12 h-12 rounded-lg bg-primary-container/10 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-display" style="font-size: 24px;">terminal</span>
+                    </div>
+                    <span class="px-xs py-1 rounded-full bg-secondary-container/20 text-on-secondary-container text-label-sm">常用软件</span>
+                </div>
+                <h3 class="font-headline-sm text-headline-sm text-on-surface mb-xs line-clamp-1">MATLAB 2023b 校园版</h3>
+                <p class="text-on-surface-variant text-body-sm mb-lg">科学计算与建模必备，内附详细安装教程与激活指南。</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-label-sm text-on-surface-variant font-medium">贡献者: 软件中心</span>
+                        <span class="text-label-sm text-outline flex items-center gap-1">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">download</span> 3,502 次下载
+                        </span>
+                    </div>
+                    <button class="p-xs rounded-lg text-on-surface-variant hover:text-error transition-colors group/report relative" title="举报违规内容">
+  <span class="material-symbols-outlined" style="font-size: 20px;">flag</span>
+</button><button class="bg-primary-container text-on-primary-container p-xs rounded-lg hover:bg-primary-container/80 transition-colors">
+                        <span class="material-symbols-outlined">link</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resource Card 3-->
+            <div class="bg-surface-container-lowest rounded-xl resource-card-shadow flex flex-col p-md border border-outline-variant/10">
+                <div class="flex justify-between items-start mb-md">
+                    <div class="w-12 h-12 rounded-lg bg-primary-container/10 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-display" style="font-size: 24px;">auto_stories</span>
+                    </div>
+                    <span class="px-xs py-1 rounded-full bg-secondary-container/20 text-on-secondary-container text-label-sm">电子图书</span>
+                </div>
+                <h3 class="font-headline-sm text-headline-sm text-on-surface mb-xs line-clamp-1">《计算思维》高清PDF</h3>
+                <p class="text-on-surface-variant text-body-sm mb-lg">周以真教授名著，理解计算机科学内核的必读读物。</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-label-sm text-on-surface-variant font-medium">贡献者: 图书馆协</span>
+                        <span class="text-label-sm text-outline flex items-center gap-1">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">download</span> 856 次下载
+                        </span>
+                    </div>
+                    <button class="p-xs rounded-lg text-on-surface-variant hover:text-error transition-colors group/report relative" title="举报违规内容">
+  <span class="material-symbols-outlined" style="font-size: 20px;">flag</span>
+</button><button class="bg-primary-container text-on-primary-container p-xs rounded-lg hover:bg-primary-container/80 transition-colors">
+                        <span class="material-symbols-outlined">download</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resource Card 4: Movie -->
+            <div class="bg-surface-container-lowest rounded-xl resource-card-shadow flex flex-col p-md border border-outline-variant/10">
+                <div class="flex justify-between items-start mb-md">
+                    <div class="w-12 h-12 rounded-lg bg-primary-container/10 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-display" style="font-size: 24px;">movie</span>
+                    </div>
+                    <span class="px-xs py-1 rounded-full bg-secondary-container/20 text-on-secondary-container text-label-sm">影视娱乐</span>
+                </div>
+                <h3 class="font-headline-sm text-headline-sm text-on-surface mb-xs line-clamp-1">奥斯卡获奖短片合集</h3>
+                <p class="text-on-surface-variant text-body-sm mb-lg">精选近五年获奖动画短片，4K高清修复版。</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-label-sm text-on-surface-variant font-medium">贡献者: 电影社</span>
+                        <span class="text-label-sm text-outline flex items-center gap-1">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">download</span> 541 次下载
+                        </span>
+                    </div>
+                    <button class="p-xs rounded-lg text-on-surface-variant hover:text-error transition-colors group/report relative" title="举报违规内容">
+  <span class="material-symbols-outlined" style="font-size: 20px;">flag</span>
+</button><button class="bg-primary-container text-on-primary-container p-xs rounded-lg hover:bg-primary-container/80 transition-colors">
+                        <span class="material-symbols-outlined">play_arrow</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resource Card 5: Study Material -->
+            <div class="bg-surface-container-lowest rounded-xl resource-card-shadow flex flex-col p-md border border-outline-variant/10">
+                <div class="flex justify-between items-start mb-md">
+                    <div class="w-12 h-12 rounded-lg bg-primary-container/10 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-display" style="font-size: 24px;">description</span>
+                    </div>
+                    <span class="px-xs py-1 rounded-full bg-secondary-container/20 text-on-secondary-container text-label-sm">学习资料</span>
+                </div>
+                <h3 class="font-headline-sm text-headline-sm text-on-surface mb-xs line-clamp-1">计算机网络拓扑模拟图集</h3>
+                <p class="text-on-surface-variant text-body-sm mb-lg">详细展示了各种企业级网络布局方案，期末实验参考。</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-label-sm text-on-surface-variant font-medium">贡献者: Net_Guru</span>
+                        <span class="text-label-sm text-outline flex items-center gap-1">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">download</span> 2,110 次下载
+                        </span>
+                    </div>
+                    <button class="p-xs rounded-lg text-on-surface-variant hover:text-error transition-colors group/report relative" title="举报违规内容">
+  <span class="material-symbols-outlined" style="font-size: 20px;">flag</span>
+</button><button class="bg-primary-container text-on-primary-container p-xs rounded-lg hover:bg-primary-container/80 transition-colors">
+                        <span class="material-symbols-outlined">download</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Resource Card 6: Software -->
+            <div class="bg-surface-container-lowest rounded-xl resource-card-shadow flex flex-col p-md border border-outline-variant/10">
+                <div class="flex justify-between items-start mb-md">
+                    <div class="w-12 h-12 rounded-lg bg-primary-container/10 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-display" style="font-size: 24px;">design_services</span>
+                    </div>
+                    <span class="px-xs py-1 rounded-full bg-secondary-container/20 text-on-secondary-container text-label-sm">常用软件</span>
+                </div>
+                <h3 class="font-headline-sm text-headline-sm text-on-surface mb-xs line-clamp-1">Adobe CC 2024 全家桶</h3>
+                <p class="text-on-surface-variant text-body-sm mb-lg">设计专业福音，包含PS, AI, PR等全套创意软件。</p>
+                <div class="mt-auto flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-label-sm text-on-surface-variant font-medium">贡献者: 视觉设计系</span>
+                        <span class="text-label-sm text-outline flex items-center gap-1">
+                            <span class="material-symbols-outlined" style="font-size: 14px;">download</span> 9,800+ 次下载
+                        </span>
+                    </div>
+                    <button class="p-xs rounded-lg text-on-surface-variant hover:text-error transition-colors group/report relative" title="举报违规内容">
+  <span class="material-symbols-outlined" style="font-size: 20px;">flag</span>
+</button><button class="bg-primary-container text-on-primary-container p-xs rounded-lg hover:bg-primary-container/80 transition-colors">
+                        <span class="material-symbols-outlined">link</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Featured Large Card (Asymmetric Layout) -->
+            <div class="md:col-span-2 bg-primary-container rounded-xl resource-card-shadow p-lg flex flex-col md:flex-row items-center gap-lg relative overflow-hidden group">
+                <div class="absolute -right-12 -top-12 w-64 h-64 bg-white/5 rounded-full blur-3xl group-hover:scale-125 transition-transform duration-500"></div>
+                <div class="flex-1 z-10">
+                    <span class="text-secondary-fixed text-label-sm mb-sm block">本周热门推荐</span>
+                    <h2 class="text-white font-headline-lg text-headline-lg mb-md">全国大学生数学建模大赛真题全集 (2010-2023)</h2>
+                    <p class="text-white/80 text-body-md mb-lg">这份由多位获奖学长整理的资料包包含了从初步方案到最终论文的完整流程，不仅有题目，更有获奖优秀论文范例。是每一个参赛团队的必备参考资料。</p>
+                    <div class="flex items-center gap-lg">
+                        <div class="text-white">
+                            <p class="text-label-sm opacity-60">下载次数</p>
+                            <p class="font-headline-sm">45,210+</p>
+                        </div>
+                        <div class="text-white">
+                            <p class="text-label-sm opacity-60">更新时间</p>
+                            <p class="font-headline-sm">2024-03-15</p>
+                        </div>
+                        <button class="bg-secondary-fixed text-on-secondary-fixed-variant px-md py-xs rounded-lg font-label-md hover:scale-105 transition-transform active:scale-95 ml-auto">
+                            立即获取
+                        </button>
+                    </div>
+                </div>
+                <div class="w-full md:w-48 h-48 rounded-xl bg-surface/10 backdrop-blur-md flex items-center justify-center z-10 border border-white/10">
+                    <span class="material-symbols-outlined text-white" style="font-size: 80px;">workspace_premium</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Pagination or Load More -->
+        <div class="mt-xl flex justify-center">
+            <button class="px-xl py-xs border-2 border-primary text-primary rounded-lg font-label-md hover:bg-primary/5 transition-colors active:scale-95">
+                加载更多资源
+            </button>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full py-md mt-lg bg-surface-container-low border-t border-outline-variant/20">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-md px-lg max-w-container-max mx-auto">
+            <div class="space-y-sm">
+                <div class="font-headline-sm text-headline-sm font-bold text-on-surface">CampusBridge</div>
+                <p class="text-on-surface-variant font-label-sm text-label-sm max-w-sm">
+                    © 2024 CampusBridge Academic Ecosystem. 致力于打造最便捷、最安全、最有趣的校园学术资源共享平台。
+                </p>
+            </div>
+            <div class="flex flex-col md:flex-row md:justify-end gap-md md:gap-xl">
+                <div class="space-y-base">
+                    <p class="text-primary font-bold font-label-sm">常用链接</p>
+                    <div class="flex flex-col space-y-base">
+                        <a href="#" class="text-on-surface-variant hover:text-primary transition-colors font-label-sm">Contact Support</a>
+                        <a href="#" class="text-on-surface-variant hover:text-primary transition-colors font-label-sm">Campus Directory</a>
+                    </div>
+                </div>
+                <div class="space-y-base">
+                    <p class="text-primary font-bold font-label-sm">法律信息</p>
+                    <div class="flex flex-col space-y-base">
+                        <a href="#" class="text-on-surface-variant hover:text-primary transition-colors font-label-sm">Privacy Policy</a>
+                        <a href="#" class="text-on-surface-variant hover:text-primary transition-colors font-label-sm">Terms of Service</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- FAB for quick action -->
+    <button class="fixed bottom-lg right-lg w-14 h-14 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-40">
+        <span class="material-symbols-outlined">add</span>
+    </button>
+
+    <script class="">
+        // Micro-interactions
+        document.querySelectorAll('.resource-card-shadow').forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                const icon = card.querySelector('.material-symbols-outlined');
+                if(icon) icon.style.transition = 'transform 0.3s ease';
+                if(icon) icon.style.transform = 'scale(1.2) rotate(-5deg)';
+            });
+            card.addEventListener('mouseleave', () => {
+                const icon = card.querySelector('.material-symbols-outlined');
+                if(icon) icon.style.</script></body></html>

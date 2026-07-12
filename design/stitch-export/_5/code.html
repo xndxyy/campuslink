@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>举报违规内容 - CampusBridge</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-container": "#6cf8bb",
+                        "on-primary-fixed": "#00164e",
+                        "inverse-primary": "#b6c4ff",
+                        "inverse-on-surface": "#eaf1ff",
+                        "surface-bright": "#f8f9ff",
+                        "on-primary-fixed-variant": "#264191",
+                        "on-error": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed": "#6ffbbe",
+                        "primary-fixed": "#dce1ff",
+                        "surface": "#f8f9ff",
+                        "surface-container-highest": "#d3e4fe",
+                        "secondary-fixed-dim": "#4edea3",
+                        "tertiary": "#262b2e",
+                        "on-primary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-fixed": "#171c1f",
+                        "secondary": "#006c49",
+                        "surface-container-low": "#eff4ff",
+                        "on-tertiary-container": "#a8adb1",
+                        "on-surface-variant": "#444651",
+                        "on-secondary": "#ffffff",
+                        "surface-tint": "#4059aa",
+                        "on-secondary-container": "#00714d",
+                        "surface-container-high": "#dce9ff",
+                        "surface-variant": "#d3e4fe",
+                        "error": "#ba1a1a",
+                        "tertiary-container": "#3c4144",
+                        "surface-dim": "#cbdbf5",
+                        "primary-fixed-dim": "#b6c4ff",
+                        "surface-container": "#e5eeff",
+                        "tertiary-fixed": "#dfe3e7",
+                        "on-background": "#0b1c30",
+                        "on-secondary-fixed": "#002113",
+                        "on-primary-container": "#90a8ff",
+                        "on-secondary-fixed-variant": "#005236",
+                        "on-tertiary": "#ffffff",
+                        "on-surface": "#0b1c30",
+                        "primary-container": "#1e3a8a",
+                        "primary": "#00236f",
+                        "on-error-container": "#93000a",
+                        "inverse-surface": "#213145",
+                        "tertiary-fixed-dim": "#c3c7cb",
+                        "outline-variant": "#c5c5d3",
+                        "on-tertiary-fixed-variant": "#43474b",
+                        "background": "#f8f9ff",
+                        "outline": "#757682"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1280px",
+                        "base": "4px",
+                        "gutter": "24px",
+                        "sm": "16px",
+                        "md": "24px",
+                        "xl": "64px",
+                        "lg": "40px",
+                        "xs": "8px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "display": ["Inter"],
+                        "body-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "label-md": ["Inter"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "700"}],
+                        "display": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "fontWeight": "600"}],
+                        "label-md": ["14px", {"lineHeight": "16px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .modal-overlay {
+            background-color: rgba(11, 28, 48, 0.6);
+            backdrop-filter: blur(4px);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #d3e4fe;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body class="bg-background min-h-screen flex items-center justify-center p-md">
+<!-- Demo Background to show Modal Overly Effect -->
+<div class="fixed inset-0 z-0 overflow-hidden pointer-events-none opacity-20">
+
+</div>
+<!-- Main Modal Container -->
+<div class="fixed inset-0 z-50 flex items-center justify-center p-sm sm:p-md modal-overlay">
+<div class="bg-surface-container-lowest w-full max-w-[560px] max-h-[921px] overflow-hidden rounded-xl shadow-2xl flex flex-col transition-all duration-300 transform scale-100 border border-outline-variant/20">
+<!-- Modal Header -->
+<div class="px-lg pt-lg pb-md flex justify-between items-start">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">举报违规内容</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-xs">请选择举报理由，我们将尽快核实处理。</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary transition-colors p-xs rounded-full hover:bg-surface-container-low active:scale-90 transition-transform">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Modal Content (Scrollable) -->
+<div class="px-lg flex-1 overflow-y-auto custom-scrollbar space-y-md pb-md">
+<!-- Report Reasons Grid -->
+<div class="space-y-sm">
+<label class="font-label-md text-label-md text-on-surface-variant block">举报理由</label>
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-sm">
+<label class="group flex items-center p-sm border border-outline-variant rounded-lg cursor-pointer hover:bg-surface-container-low transition-all active:scale-[0.98]">
+<input class="w-5 h-5 text-primary focus:ring-primary border-outline-variant cursor-pointer" name="reason" type="radio"/>
+<span class="ml-sm font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">广告营销</span>
+</label>
+<label class="group flex items-center p-sm border border-outline-variant rounded-lg cursor-pointer hover:bg-surface-container-low transition-all active:scale-[0.98]">
+<input class="w-5 h-5 text-primary focus:ring-primary border-outline-variant cursor-pointer" name="reason" type="radio"/>
+<span class="ml-sm font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">违法违规</span>
+</label>
+<label class="group flex items-center p-sm border border-outline-variant rounded-lg cursor-pointer hover:bg-surface-container-low transition-all active:scale-[0.98]">
+<input class="w-5 h-5 text-primary focus:ring-primary border-outline-variant cursor-pointer" name="reason" type="radio"/>
+<span class="ml-sm font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">侵权内容 (版权/名誉等)</span>
+</label>
+<label class="group flex items-center p-sm border border-outline-variant rounded-lg cursor-pointer hover:bg-surface-container-low transition-all active:scale-[0.98]">
+<input class="w-5 h-5 text-primary focus:ring-primary border-outline-variant cursor-pointer" name="reason" type="radio"/>
+<span class="ml-sm font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">低俗色情</span>
+</label>
+<label class="group flex items-center p-sm border border-outline-variant rounded-lg cursor-pointer hover:bg-surface-container-low transition-all active:scale-[0.98]">
+<input class="w-5 h-5 text-primary focus:ring-primary border-outline-variant cursor-pointer" name="reason" type="radio"/>
+<span class="ml-sm font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">虚假信息</span>
+</label>
+<label class="group flex items-center p-sm border border-outline-variant rounded-lg cursor-pointer hover:bg-surface-container-low transition-all active:scale-[0.98]">
+<input class="w-5 h-5 text-primary focus:ring-primary border-outline-variant cursor-pointer" name="reason" type="radio"/>
+<span class="ml-sm font-body-md text-body-md text-on-surface group-hover:text-primary transition-colors">其他</span>
+</label>
+</div>
+</div>
+<!-- Detailed Description -->
+<div class="space-y-sm">
+<label class="font-label-md text-label-md text-on-surface-variant block">详细说明</label>
+<textarea class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-sm font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-on-surface-variant/50" placeholder="请详细描述违规情况，以便我们快速处理（选填）" rows="3"></textarea>
+</div>
+<!-- Image Upload -->
+<div class="space-y-sm">
+<label class="font-label-md text-label-md text-on-surface-variant block">证据截图</label>
+<div class="flex items-center gap-sm flex-wrap">
+<!-- Upload Trigger -->
+<div class="w-24 h-24 border-2 border-dashed border-outline-variant rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-primary hover:bg-primary/5 transition-all text-on-surface-variant hover:text-primary">
+<span class="material-symbols-outlined text-headline-sm">add_photo_alternate</span>
+<span class="text-[10px] font-bold mt-1">点击上传</span>
+</div>
+<!-- Placeholder Thumbnails (Empty State simulation) -->
+<div class="flex items-center gap-sm">
+<!-- Visual cue for what would be here -->
+<div class="hidden sm:flex items-center justify-center w-24 h-24 bg-surface-container-low rounded-lg border border-outline-variant/30 overflow-hidden relative group">
+<div class="absolute inset-0 bg-cover bg-center opacity-40 grayscale" data-alt="A minimalist architectural interior with clean lines and soft blue lighting, representing a modern corporate campus environment. The space is bright and airy with glass elements reflecting a serene academic atmosphere. Professional architectural photography style." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBx5Sbfx2a5qUXBczchHb8pbOcPVr5KrZsGnYorwzupbftVF9KubMXVeT7D9nkaThe3TjiJeBtkY4qxkqNM6Dr6wjSCxtHi3ya5PPJs77vNzzXnedJzRWFgw_9CDvTVwkkzV0A4s12z5IgApx02ZIIme05bL7EOsvl8_0agYhCkoSM48nKXeRivWpjFRWH9MSIJxAtDxGJTxZXICCiLhq1j6xBndjN0hlSPG3SzlzCKzIu1WkJE3Yn6Mh1dNmHgr8QmhFALRjXVLJs')"></div>
+<span class="material-symbols-outlined text-on-surface-variant/40">image</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="p-lg bg-surface-container-low flex flex-col-reverse sm:flex-row items-center justify-end gap-sm">
+<button class="w-full sm:w-auto px-lg py-sm font-label-md text-label-md text-on-surface-variant border border-outline-variant rounded-lg hover:bg-surface-container-highest transition-colors active:scale-95">
+                    取消
+                </button>
+<button class="w-full sm:w-auto px-lg py-sm font-label-md text-label-md text-on-primary bg-primary rounded-lg hover:bg-primary-container shadow-sm hover:shadow-md transition-all active:scale-95 flex items-center justify-center gap-xs">
+<span class="material-symbols-outlined text-[18px]">send</span>
+                    提交举报
+                </button>
+</div>
+</div>
+</div>
+<!-- Micro-interaction Scripts -->
+<script>
+        document.querySelectorAll('input[type="radio"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                // Remove highlighting from all labels
+                document.querySelectorAll('label.group').forEach(label => {
+                    label.classList.remove('border-primary', 'bg-primary/5');
+                });
+                // Add highlighting to the selected parent label
+                if (e.target.checked) {
+                    e.target.closest('label').classList.add('border-primary', 'bg-primary/5');
+                }
+            });
+        });
+
+        // Close on escape
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                // In a real app, this would trigger the close animation/function
+                console.log('Closing modal...');
+            }
+        });
+    </script>
+</body></html>

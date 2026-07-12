@@ -14,7 +14,7 @@ const allowedTransitions: Readonly<
   [ContentStatus.PENDING]: [
     ContentStatus.PUBLISHED,
     ContentStatus.REJECTED,
-    ContentStatus.HIDDEN,
+    ContentStatus.ARCHIVED,
   ],
   [ContentStatus.PUBLISHED]: [ContentStatus.HIDDEN, ContentStatus.ARCHIVED],
   [ContentStatus.REJECTED]: [ContentStatus.DRAFT, ContentStatus.ARCHIVED],

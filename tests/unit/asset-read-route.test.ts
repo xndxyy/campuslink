@@ -60,5 +60,34 @@ describe('asset read route', () => {
       'https://storage.example/signed-image',
     );
     expect(sign).toHaveBeenCalledWith('opaque/key', 'image/png', 'inline');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('forces resource documents to download as attachments', async () => {
+    const sign = vi.fn(async () => 'https://storage.example/signed-document');
+    const response = await handleAssetRead('asset_document', {
+      authorize: vi.fn(async () => ({
+        contentType: 'application/pdf',
+        kind: 'RESOURCE_DOCUMENT',
+        storageKey: 'opaque/document-key',
+      })),
+      resolveUser: async () => ({
+        campusId: 'campus_1',
+        email: 'student@example.test',
+        emailVerifiedAt: new Date(),
+        id: 'student_1',
+        name: null,
+        role: 'STUDENT',
+        status: 'ACTIVE',
+      }),
+      sign,
+    });
+    expect(sign).toHaveBeenCalledWith(
+      'opaque/document-key',
+      'application/pdf',
+      'attachment',
+    );
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
 });

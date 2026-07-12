@@ -129,6 +129,18 @@ describe('administrator user controls', () => {
     ).rejects.toBeInstanceOf(AdminConflictError);
   });
 
+  it('revokes sessions for every ACTIVE to non-ACTIVE status transition', async () => {
+    const db = adapter();
+    await updateManagedUser(db, admin, {
+      reason: 'Account returns to pending verification after identity review.',
+      status: 'PENDING_VERIFICATION',
+      userId: 'user_1',
+    });
+    expect(db.session.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'user_1' },
+    });
+  });
+
   it('denies moderators before user lookup', async () => {
     const db = adapter();
     await expect(
@@ -214,6 +226,21 @@ describe('campus settings and audit privacy', () => {
           reason: 'University domain migration completed.',
         }),
       ).rejects.toBeInstanceOf(AdminValidationError);
+    },
+  );
+
+  it.each([{ code: 'P2002' }, { code: '23505' }])(
+    'maps duplicate campus domain conflict %j to a safe administration conflict',
+    async (error) => {
+      const db = adapter();
+      vi.mocked(db.$transaction).mockRejectedValue(error);
+      await expect(
+        updateCampusConfig(db, admin, {
+          allowedEmailDomain: 'students.example.edu',
+          name: 'Example University',
+          reason: 'University domain migration completed.',
+        }),
+      ).rejects.toBeInstanceOf(AdminConflictError);
     },
   );
 

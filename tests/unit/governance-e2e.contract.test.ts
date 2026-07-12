@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -8,19 +8,38 @@ function source(path: string) {
 
 const moderation = source('../e2e/moderation.spec.ts');
 const gate = source('../helpers/e2e-environment.ts');
+const safetyPath = fileURLToPath(
+  new URL('../helpers/e2e-database-safety.ts', import.meta.url),
+);
+const safety = existsSync(safetyPath) ? readFileSync(safetyPath, 'utf8') : '';
 
 describe('fully parallel governance E2E isolation contract', () => {
-  it('creates only run-scoped campus and account fixtures with a known password hash', () => {
+  it('creates only run-scoped campus and accounts with a secret random credential', () => {
     expect(moderation).toContain('INSERT INTO "Campus"');
     expect(moderation).toContain('INSERT INTO "User"');
     expect(moderation).toContain('randomUUID()');
-    expect(moderation).toMatch(/\$2[aby]\$\d{2}\$/);
+    expect(moderation).toContain('randomBytes(32)');
+    expect(moderation).toContain('await hash(password, 12)');
+    expect(moderation).not.toMatch(/\$2[aby]\$\d{2}\$/);
+    expect(moderation).not.toMatch(/const password\s*=\s*['"`]/);
     expect(moderation).not.toContain('E2E_VERIFIED_EMAIL');
     expect(moderation).not.toContain('E2E_MODERATOR_EMAIL');
     expect(moderation).not.toContain('E2E_ADMIN_EMAIL');
     expect(moderation).not.toContain(
       "test.describe.configure({ mode: 'serial' })",
     );
+  });
+
+  it('fails closed before opening the database unless destructive E2E is explicitly safe', () => {
+    expect(safety).toContain('ALLOW_DESTRUCTIVE_E2E');
+    expect(safety).toContain("NODE_ENV === 'production'");
+    expect(safety).toMatch(/_e2e\|_test/);
+    const guard = moderation.indexOf(
+      'assertSafeDestructiveE2eEnvironment(process.env)',
+    );
+    const pool = moderation.indexOf('new Pool(');
+    expect(guard).toBeGreaterThan(-1);
+    expect(pool).toBeGreaterThan(guard);
   });
 
   it('captures each browser session by hashing the actual cookie value', () => {

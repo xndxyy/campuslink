@@ -320,3 +320,15 @@ model AuditLog {
   @@index([actorId, createdAt])
   @@index([campusId, createdAt, id])
 }
+
+model AuditLogQuarantine {
+  originalId        String                 @id
+  actorId           String?
+  event             String                 @db.VarChar(100)
+  entityType        ModerationSubjectType?
+  entityId          String?
+  metadata          Json?
+  originalCreatedAt DateTime
+  reason            String                 @db.Text
+  quarantinedAt     DateTime               @default(now())
+}

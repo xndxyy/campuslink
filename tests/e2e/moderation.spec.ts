@@ -1,6 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
+import { hash } from 'bcryptjs';
 import { Pool, type PoolClient } from 'pg';
+import { assertSafeDestructiveE2eEnvironment } from '../helpers/e2e-database-safety';
 import { hasCompleteGovernanceE2eEnvironment } from '../helpers/e2e-environment';
 
 test.skip(
@@ -9,9 +11,8 @@ test.skip(
 );
 
 const runId = randomUUID();
-const password = 'Governance-E2E-Password-2026!';
-const passwordHash =
-  '$2b$12$bSx3V/LaioMvs5dQye0K8uVIgmlGHj6dM6PL7h1oJwOcdZr9R1G9u';
+const password = randomBytes(32).toString('base64url');
+let passwordHash = '';
 const campusId = `e2e-campus-${runId}`;
 const campusSlug = `governance-${runId}`;
 const campusDomain = `governance-${runId}.test`;
@@ -80,6 +81,8 @@ async function insertUser(
 }
 
 async function createFixture() {
+  assertSafeDestructiveE2eEnvironment(process.env);
+  passwordHash = await hash(password, 12);
   db = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await db.connect();
   try {

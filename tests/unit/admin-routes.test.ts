@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleModerationMutation } from '@/app/api/admin/moderation/route';
 import { handleUserMutation } from '@/app/api/admin/users/route';
 import { ModerationConflictError } from '@/lib/domain/moderation';
+import { AdminConflictError } from '@/lib/domain/administration';
 
 const moderator = {
   campusId: 'campus_1',
@@ -114,5 +115,25 @@ describe('admin mutation route protections', () => {
     );
     expect(response.status).toBe(403);
     expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('maps campus domain uniqueness conflicts to 409 without database details', async () => {
+    const response = await handleUserMutation(
+      request('/api/admin/users', {
+        reason: 'Campus governance update.',
+        role: 'STUDENT',
+        userId: 'user_1',
+      }),
+      {
+        mutate: vi.fn(async () => {
+          throw new AdminConflictError('Unique constraint P2002');
+        }),
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+      },
+    );
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      message: 'Administration state conflict.',
+    });
   });
 });

@@ -47,9 +47,40 @@ describe('content validation', () => {
   });
 
   it.each([
-    ['resource', createResourceSchema, { assetIds: ['doc_1'], summary: '<b>notes</b>', tags: [], title: 'Useful notes' }],
-    ['marketplace', createMarketplaceItemSchema, { assetIds: ['image_1'], condition: 'GOOD', contact: 'mail me', description: '<script>alert(1)</script>', pickupArea: 'Library', price: '1.00', title: 'Used book' }],
-    ['job', createJobSchema, { company: 'Campus Cafe', description: '<a href=x>Apply</a>', location: 'Campus', payText: '$20/hour', title: 'Weekend assistant' }],
+    [
+      'resource',
+      createResourceSchema,
+      {
+        assetIds: ['doc_1'],
+        summary: '<b>notes</b>',
+        tags: [],
+        title: 'Useful notes',
+      },
+    ],
+    [
+      'marketplace',
+      createMarketplaceItemSchema,
+      {
+        assetIds: ['image_1'],
+        condition: 'GOOD',
+        contact: 'mail me',
+        description: '<script>alert(1)</script>',
+        pickupArea: 'Library',
+        price: '1.00',
+        title: 'Used book',
+      },
+    ],
+    [
+      'job',
+      createJobSchema,
+      {
+        company: 'Campus Cafe',
+        description: '<a href=x>Apply</a>',
+        location: 'Campus',
+        payText: '$20/hour',
+        title: 'Weekend assistant',
+      },
+    ],
   ])('rejects HTML-like input for %s content', (_name, schema, value) => {
     expect(() => schema.parse(value)).toThrow();
   });

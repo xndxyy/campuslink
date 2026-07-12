@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   ContentConflictError,
+  type ContentAdapter,
   createJobPost,
   createMarketplaceItem,
   createResource,
@@ -26,7 +27,10 @@ type Asset = {
 function createAdapter(assets: Asset[] = []) {
   const created: Array<Record<string, unknown>> = [];
   const adapter = {
-    $transaction: vi.fn(async (operation: (tx: typeof adapter) => unknown) => operation(adapter)),
+    $transaction: vi.fn(
+      async <T>(operation: (tx: typeof adapter) => Promise<T>) =>
+        operation(adapter),
+    ),
     asset: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
         assets.filter((asset) => where.id.in.includes(asset.id)),
@@ -39,7 +43,10 @@ function createAdapter(assets: Asset[] = []) {
         created.push(record);
         return record;
       }),
-      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'job_1', ...data })),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'job_1',
+        ...data,
+      })),
     },
     marketplaceItem: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -47,7 +54,10 @@ function createAdapter(assets: Asset[] = []) {
         created.push(record);
         return record;
       }),
-      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'market_1', ...data })),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'market_1',
+        ...data,
+      })),
     },
     resource: {
       count: vi.fn(async () => 3),
@@ -57,13 +67,28 @@ function createAdapter(assets: Asset[] = []) {
         return record;
       }),
       findMany: vi.fn(async () => [
-        { createdAt: new Date('2026-07-12T11:00:00Z'), id: 'r3', status: 'PUBLISHED' },
-        { createdAt: new Date('2026-07-12T10:00:00Z'), id: 'r2', status: 'PUBLISHED' },
+        {
+          createdAt: new Date('2026-07-12T11:00:00Z'),
+          id: 'r3',
+          status: 'PUBLISHED',
+        },
+        {
+          createdAt: new Date('2026-07-12T10:00:00Z'),
+          id: 'r2',
+          status: 'PUBLISHED',
+        },
       ]),
-      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'resource_1', ...data })),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'resource_1',
+        ...data,
+      })),
     },
   };
-  return { adapter, created };
+  return {
+    adapter,
+    created,
+    serviceAdapter: adapter as unknown as ContentAdapter,
+  };
 }
 
 const resourceInput = {
@@ -76,20 +101,38 @@ const resourceInput = {
 
 describe('content service', () => {
   it('rejects a resource without a document with the exact domain message', async () => {
-    const { adapter } = createAdapter([
-      { id: 'image_1', kind: 'RESOURCE_IMAGE', marketplaceItemId: null, ownerId: actor.id, resourceId: null, status: 'READY' },
+    const { serviceAdapter } = createAdapter([
+      {
+        id: 'image_1',
+        kind: 'RESOURCE_IMAGE',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
     ]);
 
-    await expect(createResource(adapter, actor, { ...resourceInput, assetIds: ['image_1'] })).rejects.toThrow('Resource requires a document');
+    await expect(
+      createResource(serviceAdapter, actor, {
+        ...resourceInput,
+        assetIds: ['image_1'],
+      }),
+    ).rejects.toThrow('Resource requires a document');
   });
 
   it('rejects a marketplace item without an image', async () => {
-    const { adapter } = createAdapter([]);
-    await expect(createMarketplaceItem(adapter, actor, {
-      assetIds: ['missing_image'], condition: 'GOOD', contact: 'Campus inbox only',
-      description: 'A carefully used discrete mathematics textbook.', pickupArea: 'North library', priceCents: 1999,
-      title: 'Discrete mathematics textbook',
-    })).rejects.toBeInstanceOf(ContentConflictError);
+    const { serviceAdapter } = createAdapter([]);
+    await expect(
+      createMarketplaceItem(serviceAdapter, actor, {
+        assetIds: ['missing_image'],
+        condition: 'GOOD',
+        contact: 'Campus inbox only',
+        description: 'A carefully used discrete mathematics textbook.',
+        pickupArea: 'North library',
+        priceCents: 1999,
+        title: 'Discrete mathematics textbook',
+      }),
+    ).rejects.toBeInstanceOf(ContentConflictError);
   });
 
   it.each([
@@ -97,42 +140,91 @@ describe('content service', () => {
     ['wrong status', { status: 'PENDING' as const }],
     ['wrong kind', { kind: 'MARKETPLACE_IMAGE' as const }],
   ])('rejects an asset with %s', async (_name, override) => {
-    const { adapter } = createAdapter([
-      { id: 'doc_1', kind: 'RESOURCE_DOCUMENT', marketplaceItemId: null, ownerId: actor.id, resourceId: null, status: 'READY', ...override },
+    const { serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+        ...override,
+      },
     ]);
-    await expect(createResource(adapter, actor, resourceInput)).rejects.toBeInstanceOf(ContentConflictError);
+    await expect(
+      createResource(serviceAdapter, actor, resourceInput),
+    ).rejects.toBeInstanceOf(ContentConflictError);
   });
 
   it('creates, attaches, and submits a resource in one transaction', async () => {
-    const { adapter } = createAdapter([
-      { id: 'doc_1', kind: 'RESOURCE_DOCUMENT', marketplaceItemId: null, ownerId: actor.id, resourceId: null, status: 'READY' },
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
     ]);
-    const result = await createResource(adapter, actor, resourceInput);
+    const result = await createResource(serviceAdapter, actor, resourceInput);
 
     expect(adapter.$transaction).toHaveBeenCalledOnce();
-    expect(adapter.resource.create).toHaveBeenCalledWith({ data: expect.objectContaining({ authorId: actor.id, campusId: actor.campusId, status: 'DRAFT' }) });
-    expect(adapter.asset.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { resourceId: 'resource_1' } }));
-    expect(adapter.resource.update).toHaveBeenCalledWith({ data: { status: 'PENDING' }, where: { id: 'resource_1' } });
+    expect(adapter.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        authorId: actor.id,
+        campusId: actor.campusId,
+        status: 'DRAFT',
+      }),
+    });
+    expect(adapter.asset.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { resourceId: 'resource_1' } }),
+    );
+    expect(adapter.resource.update).toHaveBeenCalledWith({
+      data: { status: 'PENDING' },
+      where: { id: 'resource_1' },
+    });
     expect(result.status).toBe('PENDING');
   });
 
   it('takes owner and campus only from the verified actor', async () => {
-    const { adapter } = createAdapter();
-    await createJobPost(adapter, actor, {
-      company: 'Campus Cafe', description: 'Help serve students during the weekend lunch shift.',
-      location: 'Student centre', payText: '$20/hour', title: 'Weekend assistant',
+    const { adapter, serviceAdapter } = createAdapter();
+    await createJobPost(serviceAdapter, actor, {
+      company: 'Campus Cafe',
+      description: 'Help serve students during the weekend lunch shift.',
+      location: 'Student centre',
+      payText: '$20/hour',
+      title: 'Weekend assistant',
     });
-    expect(adapter.jobPost.create).toHaveBeenCalledWith({ data: expect.objectContaining({ authorId: 'user_server', campusId: 'campus_server', status: 'DRAFT' }) });
-    expect(adapter.jobPost.update).toHaveBeenCalledWith({ data: { status: 'PENDING' }, where: { id: 'job_1' } });
+    expect(adapter.jobPost.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        authorId: 'user_server',
+        campusId: 'campus_server',
+        status: 'DRAFT',
+      }),
+    });
+    expect(adapter.jobPost.update).toHaveBeenCalledWith({
+      data: { status: 'PENDING' },
+      where: { id: 'job_1' },
+    });
   });
 
   it('lists only published public content with stable newest-first pagination', async () => {
-    const { adapter } = createAdapter();
-    const result = await listPublicContent(adapter, 'resource', { page: 2, pageSize: 2 });
-    expect(adapter.resource.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: 2, take: 2,
-      where: expect.objectContaining({ status: 'PUBLISHED' }),
-    }));
-    expect(result).toEqual(expect.objectContaining({ page: 2, pageSize: 2, total: 3 }));
+    const { adapter, serviceAdapter } = createAdapter();
+    const result = await listPublicContent(serviceAdapter, 'resource', {
+      page: 2,
+      pageSize: 2,
+    });
+    expect(adapter.resource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: 2,
+        take: 2,
+        where: expect.objectContaining({ status: 'PUBLISHED' }),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({ page: 2, pageSize: 2, total: 3 }),
+    );
   });
 });

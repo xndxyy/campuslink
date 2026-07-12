@@ -133,8 +133,9 @@ async function main() {
             description:
               'Approved sample marketplace listing in excellent working condition.',
             priceCents: 1800,
-            condition: 'Excellent',
+            condition: 'GOOD',
             contact: 'student@campuslink.edu',
+            pickupArea: 'Campus library entrance',
             status: ContentStatus.PUBLISHED,
           },
         });

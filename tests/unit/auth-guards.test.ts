@@ -7,6 +7,7 @@ import {
 } from '@/lib/auth/guards';
 
 const verifiedModerator = {
+  campusId: 'campus_1',
   id: 'user-id',
   email: 'moderator@campuslink.edu',
   emailVerifiedAt: new Date(),

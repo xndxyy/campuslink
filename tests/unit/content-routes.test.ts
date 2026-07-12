@@ -15,7 +15,11 @@ const user = {
   status: 'ACTIVE' as const,
 };
 
-function request(path: string, body: unknown, origin = 'http://localhost:3000') {
+function request(
+  path: string,
+  body: unknown,
+  origin = 'http://localhost:3000',
+) {
   return new Request(`http://localhost${path}`, {
     body: JSON.stringify(body),
     headers: { 'content-type': 'application/json', origin },
@@ -78,25 +82,36 @@ describe('content creation routes', () => {
   it('maps asset conflicts without leaking internals', async () => {
     const response = await handleCreateMarketplaceItem(
       request('/api/marketplace', {
-        assetIds: ['image_1'], condition: 'GOOD', contact: 'Campus inbox only',
-        description: 'A carefully used discrete mathematics textbook.', pickupArea: 'North library',
-        price: '19.99', title: 'Discrete mathematics textbook',
+        assetIds: ['image_1'],
+        condition: 'GOOD',
+        contact: 'Campus inbox only',
+        description: 'A carefully used discrete mathematics textbook.',
+        pickupArea: 'North library',
+        price: '19.99',
+        title: 'Discrete mathematics textbook',
       }),
       {
-        create: vi.fn(async () => { throw new ContentConflictError('storage row lock failed'); }),
+        create: vi.fn(async () => {
+          throw new ContentConflictError('storage row lock failed');
+        }),
         resolveUser: async () => user,
       },
     );
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({ message: 'Content or asset state conflict.' });
+    await expect(response.json()).resolves.toEqual({
+      message: 'Content or asset state conflict.',
+    });
   });
 
   it('creates a valid job without assets', async () => {
     const create = vi.fn(async () => ({ id: 'job_1', status: 'PENDING' }));
     const response = await handleCreateJob(
       request('/api/jobs', {
-        company: 'Campus Cafe', description: 'Help serve students during the weekend lunch shift.',
-        location: 'Student centre', payText: '$20/hour', title: 'Weekend assistant',
+        company: 'Campus Cafe',
+        description: 'Help serve students during the weekend lunch shift.',
+        location: 'Student centre',
+        payText: '$20/hour',
+        title: 'Weekend assistant',
       }),
       { create, resolveUser: async () => user },
     );

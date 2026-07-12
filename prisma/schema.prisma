@@ -41,6 +41,13 @@ enum ContentStatus {
   ARCHIVED
 }
 
+enum MarketplaceCondition {
+  NEW
+  LIKE_NEW
+  GOOD
+  FAIR
+}
+
 enum FavouriteTargetType {
   RESOURCE
   MARKETPLACE_ITEM
@@ -197,7 +204,8 @@ model MarketplaceItem {
   title       String        @db.VarChar(200)
   description String        @db.Text
   priceCents  Int
-  condition   String        @db.VarChar(100)
+  condition   MarketplaceCondition
+  pickupArea  String        @db.VarChar(200)
   contact     String        @db.Text
   status      ContentStatus @default(DRAFT)
   seller      User          @relation("MarketplaceSeller", fields: [sellerId], references: [id], onDelete: Cascade)

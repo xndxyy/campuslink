@@ -8,6 +8,7 @@ import {
 } from '@/lib/storage/policy';
 
 const user = {
+  campusId: 'campus_1',
   email: 'student@campuslink.edu',
   emailVerifiedAt: new Date(),
   id: 'user_upload_owner',

@@ -23,6 +23,7 @@ const dummyPasswordHash =
 export type UserStatus = 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED';
 
 export interface SessionUser {
+  campusId: string;
   email: string;
   emailVerifiedAt: Date | null;
   id: string;
@@ -56,6 +57,7 @@ export interface CreatedSession {
 }
 
 function sessionUserFromDatabaseUser(user: {
+  campusId: string;
   email: string;
   emailVerifiedAt: Date | null;
   id: string;
@@ -287,6 +289,7 @@ export async function getSessionUserFromToken(
     include: {
       user: {
         select: {
+          campusId: true,
           email: true,
           emailVerifiedAt: true,
           id: true,

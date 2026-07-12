@@ -256,6 +256,7 @@ model Favourite {
   updatedAt  DateTime            @updatedAt
 
   @@unique([userId, targetType, targetId])
+  @@index([userId, createdAt, id])
   @@index([targetType, targetId])
 }
 

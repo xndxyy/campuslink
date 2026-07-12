@@ -29,4 +29,22 @@ describe('engagement persistence contract', () => {
       /CREATE UNIQUE INDEX "Report_one_open_per_reporter_target_key"[\s\S]*"reporterId"[\s\S]*"targetType"[\s\S]*"targetId"[\s\S]*WHERE "status" = 'OPEN'/i,
     );
   });
+
+  it('indexes the bounded favourite visibility query order', () => {
+    expect(schema).toMatch(
+      /model Favourite\s*\{[\s\S]*?@@index\(\[userId, createdAt, id\]\)/,
+    );
+    const migration = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../prisma/migrations/20260712210000_add_favourite_pagination_index/migration.sql',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    );
+    expect(migration).toMatch(
+      /CREATE INDEX "Favourite_userId_createdAt_id_idx"\s+ON "Favourite"\("userId", "createdAt", "id"\)/,
+    );
+  });
 });

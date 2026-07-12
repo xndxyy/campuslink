@@ -29,6 +29,7 @@ interface FavouriteIdentity {
 }
 
 export interface FavouritesAdapter {
+  $queryRaw<T>(query: TemplateStringsArray, ...values: unknown[]): Promise<T>;
   $transaction<T>(operation: (tx: FavouritesAdapter) => Promise<T>): Promise<T>;
   favourite: {
     deleteMany(args: Record<string, unknown>): Promise<{ count: number }>;
@@ -105,43 +106,6 @@ async function findVisibleTarget(
       status: 'PUBLISHED',
     },
   });
-}
-
-function targetKey(targetType: FavouriteTargetType, targetId: string) {
-  return `${targetType}:${targetId}`;
-}
-
-async function findVisibleTargets(
-  adapter: FavouritesAdapter,
-  actor: FavouriteActor,
-  records: FavouriteRecord[],
-) {
-  const idsByType = new Map<FavouriteTargetType, Set<string>>();
-  for (const record of records) {
-    const ids = idsByType.get(record.targetType) ?? new Set<string>();
-    ids.add(record.targetId);
-    idsByType.set(record.targetType, ids);
-  }
-
-  const visible = new Map<string, Record<string, unknown>>();
-  await Promise.all(
-    [...idsByType].map(async ([targetType, ids]) => {
-      const items = await delegateFor(adapter, targetType).findMany({
-        select: publicSelect(targetType),
-        where: {
-          campusId: actor.campusId,
-          id: { in: [...ids] },
-          status: 'PUBLISHED',
-        },
-      });
-      for (const item of items) {
-        if (typeof item.id === 'string') {
-          visible.set(targetKey(targetType, item.id), item);
-        }
-      }
-    }),
-  );
-  return visible;
 }
 
 function composite(actor: FavouriteActor, target: FavouriteTarget) {
@@ -226,6 +190,34 @@ export interface FavouriteCard extends FavouriteTarget {
 
 const maxFavouritesPage = 50;
 
+interface VisibleFavouriteRow {
+  favouritedAt: Date;
+  favouriteId: string;
+  item: Record<string, unknown>;
+  targetId: string;
+  targetType: FavouriteTargetType;
+}
+
+function isFavouriteTargetType(value: unknown): value is FavouriteTargetType {
+  return (
+    value === 'RESOURCE' || value === 'MARKETPLACE_ITEM' || value === 'JOB_POST'
+  );
+}
+
+function isVisibleFavouriteRow(value: unknown): value is VisibleFavouriteRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Partial<VisibleFavouriteRow>;
+  return (
+    row.favouritedAt instanceof Date &&
+    typeof row.favouriteId === 'string' &&
+    typeof row.targetId === 'string' &&
+    isFavouriteTargetType(row.targetType) &&
+    Boolean(row.item) &&
+    typeof row.item === 'object' &&
+    !Array.isArray(row.item)
+  );
+}
+
 export async function listUserFavourites(
   adapter: FavouritesAdapter,
   actor: FavouriteActor,
@@ -233,56 +225,75 @@ export async function listUserFavourites(
 ) {
   const page = Math.max(1, Math.min(query.page ?? 1, maxFavouritesPage));
   const pageSize = Math.max(1, Math.min(query.pageSize ?? 12, 50));
-  const needed = page * pageSize + (page < maxFavouritesPage ? 1 : 0);
-  const visible: FavouriteCard[] = [];
-  const batchSize = 50;
-  let cursor: Pick<FavouriteRecord, 'createdAt' | 'id'> | undefined;
-
-  while (visible.length < needed) {
-    const records = await adapter.favourite.findMany({
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: batchSize,
-      where: {
-        ...(cursor
-          ? {
-              OR: [
-                { createdAt: { lt: cursor.createdAt } },
-                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
-              ],
-            }
-          : {}),
-        userId: actor.id,
-      },
-    });
-    if (records.length === 0) break;
-    const last = records.at(-1)!;
-    cursor = { createdAt: last.createdAt, id: last.id };
-
-    const visibleTargets = await findVisibleTargets(adapter, actor, records);
-    const staleIds: string[] = [];
-    for (const record of records) {
-      const target = {
-        targetId: record.targetId,
-        targetType: record.targetType,
-      };
-      const item = visibleTargets.get(
-        targetKey(record.targetType, record.targetId),
-      );
-      if (item)
-        visible.push({ ...target, favouritedAt: record.createdAt, item });
-      else staleIds.push(record.id);
-    }
-    if (staleIds.length) {
-      await adapter.favourite.deleteMany({
-        where: { id: { in: staleIds }, userId: actor.id },
-      });
-    }
-    if (records.length < batchSize) break;
-  }
+  const take = pageSize + 1;
   const offset = (page - 1) * pageSize;
+  const rows = await adapter.$queryRaw<unknown[]>`
+    SELECT visible."favouriteId", visible."favouritedAt", visible."targetId",
+           visible."targetType", visible.item
+    FROM (
+      SELECT f.id AS "favouriteId", f."createdAt" AS "favouritedAt",
+             f."targetId", 'RESOURCE'::text AS "targetType",
+             jsonb_build_object(
+               'id', r.id, 'title', r.title, 'createdAt', r."createdAt",
+               'summary', r.summary, 'courseCode', r."courseCode", 'tags', r.tags,
+               'author', jsonb_build_object('name', author.name)
+             ) AS item
+      FROM "Favourite" f
+      JOIN "Resource" r
+        ON f."targetType" = 'RESOURCE' AND r.id = f."targetId"
+      JOIN "User" author ON author.id = r."authorId"
+      WHERE f."userId" = ${actor.id}
+        AND r."campusId" = ${actor.campusId}
+        AND r.status = 'PUBLISHED'
+
+      UNION ALL
+
+      SELECT f.id AS "favouriteId", f."createdAt" AS "favouritedAt",
+             f."targetId", 'MARKETPLACE_ITEM'::text AS "targetType",
+             jsonb_build_object(
+               'id', m.id, 'title', m.title, 'createdAt', m."createdAt",
+               'description', m.description, 'condition', m.condition,
+               'pickupArea', m."pickupArea", 'priceCents', m."priceCents",
+               'seller', jsonb_build_object('name', seller.name)
+             ) AS item
+      FROM "Favourite" f
+      JOIN "MarketplaceItem" m
+        ON f."targetType" = 'MARKETPLACE_ITEM' AND m.id = f."targetId"
+      JOIN "User" seller ON seller.id = m."sellerId"
+      WHERE f."userId" = ${actor.id}
+        AND m."campusId" = ${actor.campusId}
+        AND m.status = 'PUBLISHED'
+
+      UNION ALL
+
+      SELECT f.id AS "favouriteId", f."createdAt" AS "favouritedAt",
+             f."targetId", 'JOB_POST'::text AS "targetType",
+             jsonb_build_object(
+               'id', j.id, 'title', j.title, 'createdAt', j."createdAt",
+               'description', j.description, 'company', j.company,
+               'location', j.location, 'payText', j."payText",
+               'author', jsonb_build_object('name', author.name)
+             ) AS item
+      FROM "Favourite" f
+      JOIN "JobPost" j
+        ON f."targetType" = 'JOB_POST' AND j.id = f."targetId"
+      JOIN "User" author ON author.id = j."authorId"
+      WHERE f."userId" = ${actor.id}
+        AND j."campusId" = ${actor.campusId}
+        AND j.status = 'PUBLISHED'
+    ) visible
+    ORDER BY visible."favouritedAt" DESC, visible."favouriteId" DESC
+    LIMIT ${take} OFFSET ${offset}
+  `;
+  const visible = rows.filter(isVisibleFavouriteRow);
   return {
-    hasNext: page < maxFavouritesPage && visible.length > offset + pageSize,
-    items: visible.slice(offset, offset + pageSize),
+    hasNext: page < maxFavouritesPage && visible.length > pageSize,
+    items: visible.slice(0, pageSize).map((row) => ({
+      favouritedAt: row.favouritedAt,
+      item: row.item,
+      targetId: row.targetId,
+      targetType: row.targetType,
+    })),
     page,
     pageSize,
   };

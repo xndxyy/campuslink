@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDbClient } from '@/lib/db';
 import {
   addFavourite,
+  listUserFavourites,
   toggleFavourite,
   type FavouritesAdapter,
 } from '@/lib/domain/favourites';
@@ -106,6 +107,13 @@ describeWithDatabase('engagement persistence', () => {
         where: { userId: memberId, targetId: marketplaceId },
       }),
     ).resolves.toBe(1);
+    const listed = await listUserFavourites(adapter, actor, {
+      page: 1,
+      pageSize: 12,
+    });
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]?.targetId).toBe(marketplaceId);
+    expect(listed.items[0]?.item).not.toHaveProperty('contact');
     await expect(toggleFavourite(adapter, actor, target)).resolves.toEqual({
       favourited: false,
     });

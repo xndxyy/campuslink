@@ -30,4 +30,11 @@ describe('publish content live E2E navigation contract', () => {
     );
     expect(source).not.toContain('toHaveURL(/me\\/submissions/)');
   });
+
+  it('restores the shared rejected fixture after editing and resubmitting it', () => {
+    expect(source).toContain('originalRejectedResource');
+    expect(source).toContain('UPDATE "Resource"');
+    expect(source).toMatch(/status = \$6::"ContentStatus"/);
+    expect(source).toContain('finally');
+  });
 });

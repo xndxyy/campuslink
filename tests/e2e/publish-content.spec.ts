@@ -221,21 +221,68 @@ test('unverified account is denied sign-in', async ({ page }) => {
 test('owner edits a provisioned rejected record and resubmits it', async ({
   page,
 }) => {
-  await signIn(
-    page,
-    process.env.E2E_VERIFIED_EMAIL!,
-    process.env.E2E_VERIFIED_PASSWORD!,
-  );
   const kind = process.env.E2E_REJECTED_KIND!;
   const id = process.env.E2E_REJECTED_ID!;
-  await page.goto(`/me/submissions/${kind}/${id}/edit`);
-  await page.locator('input[name="title"]').fill(`Revised rejected ${kind}`);
-  await page.getByRole('button', { name: '保存草稿' }).click();
-  await expect(page).toHaveURL((url) => url.pathname === '/me/submissions');
-  const row = page
-    .locator('article')
-    .filter({ hasText: `Revised rejected ${kind}` });
-  await expect(row).toContainText('DRAFT');
-  await row.getByRole('button', { name: '重新提交' }).click();
-  await expect(row).toContainText('PENDING');
+  if (kind !== 'resource') {
+    throw new Error('The rejected E2E fixture must be a resource.');
+  }
+  const db = new Pool({ connectionString: process.env.DATABASE_URL });
+  let originalRejectedResource:
+    | {
+        courseCode: string | null;
+        status: string;
+        summary: string;
+        tags: string[];
+        title: string;
+        updatedAt: Date;
+      }
+    | undefined;
+  try {
+    const original = await db.query<
+      NonNullable<typeof originalRejectedResource>
+    >(
+      `SELECT title, summary, "courseCode", tags, status::text, "updatedAt"
+       FROM "Resource" WHERE id = $1`,
+      [id],
+    );
+    originalRejectedResource = original.rows[0];
+    if (!originalRejectedResource) {
+      throw new Error('The rejected E2E resource is unavailable.');
+    }
+
+    await signIn(
+      page,
+      process.env.E2E_VERIFIED_EMAIL!,
+      process.env.E2E_VERIFIED_PASSWORD!,
+    );
+    await page.goto(`/me/submissions/${kind}/${id}/edit`);
+    await page.locator('input[name="title"]').fill(`Revised rejected ${kind}`);
+    await page.getByRole('button', { name: '保存草稿' }).click();
+    await expect(page).toHaveURL((url) => url.pathname === '/me/submissions');
+    const row = page
+      .locator('article')
+      .filter({ hasText: `Revised rejected ${kind}` });
+    await expect(row).toContainText('DRAFT');
+    await row.getByRole('button', { name: '重新提交' }).click();
+    await expect(row).toContainText('PENDING');
+  } finally {
+    if (originalRejectedResource) {
+      await db.query(
+        `UPDATE "Resource"
+         SET title = $2, summary = $3, "courseCode" = $4, tags = $5,
+             status = $6::"ContentStatus", "updatedAt" = $7
+         WHERE id = $1`,
+        [
+          id,
+          originalRejectedResource.title,
+          originalRejectedResource.summary,
+          originalRejectedResource.courseCode,
+          originalRejectedResource.tags,
+          originalRejectedResource.status,
+          originalRejectedResource.updatedAt,
+        ],
+      );
+    }
+    await db.end();
+  }
 });

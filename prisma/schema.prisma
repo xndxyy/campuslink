@@ -157,6 +157,7 @@ model Asset {
   contentType       String           @db.VarChar(255)
   sizeBytes         BigInt
   status            AssetStatus      @default(PENDING)
+  uploadExpiresAt   DateTime?
   owner             User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   resource          Resource?        @relation("ResourceAssets", fields: [resourceId], references: [id], onDelete: SetNull)
   marketplaceItem   MarketplaceItem? @relation("MarketplaceItemAssets", fields: [marketplaceItemId], references: [id], onDelete: SetNull)
@@ -164,6 +165,7 @@ model Asset {
   updatedAt         DateTime         @updatedAt
 
   @@index([ownerId, kind, status])
+  @@index([status, uploadExpiresAt])
   @@index([resourceId])
   @@index([marketplaceItemId])
 }

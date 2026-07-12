@@ -20,18 +20,10 @@ import {
   UploadForbiddenError,
 } from '@/lib/storage/policy';
 import { validateUpload } from '@/lib/validation/upload';
+import { hasCompleteIntegrationEnvironment } from '@/tests/helpers/integration-environment';
 
-const requiredEnvironment = [
-  'DATABASE_URL',
-  'S3_ENDPOINT',
-  'S3_REGION',
-  'S3_ACCESS_KEY_ID',
-  'S3_SECRET_ACCESS_KEY',
-  'S3_BUCKET',
-  'S3_FORCE_PATH_STYLE',
-] as const;
-const hasIntegrationEnvironment = requiredEnvironment.every((name) =>
-  Boolean(process.env[name]),
+const hasIntegrationEnvironment = hasCompleteIntegrationEnvironment(
+  process.env,
 );
 const describeWithStorage = describe.skipIf(!hasIntegrationEnvironment);
 
@@ -123,7 +115,7 @@ describeWithStorage('direct storage uploads', () => {
 
     const uploadResponse = await fetch(intent.uploadUrl, {
       body: Buffer.alloc(1_024, 1),
-      headers: { 'Content-Type': intent.contentType },
+      headers: intent.requiredHeaders,
       method: 'PUT',
     });
     expect(uploadResponse.ok).toBe(true);
@@ -133,6 +125,48 @@ describeWithStorage('direct storage uploads', () => {
     await expect(
       db.asset.findUniqueOrThrow({ where: { id: intent.assetId } }),
     ).resolves.toMatchObject({ status: 'READY' });
+  });
+
+  it('allows only one racing write and rejects later overwrite reuse', async () => {
+    const validated = validateUpload({
+      contentType: 'application/pdf',
+      fileName: 'write-once.pdf',
+      kind: 'RESOURCE_DOCUMENT',
+      sizeBytes: 256,
+    });
+    if (!validated.success) throw new Error('Integration fixture is invalid.');
+    const dependencies = {
+      repository: createPrismaAssetRepository(db),
+      storage: createS3UploadStorage(),
+    };
+    const intent = await createUploadIntent(
+      ownerId,
+      validated.data,
+      dependencies,
+    );
+    const asset = await db.asset.findUniqueOrThrow({
+      where: { id: intent.assetId },
+    });
+    storageKeys.push(asset.storageKey);
+    const put = () =>
+      fetch(intent.uploadUrl, {
+        body: Buffer.alloc(256, 2),
+        headers: intent.requiredHeaders,
+        method: 'PUT',
+      });
+
+    const racing = await Promise.all([put(), put()]);
+    expect(racing.filter((response) => response.ok)).toHaveLength(1);
+    expect(
+      racing.find((response) => !response.ok)?.status,
+    ).toBeGreaterThanOrEqual(409);
+
+    const overwrite = await put();
+    expect(overwrite.ok).toBe(false);
+    expect([409, 412]).toContain(overwrite.status);
+    await expect(
+      completeUpload(ownerId, intent.assetId, dependencies),
+    ).resolves.toEqual({ assetId: intent.assetId, status: 'READY' });
   });
 
   it('rejects SVG and oversize intent input before storage', () => {

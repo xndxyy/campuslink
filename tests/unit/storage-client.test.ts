@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { createS3UploadStorage, type StorageConfig } from '@/lib/storage/client';
+import {
+  createS3UploadStorage,
+  type StorageConfig,
+} from '@/lib/storage/client';
 
 const config: StorageConfig = {
   accessKeyId: 'test-access-key',

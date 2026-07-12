@@ -20,9 +20,9 @@ describe('integration environment gate', () => {
   });
 
   it('allows an explicit local skip outside CI', () => {
-    expect(
-      enforceIntegrationGate({ ALLOW_SKIPPED_INTEGRATION: 'true' }),
-    ).toBe(false);
+    expect(enforceIntegrationGate({ ALLOW_SKIPPED_INTEGRATION: 'true' })).toBe(
+      false,
+    );
   });
 
   it('never permits the skip flag in CI', () => {

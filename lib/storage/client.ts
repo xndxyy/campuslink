@@ -1,6 +1,7 @@
 import 'server-only';
 
 import {
+  DeleteObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -137,15 +138,38 @@ export function createS3UploadStorage(
   client = createS3Client(config),
 ): UploadStorage {
   return {
-    async createPresignedPutUrl({ contentType, expiresInSeconds, key }) {
-      return getSignedUrl(
+    async createPresignedPutUrl({
+      contentType,
+      expiresInSeconds,
+      key,
+      sizeBytes,
+    }) {
+      const uploadUrl = await getSignedUrl(
         client,
         new PutObjectCommand({
           Bucket: config.bucket,
+          ContentLength: sizeBytes,
           ContentType: contentType,
+          IfNoneMatch: '*',
           Key: key,
         }),
-        { expiresIn: expiresInSeconds },
+        {
+          expiresIn: expiresInSeconds,
+          signableHeaders: new Set(['content-type']),
+        },
+      );
+      return {
+        requiredHeaders: {
+          'Content-Type': contentType,
+          'If-None-Match': '*',
+        },
+        uploadUrl,
+      };
+    },
+
+    async deleteObject(key) {
+      await client.send(
+        new DeleteObjectCommand({ Bucket: config.bucket, Key: key }),
       );
     },
 

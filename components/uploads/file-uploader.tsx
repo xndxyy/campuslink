@@ -1,7 +1,15 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import {
+  fingerprintFile,
+  getRecoveryAction,
+  parseUploadRecovery,
+  serializeUploadRecovery,
+  type UploadRecovery,
+  type UploadRecoveryPhase,
+} from '@/lib/uploads/recovery';
 import { validateUpload, type UploadKind } from '@/lib/validation/upload';
 
 interface FileUploaderProps {
@@ -12,6 +20,8 @@ interface FileUploaderProps {
 interface UploadIntentResponse {
   assetId: string;
   contentType: string;
+  expiresAt: string;
+  requiredHeaders: Record<string, string>;
   uploadUrl: string;
 }
 
@@ -49,20 +59,27 @@ async function responseMessage(
 }
 
 function parseIntentResponse(value: unknown): UploadIntentResponse | null {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<UploadIntentResponse>;
+  if (
+    typeof candidate.assetId !== 'string' ||
+    typeof candidate.contentType !== 'string' ||
+    typeof candidate.expiresAt !== 'string' ||
+    !Number.isFinite(Date.parse(candidate.expiresAt)) ||
+    !candidate.requiredHeaders ||
+    typeof candidate.requiredHeaders !== 'object' ||
+    Object.values(candidate.requiredHeaders).some(
+      (header) => typeof header !== 'string',
+    ) ||
+    typeof candidate.uploadUrl !== 'string'
+  ) {
     return null;
   }
-  const candidate = value as Partial<UploadIntentResponse>;
-  return typeof candidate.assetId === 'string' &&
-    typeof candidate.contentType === 'string' &&
-    typeof candidate.uploadUrl === 'string'
-    ? (candidate as UploadIntentResponse)
-    : null;
+  return candidate as UploadIntentResponse;
 }
 
 function putFile(
-  uploadUrl: string,
-  contentType: string,
+  recovery: UploadRecovery,
   file: File,
   xhrRef: React.MutableRefObject<XMLHttpRequest | null>,
   onProgress: (progress: number) => void,
@@ -70,8 +87,12 @@ function putFile(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
-    xhr.open('PUT', uploadUrl);
-    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.open('PUT', recovery.uploadUrl);
+    for (const [name, value] of Object.entries(recovery.requiredHeaders)) {
+      if (name.toLowerCase() !== 'content-length') {
+        xhr.setRequestHeader(name, value);
+      }
+    }
     xhr.upload.addEventListener('progress', (event) => {
       if (event.lengthComputable && event.total > 0) {
         onProgress(Math.round((event.loaded / event.total) * 100));
@@ -79,7 +100,7 @@ function putFile(
     });
     xhr.addEventListener('load', () => {
       xhrRef.current = null;
-      if (xhr.status >= 200 && xhr.status < 300) {
+      if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 412) {
         onProgress(100);
         resolve();
       } else {
@@ -98,118 +119,222 @@ function putFile(
   });
 }
 
+function abortActiveTransfers(
+  controllersRef: React.MutableRefObject<Set<AbortController>>,
+  xhrRef: React.MutableRefObject<XMLHttpRequest | null>,
+) {
+  for (const controller of controllersRef.current) controller.abort();
+  controllersRef.current.clear();
+  xhrRef.current?.abort();
+}
+
 export function FileUploader({ kind, onReady }: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<UploadPhase>('idle');
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
-  const requestRef = useRef<AbortController | null>(null);
+  const controllersRef = useRef(new Set<AbortController>());
+  const recoveryRef = useRef<UploadRecovery | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const recoveryKey = `campuslink:upload:${kind}`;
 
-  const upload = useCallback(
-    async (selectedFile: File) => {
-      const validation = validateUpload({
-        contentType: selectedFile.type,
-        fileName: selectedFile.name,
-        kind,
-        sizeBytes: selectedFile.size,
-      });
-      if (!validation.success) {
+  const saveRecovery = useCallback(
+    (recovery: UploadRecovery | null) => {
+      recoveryRef.current = recovery;
+      try {
+        if (recovery) {
+          sessionStorage.setItem(
+            recoveryKey,
+            serializeUploadRecovery(recovery),
+          );
+        } else {
+          sessionStorage.removeItem(recoveryKey);
+        }
+      } catch {
+        // The in-memory recovery remains available if storage is unavailable.
+      }
+    },
+    [recoveryKey],
+  );
+
+  useEffect(() => {
+    try {
+      recoveryRef.current = parseUploadRecovery(
+        sessionStorage.getItem(recoveryKey),
+      );
+    } catch {
+      recoveryRef.current = null;
+    }
+
+    return () => {
+      abortActiveTransfers(controllersRef, xhrRef);
+    };
+  }, [recoveryKey]);
+
+  const runUpload = useCallback(
+    async (selectedFile: File | null) => {
+      const validation = selectedFile
+        ? validateUpload({
+            contentType: selectedFile.type,
+            fileName: selectedFile.name,
+            kind,
+            sizeBytes: selectedFile.size,
+          })
+        : null;
+      if (validation && !validation.success) {
         setPhase('error');
         setMessage(validation.error.issues[0]?.message ?? 'Invalid file.');
         return;
       }
 
-      const controller = new AbortController();
-      requestRef.current = controller;
+      const createController = () => {
+        const controller = new AbortController();
+        controllersRef.current.add(controller);
+        return controller;
+      };
+      const releaseController = (controller: AbortController) => {
+        controllersRef.current.delete(controller);
+      };
+      const updateRecoveryPhase = (phaseValue: UploadRecoveryPhase) => {
+        const recovery = recoveryRef.current;
+        if (recovery) saveRecovery({ ...recovery, phase: phaseValue });
+      };
+
+      const completeIntent = async (): Promise<'ready' | 'concluded'> => {
+        const recovery = recoveryRef.current;
+        if (!recovery) return 'concluded';
+        updateRecoveryPhase('completing');
+        setPhase('completing');
+        const controller = createController();
+        try {
+          const response = await fetch('/api/uploads/complete', {
+            body: JSON.stringify({ assetId: recovery.assetId }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            signal: controller.signal,
+          });
+          if (response.status === 409) {
+            saveRecovery(null);
+            return 'concluded';
+          }
+          if (!response.ok) {
+            throw new Error(
+              await responseMessage(response, 'Unable to complete upload.'),
+            );
+          }
+          const completed = (await response.json()) as {
+            assetId?: unknown;
+            status?: unknown;
+          };
+          if (
+            completed.assetId !== recovery.assetId ||
+            completed.status !== 'READY'
+          ) {
+            throw new Error('The server did not confirm the uploaded asset.');
+          }
+          saveRecovery(null);
+          setPhase('ready');
+          setMessage('Upload is ready.');
+          onReady(recovery.assetId);
+          return 'ready';
+        } finally {
+          releaseController(controller);
+        }
+      };
+
+      const putAndComplete = async (selected: File) => {
+        const recovery = recoveryRef.current;
+        if (!recovery) throw new Error('Upload intent is unavailable.');
+        setPhase('uploading');
+        await putFile(recovery, selected, xhrRef, setProgress);
+        updateRecoveryPhase('put-complete');
+        await completeIntent();
+      };
+
+      const requestIntent = async (selected: File) => {
+        if (!validation?.success) return;
+        setPhase('requesting');
+        const controller = createController();
+        try {
+          const response = await fetch('/api/uploads/intent', {
+            body: JSON.stringify({
+              contentType: validation.data.contentType,
+              fileName: validation.data.displayName,
+              kind: validation.data.kind,
+              sizeBytes: validation.data.sizeBytes,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            signal: controller.signal,
+          });
+          if (!response.ok) {
+            throw new Error(
+              await responseMessage(response, 'Unable to start upload.'),
+            );
+          }
+          const intent = parseIntentResponse(await response.json());
+          if (!intent || intent.contentType !== validation.data.contentType) {
+            throw new Error('The server returned an invalid upload intent.');
+          }
+          saveRecovery({
+            ...intent,
+            fileFingerprint: fingerprintFile(selected),
+            phase: 'put-pending',
+          });
+        } finally {
+          releaseController(controller);
+        }
+        await putAndComplete(selected);
+      };
+
       setMessage('');
       setProgress(0);
-
       try {
-        setPhase('requesting');
-        const intentResponse = await fetch('/api/uploads/intent', {
-          body: JSON.stringify({
-            contentType: validation.data.contentType,
-            fileName: validation.data.displayName,
-            kind: validation.data.kind,
-            sizeBytes: validation.data.sizeBytes,
-          }),
-          headers: { 'Content-Type': 'application/json' },
-          method: 'POST',
-          signal: controller.signal,
-        });
-        if (!intentResponse.ok) {
-          throw new Error(
-            await responseMessage(intentResponse, 'Unable to start upload.'),
-          );
-        }
-        const intent = parseIntentResponse(await intentResponse.json());
-        if (!intent || intent.contentType !== validation.data.contentType) {
-          throw new Error('The server returned an invalid upload intent.');
-        }
-
-        setPhase('uploading');
-        await putFile(
-          intent.uploadUrl,
-          intent.contentType,
-          selectedFile,
-          xhrRef,
-          setProgress,
+        const fingerprint = selectedFile ? fingerprintFile(selectedFile) : '';
+        const action = getRecoveryAction(
+          recoveryRef.current,
+          fingerprint,
+          Date.now(),
         );
-
-        setPhase('completing');
-        const completeResponse = await fetch('/api/uploads/complete', {
-          body: JSON.stringify({ assetId: intent.assetId }),
-          headers: { 'Content-Type': 'application/json' },
-          method: 'POST',
-          signal: controller.signal,
-        });
-        if (!completeResponse.ok) {
-          throw new Error(
-            await responseMessage(
-              completeResponse,
-              'Unable to complete upload.',
-            ),
-          );
+        if (action === 'request-intent') {
+          if (selectedFile) await requestIntent(selectedFile);
+          return;
         }
-        const completed = (await completeResponse.json()) as {
-          assetId?: unknown;
-          status?: unknown;
-        };
-        if (
-          completed.assetId !== intent.assetId ||
-          completed.status !== 'READY'
-        ) {
-          throw new Error('The server did not confirm the uploaded asset.');
+        if (action === 'put') {
+          if (!selectedFile) {
+            setPhase('error');
+            setMessage('Select the original file to resume the upload.');
+            return;
+          }
+          await putAndComplete(selectedFile);
+          return;
         }
 
-        setPhase('ready');
-        setMessage(`${validation.data.displayName} is ready.`);
-        onReady(intent.assetId);
+        const completion = await completeIntent();
+        if (completion === 'concluded' && selectedFile) {
+          await requestIntent(selectedFile);
+        }
       } catch (error) {
         if (
           error instanceof UploadCancelledError ||
-          controller.signal.aborted
+          (error instanceof DOMException && error.name === 'AbortError')
         ) {
           setPhase('cancelled');
-          setMessage('Upload cancelled.');
+          setMessage('Upload cancelled. Retry will resume this intent.');
         } else {
           setPhase('error');
           setMessage(error instanceof Error ? error.message : 'Upload failed.');
         }
-      } finally {
-        requestRef.current = null;
       }
     },
-    [kind, onReady],
+    [kind, onReady, saveRecovery],
   );
 
   const active =
     phase === 'requesting' || phase === 'uploading' || phase === 'completing';
 
   function cancel() {
-    requestRef.current?.abort();
-    xhrRef.current?.abort();
+    abortActiveTransfers(controllersRef, xhrRef);
   }
 
   return (
@@ -232,12 +357,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
         onChange={(event) => {
           const selectedFile = event.target.files?.[0] ?? null;
           setFile(selectedFile);
-          setMessage('');
-          setPhase('idle');
-          setProgress(0);
-          if (selectedFile) {
-            void upload(selectedFile);
-          }
+          if (selectedFile) void runUpload(selectedFile);
         }}
         type="file"
       />
@@ -246,7 +366,9 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
         <div
           aria-hidden="true"
           className="h-full bg-blue-600 transition-[width]"
-          style={{ width: `${phase === 'uploading' ? progress : 0}%` }}
+          style={{
+            width: `${phase === 'uploading' || phase === 'completing' ? progress : 0}%`,
+          }}
         />
       </div>
       <div className="flex min-h-10 items-center justify-between gap-3">
@@ -265,7 +387,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
         {(phase === 'error' || phase === 'cancelled') && file ? (
           <button
             className="h-10 shrink-0 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
-            onClick={() => void upload(file)}
+            onClick={() => void runUpload(file)}
             type="button"
           >
             Retry

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { getDb } from '@/lib/db';
 import { normalizeContentType, type UploadKind } from '@/lib/validation/upload';
 
-import { createS3UploadStorage } from './client';
+import { createS3UploadStorage, StorageObjectNotFoundError } from './client';
 import { buildStorageKey } from './keys';
 
 export type UploadAssetStatus = 'PENDING' | 'READY' | 'REJECTED';
@@ -18,11 +18,19 @@ export interface UploadAssetRecord {
   sizeBytes: bigint;
   status: UploadAssetStatus;
   storageKey: string;
+  uploadExpiresAt: Date | null;
 }
 
 export interface AssetRepository {
   create(record: UploadAssetRecord): Promise<UploadAssetRecord>;
+  deletePending(input: {
+    assetId: string;
+    expiredAtOrBefore?: Date;
+    ownerId?: string;
+  }): Promise<boolean>;
+  findCleanupCandidates(now: Date, limit: number): Promise<UploadAssetRecord[]>;
   findById(assetId: string): Promise<UploadAssetRecord | null>;
+  markRejectedCleaned(assetId: string): Promise<boolean>;
   transitionStatus(input: {
     assetId: string;
     from: UploadAssetStatus;
@@ -36,7 +44,12 @@ export interface UploadStorage {
     contentType: string;
     expiresInSeconds: number;
     key: string;
-  }): Promise<string>;
+    sizeBytes: number;
+  }): Promise<{
+    requiredHeaders: Record<string, string>;
+    uploadUrl: string;
+  }>;
+  deleteObject(key: string): Promise<void>;
   headObject(key: string): Promise<{
     contentLength: number | undefined;
     contentType: string | undefined;
@@ -46,6 +59,7 @@ export interface UploadStorage {
 
 export interface UploadPolicyDependencies {
   createAssetId?: () => string;
+  now?: () => Date;
   repository: AssetRepository;
   storage: UploadStorage;
 }
@@ -95,8 +109,38 @@ export function createPrismaAssetRepository(
     async create(record) {
       return db.asset.create({ data: record });
     },
+    async deletePending({ assetId, expiredAtOrBefore, ownerId }) {
+      const deleted = await db.asset.deleteMany({
+        where: {
+          id: assetId,
+          ownerId,
+          status: 'PENDING',
+          uploadExpiresAt: expiredAtOrBefore
+            ? { lte: expiredAtOrBefore }
+            : undefined,
+        },
+      });
+      return deleted.count === 1;
+    },
+    async findCleanupCandidates(now, limit) {
+      return db.asset.findMany({
+        orderBy: { uploadExpiresAt: 'asc' },
+        take: limit,
+        where: {
+          status: { in: ['PENDING', 'REJECTED'] },
+          uploadExpiresAt: { lte: now },
+        },
+      });
+    },
     async findById(assetId) {
       return db.asset.findUnique({ where: { id: assetId } });
+    },
+    async markRejectedCleaned(assetId) {
+      const updated = await db.asset.updateMany({
+        data: { uploadExpiresAt: null },
+        where: { id: assetId, status: 'REJECTED' },
+      });
+      return updated.count === 1;
     },
     async transitionStatus({ assetId, from, ownerId, to }) {
       const updated = await db.asset.updateMany({
@@ -121,6 +165,10 @@ export async function createUploadIntent(
   dependencies: UploadPolicyDependencies = defaultDependencies(),
 ) {
   const assetId = (dependencies.createAssetId ?? randomUUID)();
+  const now = (dependencies.now ?? (() => new Date()))();
+  const uploadExpiresAt = new Date(
+    now.getTime() + PRESIGNED_UPLOAD_LIFETIME_SECONDS * 1_000,
+  );
   const storageKey = buildStorageKey(
     ownerId,
     assetId,
@@ -134,20 +182,52 @@ export async function createUploadIntent(
     sizeBytes: BigInt(input.sizeBytes),
     status: 'PENDING',
     storageKey,
+    uploadExpiresAt,
   };
 
   await dependencies.repository.create(asset);
-  const uploadUrl = await dependencies.storage.createPresignedPutUrl({
-    contentType: input.contentType,
-    expiresInSeconds: PRESIGNED_UPLOAD_LIFETIME_SECONDS,
-    key: storageKey,
-  });
+  let signed: Awaited<ReturnType<UploadStorage['createPresignedPutUrl']>>;
+  try {
+    signed = await dependencies.storage.createPresignedPutUrl({
+      contentType: input.contentType,
+      expiresInSeconds: PRESIGNED_UPLOAD_LIFETIME_SECONDS,
+      key: storageKey,
+      sizeBytes: input.sizeBytes,
+    });
+  } catch (error) {
+    try {
+      const deleted = await dependencies.repository.deletePending({
+        assetId,
+        ownerId,
+      });
+      if (!deleted) {
+        await dependencies.repository.transitionStatus({
+          assetId,
+          from: 'PENDING',
+          ownerId,
+          to: 'REJECTED',
+        });
+      }
+    } catch {
+      await dependencies.repository
+        .transitionStatus({
+          assetId,
+          from: 'PENDING',
+          ownerId,
+          to: 'REJECTED',
+        })
+        .catch(() => false);
+    }
+    throw error;
+  }
 
   return {
     assetId,
     contentType: input.contentType,
+    expiresAt: uploadExpiresAt.toISOString(),
     expiresInSeconds: PRESIGNED_UPLOAD_LIFETIME_SECONDS,
-    uploadUrl,
+    requiredHeaders: signed.requiredHeaders,
+    uploadUrl: signed.uploadUrl,
   };
 }
 
@@ -185,8 +265,23 @@ export async function completeUpload(
     throw new UploadConflictError();
   }
 
-  const metadata = await dependencies.storage.headObject(asset.storageKey);
+  let metadata: Awaited<ReturnType<UploadStorage['headObject']>>;
+  try {
+    metadata = await dependencies.storage.headObject(asset.storageKey);
+  } catch (error) {
+    if (error instanceof StorageObjectNotFoundError) {
+      await dependencies.repository.transitionStatus({
+        assetId: asset.id,
+        from: 'PENDING',
+        ownerId,
+        to: 'REJECTED',
+      });
+      throw new UploadMismatchError();
+    }
+    throw error;
+  }
   if (!metadataMatches(asset, metadata)) {
+    await dependencies.storage.deleteObject(asset.storageKey).catch(() => {});
     await dependencies.repository.transitionStatus({
       assetId: asset.id,
       from: 'PENDING',
@@ -211,4 +306,44 @@ export async function completeUpload(
   }
 
   return { assetId: asset.id, status: 'READY' as const };
+}
+
+export async function cleanupStaleUploads(
+  dependencies: UploadPolicyDependencies = defaultDependencies(),
+  limit = 100,
+) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+    throw new Error('Cleanup limit must be between 1 and 1000.');
+  }
+
+  const now = (dependencies.now ?? (() => new Date()))();
+  const candidates = await dependencies.repository.findCleanupCandidates(
+    now,
+    limit,
+  );
+  const result = { deletedPending: 0, failed: 0, retainedRejected: 0 };
+
+  for (const asset of candidates) {
+    try {
+      await dependencies.storage.deleteObject(asset.storageKey);
+      if (asset.status === 'PENDING') {
+        const deleted = await dependencies.repository.deletePending({
+          assetId: asset.id,
+          expiredAtOrBefore: now,
+        });
+        result.deletedPending += deleted ? 1 : 0;
+        result.failed += deleted ? 0 : 1;
+      } else {
+        const retained = await dependencies.repository.markRejectedCleaned(
+          asset.id,
+        );
+        result.retainedRejected += retained ? 1 : 0;
+        result.failed += retained ? 0 : 1;
+      }
+    } catch {
+      result.failed += 1;
+    }
+  }
+
+  return result;
 }

@@ -23,7 +23,11 @@ const recovery: UploadRecovery = {
 describe('upload recovery state', () => {
   it('requests a new intent only when no recovery exists', () => {
     expect(
-      getRecoveryAction(null, recovery.fileFingerprint, Date.parse('2026-07-12T08:01:00Z')),
+      getRecoveryAction(
+        null,
+        recovery.fileFingerprint,
+        Date.parse('2026-07-12T08:01:00Z'),
+      ),
     ).toBe('request-intent');
   });
 
@@ -42,13 +46,16 @@ describe('upload recovery state', () => {
     [{ ...recovery, phase: 'completing' as const }, recovery.fileFingerprint],
     [recovery, 'different.pdf:20:application/pdf:200'],
     [recovery, recovery.fileFingerprint],
-  ])('completes the existing intent before allowing another', (state, fingerprint) => {
-    const now =
-      state === recovery && fingerprint === recovery.fileFingerprint
-        ? Date.parse('2026-07-12T08:06:00Z')
-        : Date.parse('2026-07-12T08:01:00Z');
-    expect(getRecoveryAction(state, fingerprint, now)).toBe('complete');
-  });
+  ])(
+    'completes the existing intent before allowing another',
+    (state, fingerprint) => {
+      const now =
+        state === recovery && fingerprint === recovery.fileFingerprint
+          ? Date.parse('2026-07-12T08:06:00Z')
+          : Date.parse('2026-07-12T08:01:00Z');
+      expect(getRecoveryAction(state, fingerprint, now)).toBe('complete');
+    },
+  );
 
   it('round-trips only valid persisted recovery state', () => {
     expect(parseUploadRecovery(serializeUploadRecovery(recovery))).toEqual(

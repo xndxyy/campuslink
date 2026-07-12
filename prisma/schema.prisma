@@ -29,6 +29,7 @@ enum AssetStatus {
   PENDING
   READY
   REJECTED
+  CLEANING
 }
 
 enum ContentStatus {

@@ -9,8 +9,17 @@ import {
   UploadMismatchError,
   type AssetRepository,
   type UploadAssetRecord,
+  type UploadAssetStatus,
   type UploadStorage,
 } from '@/lib/storage/policy';
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 const pendingAsset: UploadAssetRecord = {
   contentType: 'application/pdf',
@@ -284,6 +293,116 @@ describe('upload service', () => {
     expect(dependencies.repository.transitionStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({ to: 'READY' }),
     );
+  });
+
+  it('deterministically serializes cleanup claims against completion', async () => {
+    let completionFirstStatus: UploadAssetStatus | null = 'PENDING';
+    const claimEntered = deferred();
+    const releaseClaim = deferred();
+    const completionFirst = createDependencies();
+    vi.mocked(
+      completionFirst.repository.findCleanupCandidates,
+    ).mockResolvedValue([pendingAsset]);
+    vi.mocked(completionFirst.repository.findById).mockImplementation(
+      async () =>
+        completionFirstStatus
+          ? { ...pendingAsset, status: completionFirstStatus }
+          : null,
+    );
+    vi.mocked(completionFirst.repository.transitionStatus).mockImplementation(
+      async ({ from, to }) => {
+        if (completionFirstStatus !== from) return false;
+        completionFirstStatus = to;
+        return true;
+      },
+    );
+    vi.mocked(
+      completionFirst.repository.claimExpiredPending,
+    ).mockImplementation(async () => {
+      claimEntered.resolve();
+      await releaseClaim.promise;
+      if (completionFirstStatus !== 'PENDING') return false;
+      completionFirstStatus = 'CLEANING';
+      return true;
+    });
+
+    const cleanupAfterCompletion = cleanupStaleUploads(
+      {
+        ...completionFirst,
+        now: () => new Date('2026-07-12T08:10:00.000Z'),
+      },
+      25,
+    );
+    await claimEntered.promise;
+    await completeUpload(
+      pendingAsset.ownerId,
+      pendingAsset.id,
+      completionFirst,
+    );
+    releaseClaim.resolve();
+    await cleanupAfterCompletion;
+    expect(completionFirstStatus).toBe('READY');
+    expect(completionFirst.storage.deleteObject).not.toHaveBeenCalled();
+
+    let cleanupFirstStatus: UploadAssetStatus | null = 'PENDING';
+    const headEntered = deferred();
+    const releaseHead = deferred();
+    const cleanupFirst = createDependencies();
+    vi.mocked(cleanupFirst.repository.findCleanupCandidates).mockResolvedValue([
+      pendingAsset,
+    ]);
+    vi.mocked(cleanupFirst.repository.findById).mockImplementation(async () =>
+      cleanupFirstStatus
+        ? { ...pendingAsset, status: cleanupFirstStatus }
+        : null,
+    );
+    vi.mocked(cleanupFirst.repository.claimExpiredPending).mockImplementation(
+      async () => {
+        if (cleanupFirstStatus !== 'PENDING') return false;
+        cleanupFirstStatus = 'CLEANING';
+        return true;
+      },
+    );
+    vi.mocked(cleanupFirst.repository.deleteClaimed).mockImplementation(
+      async () => {
+        if (cleanupFirstStatus !== 'CLEANING') return false;
+        cleanupFirstStatus = null;
+        return true;
+      },
+    );
+    vi.mocked(cleanupFirst.repository.transitionStatus).mockImplementation(
+      async ({ from, to }) => {
+        if (cleanupFirstStatus !== from) return false;
+        cleanupFirstStatus = to;
+        return true;
+      },
+    );
+    vi.mocked(cleanupFirst.storage.headObject).mockImplementation(
+      async (key) => {
+        headEntered.resolve();
+        await releaseHead.promise;
+        return {
+          contentLength: 1_024,
+          contentType: 'application/pdf',
+          key,
+        };
+      },
+    );
+
+    const completionAfterCleanup = completeUpload(
+      pendingAsset.ownerId,
+      pendingAsset.id,
+      cleanupFirst,
+    );
+    await headEntered.promise;
+    await cleanupStaleUploads(
+      { ...cleanupFirst, now: () => new Date('2026-07-12T08:10:00.000Z') },
+      25,
+    );
+    releaseHead.resolve();
+    await expect(completionAfterCleanup).rejects.toThrow('current state');
+    expect(cleanupFirstStatus).toBeNull();
+    expect(cleanupFirst.storage.deleteObject).toHaveBeenCalledOnce();
   });
 
   it('forbids another owner before contacting storage', async () => {

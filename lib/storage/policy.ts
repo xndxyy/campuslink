@@ -8,7 +8,7 @@ import { normalizeContentType, type UploadKind } from '@/lib/validation/upload';
 import { createS3UploadStorage, StorageObjectNotFoundError } from './client';
 import { buildStorageKey } from './keys';
 
-export type UploadAssetStatus = 'PENDING' | 'READY' | 'REJECTED';
+export type UploadAssetStatus = 'PENDING' | 'READY' | 'REJECTED' | 'CLEANING';
 
 export interface UploadAssetRecord {
   contentType: string;
@@ -22,7 +22,15 @@ export interface UploadAssetRecord {
 }
 
 export interface AssetRepository {
+  claimExpiredPending(input: {
+    assetId: string;
+    expiredAtOrBefore: Date;
+  }): Promise<boolean>;
   create(record: UploadAssetRecord): Promise<UploadAssetRecord>;
+  deleteClaimed(input: {
+    assetId: string;
+    expiredAtOrBefore: Date;
+  }): Promise<boolean>;
   deletePending(input: {
     assetId: string;
     expiredAtOrBefore?: Date;
@@ -106,8 +114,29 @@ export function createPrismaAssetRepository(
   db: ReturnType<typeof getDb> = getDb(),
 ): AssetRepository {
   return {
+    async claimExpiredPending({ assetId, expiredAtOrBefore }) {
+      const claimed = await db.asset.updateMany({
+        data: { status: 'CLEANING' },
+        where: {
+          id: assetId,
+          status: 'PENDING',
+          uploadExpiresAt: { lte: expiredAtOrBefore },
+        },
+      });
+      return claimed.count === 1;
+    },
     async create(record) {
       return db.asset.create({ data: record });
+    },
+    async deleteClaimed({ assetId, expiredAtOrBefore }) {
+      const deleted = await db.asset.deleteMany({
+        where: {
+          id: assetId,
+          status: 'CLEANING',
+          uploadExpiresAt: { lte: expiredAtOrBefore },
+        },
+      });
+      return deleted.count === 1;
     },
     async deletePending({ assetId, expiredAtOrBefore, ownerId }) {
       const deleted = await db.asset.deleteMany({
@@ -127,7 +156,7 @@ export function createPrismaAssetRepository(
         orderBy: { uploadExpiresAt: 'asc' },
         take: limit,
         where: {
-          status: { in: ['PENDING', 'REJECTED'] },
+          status: { in: ['PENDING', 'CLEANING', 'REJECTED'] },
           uploadExpiresAt: { lte: now },
         },
       });
@@ -324,10 +353,20 @@ export async function cleanupStaleUploads(
   const result = { deletedPending: 0, failed: 0, retainedRejected: 0 };
 
   for (const asset of candidates) {
+    let cleanupStatus = asset.status;
+    if (cleanupStatus === 'PENDING') {
+      const claimed = await dependencies.repository.claimExpiredPending({
+        assetId: asset.id,
+        expiredAtOrBefore: now,
+      });
+      if (!claimed) continue;
+      cleanupStatus = 'CLEANING';
+    }
+
     try {
       await dependencies.storage.deleteObject(asset.storageKey);
-      if (asset.status === 'PENDING') {
-        const deleted = await dependencies.repository.deletePending({
+      if (cleanupStatus === 'CLEANING') {
+        const deleted = await dependencies.repository.deleteClaimed({
           assetId: asset.id,
           expiredAtOrBefore: now,
         });

@@ -31,12 +31,18 @@ variables.
 
 ## Expired upload cleanup
 
-Run `cleanupStaleUploads()` from `lib/storage/policy.ts` in a server-only
-scheduled job after loading the same database and S3 environment. It deletes
-objects and rows for expired `PENDING` intents. For `REJECTED` intents it
-deletes any residual object, retains the database record for audit history, and
-clears its cleanup deadline. Failed object deletions remain eligible for the
-next scheduled run.
+Configure a random `UPLOAD_CLEANUP_SECRET`, then schedule an authenticated
+`POST /api/internal/uploads/cleanup` with
+`Authorization: Bearer <UPLOAD_CLEANUP_SECRET>`. This machine endpoint does not
+use browser Origin checks and returns counts only.
+
+The cleanup conditionally claims each expired `PENDING` row as `CLEANING`
+before touching storage. A concurrent completion that reaches `READY` first
+makes the claim fail, so its object is not deleted. A claimed row cannot become
+ready. After storage deletion succeeds the claimed row is deleted; a storage
+failure leaves it `CLEANING` and eligible for the next scheduled run. Existing
+`REJECTED` records remain for audit history after their residual object is
+removed.
 
 ## Integration-test gate
 

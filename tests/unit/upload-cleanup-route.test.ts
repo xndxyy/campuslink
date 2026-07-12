@@ -27,10 +27,10 @@ describe('scheduled upload cleanup route', () => {
   );
 
   it('fails closed when the server secret is not configured', async () => {
-    const response = await handleUploadCleanup(
-      request(`Bearer ${secret}`),
-      { cleanup: vi.fn(), secret: undefined },
-    );
+    const response = await handleUploadCleanup(request(`Bearer ${secret}`), {
+      cleanup: vi.fn(),
+      secret: undefined,
+    });
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
@@ -44,10 +44,10 @@ describe('scheduled upload cleanup route', () => {
       failed: 1,
       retainedRejected: 3,
     }));
-    const response = await handleUploadCleanup(
-      request(`Bearer ${secret}`),
-      { cleanup, secret },
-    );
+    const response = await handleUploadCleanup(request(`Bearer ${secret}`), {
+      cleanup,
+      secret,
+    });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({

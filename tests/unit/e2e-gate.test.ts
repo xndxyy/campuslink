@@ -23,6 +23,7 @@ describe('E2E environment gate', () => {
   });
 
   it('runs when every real environment value is present', () => {
+    expect(requiredE2eEnvironment).toContain('E2E_PUBLISHED_MARKETPLACE_ID');
     expect(enforceE2eGate(complete())).toBe(true);
   });
 });

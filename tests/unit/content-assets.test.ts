@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   authorizeAssetRead,
   type ContentAdapter,
+  ContentAuthenticationRequiredError,
   ContentForbiddenError,
 } from '@/lib/domain/content-service';
 
@@ -30,21 +31,34 @@ const readyAsset = {
 };
 
 describe('asset read authorization', () => {
-  it('allows anonymous reads only for READY assets on published parent content', async () => {
+  it('requires a verified actor for published resource documents', async () => {
     await expect(
       authorizeAssetRead(db(readyAsset), null, 'asset_1'),
-    ).resolves.toEqual({
-      contentType: 'application/pdf',
-      kind: 'RESOURCE_DOCUMENT',
-      storageKey: 'private/secret-key.pdf',
-    });
+    ).rejects.toBeInstanceOf(ContentAuthenticationRequiredError);
     await expect(
       authorizeAssetRead(
-        db({ ...readyAsset, resource: { status: 'PENDING' } }),
+        db(readyAsset),
+        { campusId: 'campus_1', id: 'student_2', role: 'STUDENT' },
+        'asset_1',
+      ),
+    ).resolves.toMatchObject({ kind: 'RESOURCE_DOCUMENT' });
+  });
+
+  it('allows anonymous reads only for published display images', async () => {
+    await expect(
+      authorizeAssetRead(
+        db({ ...readyAsset, contentType: 'image/png', kind: 'RESOURCE_IMAGE' }),
         null,
         'asset_1',
       ),
-    ).rejects.toBeInstanceOf(ContentForbiddenError);
+    ).resolves.toMatchObject({ kind: 'RESOURCE_IMAGE' });
+    await expect(
+      authorizeAssetRead(
+        db({ ...readyAsset, contentType: 'image/png', kind: 'RESOURCE_IMAGE', resource: { status: 'PENDING' } }),
+        null,
+        'asset_1',
+      ),
+    ).rejects.toBeInstanceOf(ContentAuthenticationRequiredError);
   });
 
   it('allows the owner and moderator to read nonpublic READY assets', async () => {

@@ -258,7 +258,6 @@ model Report {
   reason        String           @db.VarChar(500)
   details       String?          @db.Text
   status        ReportStatus     @default(OPEN)
-  openReportKey String?          @unique @db.VarChar(512)
   assigneeId    String?
   reporter      User             @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
   assignee      User?            @relation("ReportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)

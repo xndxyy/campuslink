@@ -86,7 +86,6 @@ describeWithDatabase('database schema constraints', () => {
     }
 
     const targetId = `resource-${randomUUID()}`;
-    const openReportKey = `${reporterId}:RESOURCE:${targetId}`;
 
     await db.report.create({
       data: {
@@ -94,7 +93,6 @@ describeWithDatabase('database schema constraints', () => {
         targetType: 'RESOURCE',
         targetId,
         reason: 'Duplicate open-report constraint test',
-        openReportKey,
       },
     });
 
@@ -105,7 +103,6 @@ describeWithDatabase('database schema constraints', () => {
           targetType: 'RESOURCE',
           targetId,
           reason: 'Duplicate open-report constraint test',
-          openReportKey,
         },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });

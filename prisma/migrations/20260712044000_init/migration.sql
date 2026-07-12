@@ -190,7 +190,6 @@ CREATE TABLE "Report" (
     "reason" VARCHAR(500) NOT NULL,
     "details" TEXT,
     "status" "ReportStatus" NOT NULL DEFAULT 'OPEN',
-    "openReportKey" VARCHAR(512),
     "assigneeId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -288,8 +287,11 @@ CREATE INDEX "Favourite_targetType_targetId_idx" ON "Favourite"("targetType", "t
 -- CreateIndex
 CREATE UNIQUE INDEX "Favourite_userId_targetType_targetId_key" ON "Favourite"("userId", "targetType", "targetId");
 
--- CreateIndex
-CREATE UNIQUE INDEX "Report_openReportKey_key" ON "Report"("openReportKey");
+-- Allow at most one active report for a reporter and target; resolved reports
+-- no longer participate in the uniqueness constraint.
+CREATE UNIQUE INDEX "Report_one_open_per_reporter_target_key"
+ON "Report"("reporterId", "targetType", "targetId")
+WHERE "status" = 'OPEN'::"ReportStatus";
 
 -- CreateIndex
 CREATE INDEX "Report_targetType_targetId_status_idx" ON "Report"("targetType", "targetId", "status");

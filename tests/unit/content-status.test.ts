@@ -12,6 +12,12 @@ describe('transitionContentStatus', () => {
     ).toBe(ContentStatus.PUBLISHED);
   });
 
+  it('lets an author withdraw PENDING content by archiving it', () => {
+    expect(
+      transitionContentStatus(ContentStatus.PENDING, ContentStatus.ARCHIVED),
+    ).toBe(ContentStatus.ARCHIVED);
+  });
+
   it('rejects a PUBLISHED to PENDING transition', () => {
     expect(() =>
       transitionContentStatus(ContentStatus.PUBLISHED, ContentStatus.PENDING),

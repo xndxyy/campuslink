@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  cleanupStaleUploads,
   completeUpload,
   createUploadIntent,
   UploadForbiddenError,
@@ -18,16 +19,27 @@ const pendingAsset: UploadAssetRecord = {
   sizeBytes: BigInt(1_024),
   status: 'PENDING',
   storageKey: 'campus/user_01JOWNERTEST/asset_01JUPLOADTEST.pdf',
+  uploadExpiresAt: new Date('2026-07-12T08:05:00.000Z'),
 };
 
 function createDependencies(asset: UploadAssetRecord | null = pendingAsset) {
   const repository: AssetRepository = {
     create: vi.fn(async (record) => record),
+    deletePending: vi.fn(async () => true),
+    findCleanupCandidates: vi.fn(async () => []),
     findById: vi.fn(async () => asset),
+    markRejectedCleaned: vi.fn(async () => true),
     transitionStatus: vi.fn(async () => true),
   };
   const storage: UploadStorage = {
-    createPresignedPutUrl: vi.fn(async () => 'https://storage.test/upload'),
+    createPresignedPutUrl: vi.fn(async () => ({
+      requiredHeaders: {
+        'Content-Type': 'application/pdf',
+        'If-None-Match': '*',
+      },
+      uploadUrl: 'https://storage.test/upload',
+    })),
+    deleteObject: vi.fn(async () => undefined),
     headObject: vi.fn(async (key) => ({
       contentLength: 1_024,
       contentType: 'application/pdf',
@@ -54,6 +66,7 @@ describe('upload service', () => {
       {
         ...dependencies,
         createAssetId: () => pendingAsset.id,
+        now: () => new Date('2026-07-12T08:00:00.000Z'),
       },
     );
 
@@ -62,12 +75,47 @@ describe('upload service', () => {
       contentType: pendingAsset.contentType,
       expiresInSeconds: 300,
       key: pendingAsset.storageKey,
+      sizeBytes: 1_024,
     });
     expect(result).toEqual({
       assetId: pendingAsset.id,
       contentType: pendingAsset.contentType,
+      expiresAt: '2026-07-12T08:05:00.000Z',
       expiresInSeconds: 300,
+      requiredHeaders: {
+        'Content-Type': 'application/pdf',
+        'If-None-Match': '*',
+      },
       uploadUrl: 'https://storage.test/upload',
+    });
+  });
+
+  it('compensates the pending row when signing fails', async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.storage.createPresignedPutUrl).mockRejectedValue(
+      new Error('signing failed'),
+    );
+
+    await expect(
+      createUploadIntent(
+        pendingAsset.ownerId,
+        {
+          canonicalExtension: 'pdf',
+          contentType: pendingAsset.contentType,
+          displayName: 'lecture.pdf',
+          kind: pendingAsset.kind,
+          sizeBytes: 1_024,
+        },
+        {
+          ...dependencies,
+          createAssetId: () => pendingAsset.id,
+          now: () => new Date('2026-07-12T08:00:00.000Z'),
+        },
+      ),
+    ).rejects.toThrow('signing failed');
+    expect(dependencies.repository.deletePending).toHaveBeenCalledWith({
+      assetId: pendingAsset.id,
+      ownerId: pendingAsset.ownerId,
     });
   });
 
@@ -123,12 +171,42 @@ describe('upload service', () => {
     await expect(
       completeUpload(pendingAsset.ownerId, pendingAsset.id, dependencies),
     ).rejects.toBeInstanceOf(UploadMismatchError);
+    expect(dependencies.storage.deleteObject).toHaveBeenCalledWith(
+      pendingAsset.storageKey,
+    );
     expect(dependencies.repository.transitionStatus).toHaveBeenCalledWith({
       assetId: pendingAsset.id,
       from: 'PENDING',
       ownerId: pendingAsset.ownerId,
       to: 'REJECTED',
     });
+  });
+
+  it('deletes expired pending objects and retains cleaned rejected records', async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.repository.findCleanupCandidates).mockResolvedValue([
+      pendingAsset,
+      { ...pendingAsset, id: 'asset_rejected', status: 'REJECTED' },
+    ]);
+
+    await expect(
+      cleanupStaleUploads(
+        { ...dependencies, now: () => new Date('2026-07-12T08:10:00.000Z') },
+        25,
+      ),
+    ).resolves.toEqual({
+      deletedPending: 1,
+      failed: 0,
+      retainedRejected: 1,
+    });
+    expect(dependencies.storage.deleteObject).toHaveBeenCalledTimes(2);
+    expect(dependencies.repository.deletePending).toHaveBeenCalledWith({
+      assetId: pendingAsset.id,
+      expiredAtOrBefore: new Date('2026-07-12T08:10:00.000Z'),
+    });
+    expect(dependencies.repository.markRejectedCleaned).toHaveBeenCalledWith(
+      'asset_rejected',
+    );
   });
 
   it('forbids another owner before contacting storage', async () => {

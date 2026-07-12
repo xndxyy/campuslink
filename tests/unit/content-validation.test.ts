@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  contentListQuerySchema,
   createJobSchema,
   createMarketplaceItemSchema,
   createResourceSchema,
@@ -116,5 +117,11 @@ describe('content validation', () => {
         title: 'Weekend assistant',
       }),
     ).toThrow();
+  });
+
+  it('caps stable page depth and search input cost', () => {
+    expect(contentListQuerySchema.parse({ page: '50', search: 'a'.repeat(80) })).toMatchObject({ page: 50 });
+    expect(() => contentListQuerySchema.parse({ page: '51' })).toThrow();
+    expect(() => contentListQuerySchema.parse({ search: 'a'.repeat(81) })).toThrow();
   });
 });

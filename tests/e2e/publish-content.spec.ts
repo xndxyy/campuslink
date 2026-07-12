@@ -1,9 +1,11 @@
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { hasCompleteE2eEnvironment } from '../helpers/e2e-environment';
+import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
+
+const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
 
 test.skip(
-  !hasCompleteE2eEnvironment(process.env),
+  !runSharedAccountE2e,
   'Requires complete live E2E services and provisioned accounts.',
 );
 

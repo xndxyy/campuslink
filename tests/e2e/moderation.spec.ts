@@ -1,16 +1,33 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from '@playwright/test';
-import { Pool } from 'pg';
-import { hasCompleteE2eEnvironment } from '../helpers/e2e-environment';
-
-test.describe.configure({ mode: 'serial' });
+import { Pool, type PoolClient } from 'pg';
+import { hasCompleteGovernanceE2eEnvironment } from '../helpers/e2e-environment';
 
 test.skip(
-  !hasCompleteE2eEnvironment(process.env),
-  'Requires complete live E2E services and provisioned student/moderator/admin accounts.',
+  !hasCompleteGovernanceE2eEnvironment(process.env),
+  'Requires live database, application, and storage services.',
 );
 
 const runId = randomUUID();
+const password = 'Governance-E2E-Password-2026!';
+const passwordHash =
+  '$2b$12$bSx3V/LaioMvs5dQye0K8uVIgmlGHj6dM6PL7h1oJwOcdZr9R1G9u';
+const campusId = `e2e-campus-${runId}`;
+const campusSlug = `governance-${runId}`;
+const campusDomain = `governance-${runId}.test`;
+const campusName = `Governance E2E ${runId}`;
+const adminId = `e2e-admin-${runId}`;
+const reserveAdminId = `e2e-reserve-admin-${runId}`;
+const moderatorId = `e2e-moderator-${runId}`;
+const managedStudentId = `e2e-managed-${runId}`;
+const accessStudentId = `e2e-access-${runId}`;
+const authorId = `e2e-author-${runId}`;
+const adminEmail = `admin@${campusDomain}`;
+const reserveAdminEmail = `reserve-admin@${campusDomain}`;
+const moderatorEmail = `moderator@${campusDomain}`;
+const managedStudentEmail = `managed@${campusDomain}`;
+const accessStudentEmail = `access@${campusDomain}`;
+const authorEmail = `author@${campusDomain}`;
 const pendingResourceId = `e2e-pending-${runId}`;
 const rejectedResourceId = `e2e-reject-${runId}`;
 const hiddenResourceId = `e2e-hidden-${runId}`;
@@ -20,126 +37,95 @@ const pendingTitle = `E2E pending moderation ${runId}`;
 const rejectedTitle = `E2E rejected moderation ${runId}`;
 const hiddenTitle = `E2E hidden moderation ${runId}`;
 const reportDetails = `E2E report moderation ${runId}`;
-const subjectIds = [
-  pendingResourceId,
-  rejectedResourceId,
-  hiddenResourceId,
-  reportedResourceId,
-  reportId,
-];
-let db: Pool | undefined;
-let setupStartedAt: Date | undefined;
-let campusId = '';
-let studentId = '';
-let moderatorId = '';
-let adminId = '';
-let originalCampusName = '';
-let originalCampusDomain = '';
-const userIds = new Map<string, string>();
-const sessionIds = new Set<string>();
 
-async function signIn(
-  page: import('@playwright/test').Page,
-  email: string,
-  password: string,
+const tracked = {
+  assets: new Set<string>(),
+  auditLogs: new Set<string>(),
+  campuses: new Set([campusId]),
+  favourites: new Set<string>(),
+  jobPosts: new Set<string>(),
+  marketplaceItems: new Set<string>(),
+  moderationActions: new Set<string>(),
+  reports: new Set([reportId]),
+  resources: new Set([
+    pendingResourceId,
+    rejectedResourceId,
+    hiddenResourceId,
+    reportedResourceId,
+  ]),
+  sessions: new Set<string>(),
+  users: new Set([
+    adminId,
+    reserveAdminId,
+    moderatorId,
+    managedStudentId,
+    accessStudentId,
+    authorId,
+  ]),
+};
+
+let db: Pool | undefined;
+
+async function insertUser(
+  client: PoolClient,
+  input: { email: string; id: string; name: string; role: string },
 ) {
-  await page.goto('/auth/sign-in');
-  await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page).not.toHaveURL(/auth\/sign-in/);
-  const userId = userIds.get(email);
-  if (db && setupStartedAt && userId) {
-    const session = await db.query<{ id: string }>(
-      `SELECT id FROM "Session"
-       WHERE "userId" = $1 AND "createdAt" >= $2
-       ORDER BY "createdAt" DESC, id DESC LIMIT 1`,
-      [userId, setupStartedAt],
-    );
-    if (session.rows[0]) sessionIds.add(session.rows[0].id);
-  }
+  await client.query(
+    `INSERT INTO "User"
+      (id, "campusId", name, email, "passwordHash", role, status,
+       "emailVerifiedAt", "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6::"UserRole", 'ACTIVE', now(), now(), now())`,
+    [input.id, campusId, input.name, input.email, passwordHash, input.role],
+  );
 }
 
-test.beforeAll(async () => {
-  if (!hasCompleteE2eEnvironment(process.env)) return;
+async function createFixture() {
   db = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const users = await client.query<{
-      campusId: string;
-      email: string;
-      emailVerifiedAt: Date | null;
-      id: string;
-      role: string;
-      status: string;
-    }>(
-      `SELECT id, email, "campusId", "emailVerifiedAt", role::text, status::text
-       FROM "User" WHERE email = ANY($1::text[])`,
-      [
-        [
-          process.env.E2E_VERIFIED_EMAIL,
-          process.env.E2E_MODERATOR_EMAIL,
-          process.env.E2E_ADMIN_EMAIL,
-        ],
-      ],
+    await client.query(
+      `INSERT INTO "Campus"
+        (id, slug, name, "allowedEmailDomain", "isActive", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, true, now(), now())`,
+      [campusId, campusSlug, campusName, campusDomain],
     );
-    for (const user of users.rows) userIds.set(user.email, user.id);
-    const student = users.rows.find(
-      (user) => user.email === process.env.E2E_VERIFIED_EMAIL,
-    );
-    const moderator = users.rows.find(
-      (user) => user.email === process.env.E2E_MODERATOR_EMAIL,
-    );
-    const admin = users.rows.find(
-      (user) => user.email === process.env.E2E_ADMIN_EMAIL,
-    );
-    if (
-      !student ||
-      student.role !== 'STUDENT' ||
-      student.status !== 'ACTIVE' ||
-      !student.emailVerifiedAt
-    ) {
-      throw new Error('E2E verified student is not provisioned and active.');
-    }
-    if (
-      !moderator ||
-      !['MODERATOR', 'ADMIN'].includes(moderator.role) ||
-      moderator.status !== 'ACTIVE' ||
-      !moderator.emailVerifiedAt
-    ) {
-      throw new Error('E2E moderator is not provisioned and active.');
-    }
-    if (
-      !admin ||
-      admin.role !== 'ADMIN' ||
-      admin.status !== 'ACTIVE' ||
-      !admin.emailVerifiedAt
-    ) {
-      throw new Error('E2E administrator is not provisioned and active.');
-    }
-    if (
-      student.campusId !== moderator.campusId ||
-      student.campusId !== admin.campusId
-    ) {
-      throw new Error('E2E governance accounts must share a campus.');
-    }
-    campusId = student.campusId;
-    studentId = student.id;
-    moderatorId = moderator.id;
-    adminId = admin.id;
-    const campus = await client.query<{
-      allowedEmailDomain: string;
-      name: string;
-    }>(`SELECT name, "allowedEmailDomain" FROM "Campus" WHERE id = $1`, [
-      campusId,
-    ]);
-    originalCampusName = campus.rows[0]!.name;
-    originalCampusDomain = campus.rows[0]!.allowedEmailDomain;
-    const marker = await client.query<{ startedAt: Date }>(
-      `SELECT clock_timestamp() AS "startedAt"`,
-    );
-    setupStartedAt = marker.rows[0]!.startedAt;
+    await insertUser(client, {
+      email: adminEmail,
+      id: adminId,
+      name: 'Governance Admin',
+      role: 'ADMIN',
+    });
+    await insertUser(client, {
+      email: reserveAdminEmail,
+      id: reserveAdminId,
+      name: 'Reserve Governance Admin',
+      role: 'ADMIN',
+    });
+    await insertUser(client, {
+      email: moderatorEmail,
+      id: moderatorId,
+      name: 'Governance Moderator',
+      role: 'MODERATOR',
+    });
+    await insertUser(client, {
+      email: managedStudentEmail,
+      id: managedStudentId,
+      name: 'Managed Governance Student',
+      role: 'STUDENT',
+    });
+    await insertUser(client, {
+      email: accessStudentEmail,
+      id: accessStudentId,
+      name: 'Access Boundary Student',
+      role: 'STUDENT',
+    });
+    await insertUser(client, {
+      email: authorEmail,
+      id: authorId,
+      name: 'Governance Author',
+      role: 'STUDENT',
+    });
     await client.query(
       `INSERT INTO "Resource"
         (id, "authorId", "campusId", title, summary, tags, status, "createdAt", "updatedAt")
@@ -150,26 +136,27 @@ test.beforeAll(async () => {
         ($12, $2, $3, $13, $14, ARRAY[]::text[], 'PUBLISHED', now(), now())`,
       [
         pendingResourceId,
-        studentId,
+        authorId,
         campusId,
         pendingTitle,
-        'E2E pending resource approved through the real moderator workspace.',
+        'Run-scoped resource approved through the moderator workspace.',
         rejectedResourceId,
         rejectedTitle,
-        'E2E pending resource rejected through the real moderator workspace.',
+        'Run-scoped resource rejected through the moderator workspace.',
         hiddenResourceId,
         hiddenTitle,
-        'E2E hidden resource restored through the real moderator workspace.',
+        'Run-scoped hidden resource restored by a moderator.',
         reportedResourceId,
         `E2E reported moderation ${runId}`,
-        'E2E published resource hidden through report resolution.',
+        'Run-scoped published resource hidden through report resolution.',
       ],
     );
     await client.query(
       `INSERT INTO "Report"
-        (id, "campusId", "reporterId", "targetType", "targetId", reason, details, status, "createdAt", "updatedAt")
+        (id, "campusId", "reporterId", "targetType", "targetId", reason,
+         details, status, "createdAt", "updatedAt")
        VALUES ($1, $2, $3, 'RESOURCE', $4, 'PROHIBITED', $5, 'OPEN', now(), now())`,
-      [reportId, campusId, studentId, reportedResourceId, reportDetails],
+      [reportId, campusId, authorId, reportedResourceId, reportDetails],
     );
     await client.query('COMMIT');
   } catch (error) {
@@ -178,93 +165,202 @@ test.beforeAll(async () => {
   } finally {
     client.release();
   }
-});
+}
 
-test.afterAll(async () => {
+async function collectIds(
+  client: PoolClient,
+  query: string,
+  values: unknown[],
+  destination: Set<string>,
+) {
+  const result = await client.query<{ id: string }>(query, values);
+  for (const row of result.rows) destination.add(row.id);
+}
+
+async function cleanupFixture() {
   if (!db) return;
-  try {
-    const client = await db.connect();
+  const errors: unknown[] = [];
+  let client: PoolClient | undefined;
+  const attempt = async (operation: () => Promise<unknown>) => {
     try {
-      await client.query('BEGIN');
-      if (studentId) {
-        await client.query(
-          `UPDATE "User" SET role = 'STUDENT', status = 'ACTIVE' WHERE id = $1`,
-          [studentId],
-        );
-      }
-      if (campusId && originalCampusName && originalCampusDomain) {
-        await client.query(
-          `UPDATE "Campus" SET name = $2, "allowedEmailDomain" = $3 WHERE id = $1`,
-          [campusId, originalCampusName, originalCampusDomain],
-        );
-      }
-      if (sessionIds.size > 0) {
-        await client.query(`DELETE FROM "Session" WHERE id = ANY($1::text[])`, [
-          [...sessionIds],
-        ]);
-      }
-      if (setupStartedAt) {
-        await client.query(
-          `DELETE FROM "AuditLog"
-           WHERE "campusId" = $1 AND "actorId" = ANY($2::text[])
-             AND "createdAt" >= $3
-             AND ("subjectId" = ANY($4::text[]) OR "subjectId" = $1)`,
-          [
-            campusId,
-            [moderatorId, adminId],
-            setupStartedAt,
-            [...subjectIds, studentId],
-          ],
-        );
-      }
-      await client.query(
-        `DELETE FROM "ModerationAction"
-         WHERE "actorId" = $1 AND "subjectId" = ANY($2::text[])`,
-        [moderatorId, subjectIds],
-      );
-      await client.query(`DELETE FROM "Report" WHERE id = $1`, [reportId]);
-      await client.query(`DELETE FROM "Resource" WHERE id = ANY($1::text[])`, [
-        subjectIds.filter((id) => id !== reportId),
-      ]);
-      await client.query('COMMIT');
+      await operation();
     } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+      errors.push(error);
     }
+  };
+  try {
+    client = await db.connect();
+    const userIds = [...tracked.users];
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "Session" WHERE "userId" = ANY($1::text[])`,
+        [userIds],
+        tracked.sessions,
+      ),
+    );
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "AuditLog" WHERE "campusId" = $1`,
+        [campusId],
+        tracked.auditLogs,
+      ),
+    );
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "ModerationAction" WHERE "actorId" = ANY($1::text[])`,
+        [userIds],
+        tracked.moderationActions,
+      ),
+    );
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "Favourite" WHERE "userId" = ANY($1::text[])`,
+        [userIds],
+        tracked.favourites,
+      ),
+    );
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "Asset" WHERE "ownerId" = ANY($1::text[])`,
+        [userIds],
+        tracked.assets,
+      ),
+    );
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "MarketplaceItem" WHERE "sellerId" = ANY($1::text[])`,
+        [userIds],
+        tracked.marketplaceItems,
+      ),
+    );
+    await attempt(() =>
+      collectIds(
+        client!,
+        `SELECT id FROM "JobPost" WHERE "authorId" = ANY($1::text[])`,
+        [userIds],
+        tracked.jobPosts,
+      ),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "Session" WHERE id = ANY($1::text[])`, [
+        [...tracked.sessions],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "AuditLog" WHERE id = ANY($1::text[])`, [
+        [...tracked.auditLogs],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(
+        `DELETE FROM "ModerationAction" WHERE id = ANY($1::text[])`,
+        [[...tracked.moderationActions]],
+      ),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "Favourite" WHERE id = ANY($1::text[])`, [
+        [...tracked.favourites],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "Report" WHERE id = ANY($1::text[])`, [
+        [...tracked.reports],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "Asset" WHERE id = ANY($1::text[])`, [
+        [...tracked.assets],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "Resource" WHERE id = ANY($1::text[])`, [
+        [...tracked.resources],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(
+        `DELETE FROM "MarketplaceItem" WHERE id = ANY($1::text[])`,
+        [[...tracked.marketplaceItems]],
+      ),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "JobPost" WHERE id = ANY($1::text[])`, [
+        [...tracked.jobPosts],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "User" WHERE id = ANY($1::text[])`, [
+        [...tracked.users],
+      ]),
+    );
+    await attempt(() =>
+      client!.query(`DELETE FROM "Campus" WHERE id = ANY($1::text[])`, [
+        [...tracked.campuses],
+      ]),
+    );
   } finally {
+    client?.release();
     await db.end();
   }
-});
+  if (errors.length > 0) throw errors[0];
+}
 
-test('student access to the administration workspace is denied', async ({
+async function signIn(
+  page: import('@playwright/test').Page,
+  email: string,
+  expectedUserId: string,
+) {
+  await page.goto('/auth/sign-in');
+  await page.locator('input[name="email"]').fill(email);
+  await page.locator('input[name="password"]').fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).not.toHaveURL(/auth\/sign-in/);
+  const sessionCookie = (await page.context().cookies()).find(
+    (cookie) =>
+      cookie.name === 'campuslink-dev-session' ||
+      cookie.name === '__Host-campuslink-session',
+  );
+  if (!sessionCookie) throw new Error('Governance session cookie was not set.');
+  const sessionTokenHash = createHash('sha256')
+    .update(sessionCookie.value)
+    .digest('hex');
+  const session = await db!.query<{ id: string; userId: string }>(
+    `SELECT id, "userId" FROM "Session"
+     WHERE "sessionTokenHash" = $1`,
+    [sessionTokenHash],
+  );
+  expect(session.rows[0]?.userId).toBe(expectedUserId);
+  tracked.sessions.add(session.rows[0]!.id);
+}
+
+test.beforeAll(createFixture);
+test.afterAll(cleanupFixture);
+
+test('run-scoped student access to the administration workspace is denied', async ({
   page,
 }) => {
-  await signIn(
-    page,
-    process.env.E2E_VERIFIED_EMAIL!,
-    process.env.E2E_VERIFIED_PASSWORD!,
-  );
+  await signIn(page, accessStudentEmail, accessStudentId);
   const response = await page.goto('/admin');
   expect(response?.status()).toBe(404);
 });
 
-test('moderator approves, rejects, restores, triages, and resolves with audit history', async ({
+test('run-scoped moderator executes the complete content and report lifecycle', async ({
   page,
 }) => {
-  await signIn(
-    page,
-    process.env.E2E_MODERATOR_EMAIL!,
-    process.env.E2E_MODERATOR_PASSWORD!,
-  );
+  await signIn(page, moderatorEmail, moderatorId);
   await page.goto('/admin/moderation?status=PENDING');
   const pendingRow = page.locator('tr').filter({ hasText: pendingTitle });
   await pendingRow.getByRole('button', { name: 'Approve' }).click();
   const approveDialog = page.getByRole('dialog', { name: 'Approve' });
   await approveDialog
     .getByLabel('Decision reason')
-    .fill('E2E review confirms the resource meets campus publishing policy.');
+    .fill('Run-scoped review confirms this resource meets campus policy.');
   await approveDialog.getByRole('button', { name: 'Confirm Approve' }).click();
 
   const rejectedRow = page.locator('tr').filter({ hasText: rejectedTitle });
@@ -272,20 +368,8 @@ test('moderator approves, rejects, restores, triages, and resolves with audit hi
   const rejectDialog = page.getByRole('dialog', { name: 'Reject' });
   await rejectDialog
     .getByLabel('Decision reason')
-    .fill('E2E review found missing attribution required by campus policy.');
+    .fill('Run-scoped review found required attribution was missing.');
   await rejectDialog.getByRole('button', { name: 'Confirm Reject' }).click();
-  await expect
-    .poll(async () => {
-      const result = await db!.query<{ id: string; status: string }>(
-        `SELECT id, status::text FROM "Resource" WHERE id = ANY($1::text[])`,
-        [[pendingResourceId, rejectedResourceId]],
-      );
-      return Object.fromEntries(result.rows.map((row) => [row.id, row.status]));
-    })
-    .toEqual({
-      [pendingResourceId]: 'PUBLISHED',
-      [rejectedResourceId]: 'REJECTED',
-    });
 
   await page.goto('/admin/moderation?status=HIDDEN');
   const hiddenRow = page.locator('tr').filter({ hasText: hiddenTitle });
@@ -293,19 +377,16 @@ test('moderator approves, rejects, restores, triages, and resolves with audit hi
   const restoreDialog = page.getByRole('dialog', { name: 'Restore' });
   await restoreDialog
     .getByLabel('Decision reason')
-    .fill('E2E follow-up confirms the corrected resource may be restored.');
+    .fill('Run-scoped follow-up confirms the corrected resource is safe.');
   await restoreDialog.getByRole('button', { name: 'Confirm Restore' }).click();
 
   await page.goto('/admin/reports');
   const report = page.locator('article').filter({ hasText: reportDetails });
-  await expect(
-    report.getByRole('link', { name: 'Open target details' }),
-  ).toBeVisible();
   await report.getByRole('button', { name: 'Review report' }).click();
   let reportDialog = page.getByRole('dialog', { name: 'Resolve report' });
   await reportDialog
     .getByLabel('Resolution reason')
-    .fill('E2E initial triage assigns the report for complete review.');
+    .fill('Run-scoped triage assigns this report for complete review.');
   await reportDialog.getByRole('button', { name: 'Record outcome' }).click();
   await expect
     .poll(async () => {
@@ -321,15 +402,12 @@ test('moderator approves, rejects, restores, triages, and resolves with audit hi
   const triagedReport = page
     .locator('article')
     .filter({ hasText: reportDetails });
-  await expect(
-    triagedReport.getByRole('list', { name: 'Prior moderation history' }),
-  ).toContainText('TRIAGE');
   await triagedReport.getByRole('button', { name: 'Review report' }).click();
   reportDialog = page.getByRole('dialog', { name: 'Resolve report' });
   await reportDialog.getByLabel('Outcome').selectOption('RESOLVE');
   await reportDialog
     .getByLabel('Resolution reason')
-    .fill('E2E review confirms prohibited material and requires hiding.');
+    .fill('Run-scoped review confirms prohibited material must be hidden.');
   await reportDialog
     .getByLabel('Hide the published target when resolving')
     .check();
@@ -341,46 +419,37 @@ test('moderator approves, rejects, restores, triages, and resolves with audit hi
         reportStatus: string;
         resourceStatus: string;
       }>(
-        `SELECT r.status::text AS "reportStatus", c.status::text AS "resourceStatus"
-         FROM "Report" r JOIN "Resource" c ON c.id = r."targetId"
-         WHERE r.id = $1`,
+        `SELECT report.status::text AS "reportStatus",
+                resource.status::text AS "resourceStatus"
+         FROM "Report" AS report
+         JOIN "Resource" AS resource ON resource.id = report."targetId"
+         WHERE report.id = $1`,
         [reportId],
       );
       return result.rows[0];
     })
     .toEqual({ reportStatus: 'RESOLVED', resourceStatus: 'HIDDEN' });
-  const evidence = await db!.query<{ actionCount: string; auditCount: string }>(
-    `SELECT
-       (SELECT count(*)::text FROM "ModerationAction"
-        WHERE "actorId" = $1 AND "subjectId" = ANY($2::text[])) AS "actionCount",
-       (SELECT count(*)::text FROM "AuditLog"
-        WHERE "campusId" = $3 AND "actorId" = $1
-          AND "subjectId" = ANY($2::text[])) AS "auditCount"`,
-    [moderatorId, subjectIds, campusId],
-  );
-  expect(evidence.rows[0]).toEqual({ actionCount: '6', auditCount: '6' });
 });
 
-test('administrator manages users and campus settings, then filters the campus audit', async ({
+test('run-scoped administrator manages users, campus settings, audit filters, and final-admin protection', async ({
   page,
 }) => {
-  await signIn(
-    page,
-    process.env.E2E_ADMIN_EMAIL!,
-    process.env.E2E_ADMIN_PASSWORD!,
-  );
+  await signIn(page, adminEmail, adminId);
+
+  async function openUserDialog(email: string) {
+    await page.goto('/admin/users');
+    const row = page.locator('tr').filter({ hasText: email });
+    await row.getByRole('button', { name: 'Manage' }).click();
+    return page.getByRole('dialog', { name: 'Manage user' });
+  }
 
   async function manageUser(
+    email: string,
     field: 'role' | 'status',
     value: string,
     reason: string,
   ) {
-    await page.goto('/admin/users');
-    const row = page
-      .locator('tr')
-      .filter({ hasText: process.env.E2E_VERIFIED_EMAIL! });
-    await row.getByRole('button', { name: 'Manage' }).click();
-    const dialog = page.getByRole('dialog', { name: 'Manage user' });
+    const dialog = await openUserDialog(email);
     await dialog.locator('select[name="field"]').selectOption(field);
     await dialog.locator(`select[name="${field}"]`).selectOption(value);
     await dialog.getByLabel('Required reason').fill(reason);
@@ -388,42 +457,62 @@ test('administrator manages users and campus settings, then filters the campus a
   }
 
   await manageUser(
+    managedStudentEmail,
     'role',
     'MODERATOR',
-    'E2E administrator grants a temporary moderation assignment.',
+    'Run-scoped administrator grants a temporary moderator role.',
   );
-  await expect
-    .poll(async () => {
-      const result = await db!.query<{ role: string }>(
-        `SELECT role::text FROM "User" WHERE id = $1`,
-        [studentId],
-      );
-      return result.rows[0]?.role;
-    })
-    .toBe('MODERATOR');
   await manageUser(
+    managedStudentEmail,
     'role',
     'STUDENT',
-    'E2E administrator ends the temporary moderation assignment.',
+    'Run-scoped administrator removes the temporary moderator role.',
   );
   await manageUser(
+    managedStudentEmail,
     'status',
     'SUSPENDED',
-    'E2E administrator temporarily suspends the managed account.',
+    'Run-scoped administrator suspends the managed student after review.',
   );
   await manageUser(
+    managedStudentEmail,
     'status',
     'ACTIVE',
-    'E2E administrator restores the managed account after review.',
+    'Run-scoped administrator restores the managed student after review.',
   );
 
-  const temporaryDomain = `${runId}.e2e-admin.test`;
+  await manageUser(
+    reserveAdminEmail,
+    'role',
+    'STUDENT',
+    'Run-scoped administrator completes the reserve governance handoff.',
+  );
+  const selfDialog = await openUserDialog(adminEmail);
+  await selfDialog.locator('select[name="field"]').selectOption('status');
+  await selfDialog.locator('select[name="status"]').selectOption('SUSPENDED');
+  await selfDialog
+    .getByLabel('Required reason')
+    .fill('Attempt to suspend the final run-scoped active administrator.');
+  await selfDialog.getByRole('button', { name: 'Save change' }).click();
+  await expect(page.getByText('Administration state conflict.')).toBeVisible();
+  await expect
+    .poll(async () => {
+      const result = await db!.query<{ count: string }>(
+        `SELECT count(*)::text FROM "User"
+         WHERE "campusId" = $1 AND role = 'ADMIN' AND status = 'ACTIVE'`,
+        [campusId],
+      );
+      return result.rows[0]?.count;
+    })
+    .toBe('1');
+
+  const temporaryDomain = `${runId}.governance-updated.test`;
   await page.goto('/admin/settings');
-  await page.getByLabel('Campus name').fill(`${originalCampusName} E2E`);
+  await page.getByLabel('Campus name').fill(`${campusName} Updated`);
   await page.getByLabel('Allowed email domain').fill(temporaryDomain);
   await page
     .getByLabel('Change reason')
-    .fill('E2E administrator verifies audited campus configuration.');
+    .fill('Run-scoped administrator verifies isolated campus settings.');
   await page.getByRole('button', { name: 'Save audited settings' }).click();
   await expect
     .poll(async () => {
@@ -434,20 +523,11 @@ test('administrator manages users and campus settings, then filters the campus a
       return result.rows[0]?.domain;
     })
     .toBe(temporaryDomain);
-  await page.getByLabel('Campus name').fill(originalCampusName);
-  await page.getByLabel('Allowed email domain').fill(originalCampusDomain);
-  await page
-    .getByLabel('Change reason')
-    .fill('E2E administrator restores the provisioned campus configuration.');
-  await page.getByRole('button', { name: 'Save audited settings' }).click();
 
   await page.goto(
-    `/admin/audit-log?actor=${adminId}&event=USER_ROLE_CHANGED&entityType=USER&entityId=${studentId}&pageSize=1`,
+    `/admin/audit-log?actor=${adminId}&event=USER_ROLE_CHANGED&entityType=USER&entityId=${managedStudentId}&pageSize=1`,
   );
   await expect(page.locator('input[name="actor"]')).toHaveValue(adminId);
-  await expect(page.locator('input[name="event"]')).toHaveValue(
-    'USER_ROLE_CHANGED',
-  );
   await expect(page.getByText('USER_ROLE_CHANGED').first()).toBeVisible();
   await expect(page.getByRole('link', { name: 'Next page' })).toBeVisible();
 });

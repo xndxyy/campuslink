@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { Pool } from 'pg';
-import { hasCompleteE2eEnvironment } from '../helpers/e2e-environment';
+import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
+
+const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
 
 const reportDetails = 'E2E report submitted through the real published detail.';
 let db: Pool | undefined;
@@ -19,12 +21,12 @@ async function deleteCapturedContactAudit() {
 }
 
 test.skip(
-  !hasCompleteE2eEnvironment(process.env),
+  !runSharedAccountE2e,
   'Requires complete live E2E services and provisioned accounts.',
 );
 
 test.beforeAll(async () => {
-  if (!hasCompleteE2eEnvironment(process.env)) return;
+  if (!runSharedAccountE2e) return;
   db = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await db.connect();
   try {

@@ -3,12 +3,12 @@ import { requiredIntegrationEnvironment } from './integration-environment';
 export const requiredE2eEnvironment = [
   ...requiredIntegrationEnvironment,
   'APP_URL',
+] as const;
+
+export const requiredSharedAccountE2eEnvironment = [
+  ...requiredE2eEnvironment,
   'E2E_VERIFIED_EMAIL',
   'E2E_VERIFIED_PASSWORD',
-  'E2E_MODERATOR_EMAIL',
-  'E2E_MODERATOR_PASSWORD',
-  'E2E_ADMIN_EMAIL',
-  'E2E_ADMIN_PASSWORD',
   'E2E_UNVERIFIED_EMAIL',
   'E2E_UNVERIFIED_PASSWORD',
   'E2E_REJECTED_KIND',
@@ -19,9 +19,29 @@ export const requiredE2eEnvironment = [
 type Environment = Record<string, string | undefined>;
 
 export function hasCompleteE2eEnvironment(environment: Environment) {
+  return requiredSharedAccountE2eEnvironment.every((name) =>
+    Boolean(environment[name]?.trim()),
+  );
+}
+
+export function hasCompleteGovernanceE2eEnvironment(environment: Environment) {
   return requiredE2eEnvironment.every((name) =>
     Boolean(environment[name]?.trim()),
   );
+}
+
+export function shouldRunSharedAccountE2e(environment: Environment) {
+  const missing = requiredSharedAccountE2eEnvironment.filter(
+    (name) => !environment[name]?.trim(),
+  );
+  if (missing.length === 0) return true;
+  const inCi = ['true', '1', 'yes'].includes(environment.CI ?? '');
+  if (inCi) {
+    throw new Error(
+      `CI requires shared-account E2E fixtures. Missing: ${missing.join(', ')}`,
+    );
+  }
+  return false;
 }
 
 export function enforceE2eGate(environment: Environment) {

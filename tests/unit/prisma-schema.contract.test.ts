@@ -40,6 +40,27 @@ describe('Prisma schema contract', () => {
     );
   });
 
+  it('clears legacy credential hashes only for pending users during upgrade', () => {
+    const pendingCredentialMigration = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../prisma/migrations/20260712080000_harden_authentication/migration.sql',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    );
+    const credentialBackfills = pendingCredentialMigration.match(
+      /UPDATE\s+"User"\s+SET\s+"passwordHash"\s*=\s*NULL[\s\S]*?;/g,
+    );
+
+    expect(credentialBackfills).toEqual([
+      expect.stringMatching(
+        /^UPDATE\s+"User"\s+SET\s+"passwordHash"\s*=\s*NULL\s+WHERE\s+"status"\s*=\s*'PENDING_VERIFICATION'\s*;$/,
+      ),
+    ]);
+  });
+
   it('models expiring shared rate-limit buckets keyed only by a hash', () => {
     expect(schema).toMatch(
       /model RateLimitBucket\s*\{[\s\S]*?keyHash\s+String\s+@id\s+@db\.VarChar\(64\)[\s\S]*?windowStartedAt\s+DateTime[\s\S]*?count\s+Int[\s\S]*?expiresAt\s+DateTime/,

@@ -1,6 +1,9 @@
 -- Pending registrations deliberately do not contain credentials. The holder
 -- of the one-time verification link chooses the password during activation.
 ALTER TABLE "User" ALTER COLUMN "passwordHash" DROP NOT NULL;
+UPDATE "User"
+SET "passwordHash" = NULL
+WHERE "status" = 'PENDING_VERIFICATION';
 
 -- One expiring bucket per hashed, bounded rate-limit key. Raw client input is
 -- never persisted, and expired buckets are removed by the application.

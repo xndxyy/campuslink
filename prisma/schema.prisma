@@ -79,11 +79,13 @@ enum ReportReason {
 }
 
 enum ModerationSubjectType {
+  CAMPUS
   USER
   ASSET
   RESOURCE
   MARKETPLACE_ITEM
   JOB_POST
+  REPORT
 }
 
 enum ModerationActionType {
@@ -91,6 +93,10 @@ enum ModerationActionType {
   REJECT
   HIDE
   RESTORE
+  ARCHIVE
+  TRIAGE
+  DISMISS
+  RESOLVE
 }
 
 model Campus {

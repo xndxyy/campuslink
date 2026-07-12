@@ -22,9 +22,8 @@ const admin = {
 
 function adapter() {
   const value = {
-    $transaction: vi.fn(
-      async (operation: (tx: unknown) => Promise<unknown>, options?: unknown) =>
-        operation(value),
+    $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
+      operation(value),
     ),
     auditLog: {
       create: vi.fn(async ({ data }) => ({ id: 'audit_1', ...data })),
@@ -174,7 +173,7 @@ describe('campus settings and audit privacy', () => {
     });
   });
 
-  it.each(['https://example.edu', 'admin@example.edu', 'localhost', '.edu']) (
+  it.each(['https://example.edu', 'admin@example.edu', 'localhost', '.edu'])(
     'rejects unsafe campus domain %s',
     async (allowedEmailDomain) => {
       await expect(

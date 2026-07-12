@@ -14,7 +14,11 @@ const moderator = {
   status: 'ACTIVE' as const,
 };
 
-function request(path: string, body: unknown, origin = 'http://localhost:3000') {
+function request(
+  path: string,
+  body: unknown,
+  origin = 'http://localhost:3000',
+) {
   return new Request(`http://localhost${path}`, {
     body: JSON.stringify(body),
     headers: { 'content-type': 'application/json', origin },

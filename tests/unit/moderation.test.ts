@@ -16,12 +16,16 @@ const moderator = {
   role: 'MODERATOR' as const,
 };
 
-function adapter(options: { contentCount?: number; reportCount?: number } = {}) {
+function adapter(
+  options: { contentCount?: number; reportCount?: number } = {},
+) {
   const value = {
-    $transaction: vi.fn(
-      async (operation: (tx: unknown) => Promise<unknown>) => operation(value),
+    $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
+      operation(value),
     ),
-    auditLog: { create: vi.fn(async ({ data }) => ({ id: 'audit_1', ...data })) },
+    auditLog: {
+      create: vi.fn(async ({ data }) => ({ id: 'audit_1', ...data })),
+    },
     jobPost: {
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
@@ -148,7 +152,12 @@ describe('audited content moderation', () => {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: expect.objectContaining({
           assets: {
-            select: { contentType: true, id: true, kind: true, sizeBytes: true },
+            select: {
+              contentType: true,
+              id: true,
+              kind: true,
+              sizeBytes: true,
+            },
             where: { status: 'READY' },
           },
           author: { select: { id: true, name: true } },
@@ -156,9 +165,9 @@ describe('audited content moderation', () => {
         where: { campusId: moderator.campusId, status: 'PENDING' },
       }),
     );
-    expect(JSON.stringify(vi.mocked(db.resource.findMany).mock.calls)).not.toContain(
-      'email',
-    );
+    expect(
+      JSON.stringify(vi.mocked(db.resource.findMany).mock.calls),
+    ).not.toContain('email');
   });
 });
 

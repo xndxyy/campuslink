@@ -65,6 +65,11 @@ export default async function MySubmissionsPage() {
                 >
                   {String(item.status)}
                 </span>
+                {item.decisionReason ? (
+                  <p className="decision-reason">
+                    Moderator decision: {String(item.decisionReason)}
+                  </p>
+                ) : null}
                 <OwnerActions
                   id={item.id}
                   kind={kind}

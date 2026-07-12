@@ -62,6 +62,7 @@ describe('marketplace contact requests', () => {
       data: {
         action: 'MARKETPLACE_CONTACT_REQUESTED',
         actorId: actor.id,
+        campusId: actor.campusId,
         details: { campusId: actor.campusId },
         subjectId: 'market_1',
         subjectType: 'MARKETPLACE_ITEM',

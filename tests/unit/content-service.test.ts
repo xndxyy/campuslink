@@ -6,6 +6,7 @@ import {
   createJobPost,
   createMarketplaceItem,
   createResource,
+  listOwnedContent,
   listPublicContent,
 } from '@/lib/domain/content-service';
 
@@ -60,6 +61,24 @@ function createAdapter(assets: Asset[] = []) {
         id: 'market_1',
         ...data,
       })),
+    },
+    moderationAction: {
+      findMany: vi.fn(async () => [
+        {
+          action: 'APPROVE',
+          createdAt: new Date('2026-07-12T12:00:00Z'),
+          id: 'decision_2',
+          reason: 'Latest approval replaces the earlier rejection note.',
+          subjectId: 'r3',
+        },
+        {
+          action: 'REJECT',
+          createdAt: new Date('2026-07-12T11:00:00Z'),
+          id: 'decision_1',
+          reason: 'Older rejection note.',
+          subjectId: 'r3',
+        },
+      ]),
     },
     resource: {
       count: vi.fn(async () => 3),
@@ -255,5 +274,31 @@ describe('content service', () => {
     expect(result).toEqual(
       expect.objectContaining({ page: 2, pageSize: 2, total: 3 }),
     );
+  });
+
+  it('shows the latest immutable decision across every content moderation action', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    const items = await listOwnedContent(serviceAdapter, actor, 'resource');
+    expect(adapter.moderationAction.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          action: true,
+          createdAt: true,
+          id: true,
+          reason: true,
+          subjectId: true,
+        },
+        where: expect.objectContaining({
+          action: {
+            in: ['APPROVE', 'REJECT', 'HIDE', 'RESTORE', 'ARCHIVE'],
+          },
+        }),
+      }),
+    );
+    expect(items.find((item) => item.id === 'r3')).toMatchObject({
+      decisionAction: 'APPROVE',
+      decisionReason: 'Latest approval replaces the earlier rejection note.',
+    });
   });
 });

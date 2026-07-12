@@ -63,6 +63,7 @@ describe('reports domain', () => {
     await createReport(db, actor, input);
     expect(db.report.create).toHaveBeenCalledWith({
       data: {
+        campusId: actor.campusId,
         details: input.details,
         reason: input.reason,
         reporterId: actor.id,
@@ -110,5 +111,13 @@ describe('reports domain', () => {
     expect(reports.items[0]).not.toHaveProperty('assigneeId');
     expect(reports.items[0]).not.toHaveProperty('reason');
     expect(reports.items[0]).not.toHaveProperty('details');
+    expect(db.report.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          campusId: actor.campusId,
+          reporterId: actor.id,
+        }),
+      }),
+    );
   });
 });

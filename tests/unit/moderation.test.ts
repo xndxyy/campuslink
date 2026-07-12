@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  dismissReport,
+  listModerationReports,
   listPendingContent,
   moderateContent,
   ModerationConflictError,
   ModerationForbiddenError,
   ModerationValidationError,
   resolveReport,
+  triageReport,
   type ModerationAdapter,
 } from '@/lib/domain/moderation';
 
@@ -36,6 +39,7 @@ function adapter(
     },
     moderationAction: {
       create: vi.fn(async ({ data }) => ({ id: 'action_1', ...data })),
+      findMany: vi.fn(async () => []),
     },
     report: {
       findFirst: vi.fn(async () => ({
@@ -93,6 +97,7 @@ describe('audited content moderation', () => {
         data: expect.objectContaining({
           action: event,
           actorId: moderator.id,
+          campusId: moderator.campusId,
           subjectId: 'resource_1',
           subjectType: 'RESOURCE',
         }),
@@ -172,6 +177,84 @@ describe('audited content moderation', () => {
 });
 
 describe('report resolution', () => {
+  it('lists only the staff actor campus and attaches safe prior action history', async () => {
+    const db = adapter();
+    vi.mocked(db.report.findMany).mockResolvedValue([
+      {
+        createdAt: new Date('2026-07-12T10:00:00Z'),
+        id: 'report_1',
+        reason: 'SPAM',
+        status: 'TRIAGED',
+        targetId: 'resource_1',
+        targetType: 'RESOURCE',
+      },
+    ]);
+    await listModerationReports(db, moderator);
+    expect(db.report.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          campusId: moderator.campusId,
+          status: { in: ['OPEN', 'TRIAGED'] },
+        },
+      }),
+    );
+    expect(
+      (db.moderationAction as unknown as { findMany: ReturnType<typeof vi.fn> })
+        .findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.not.objectContaining({ reason: false }),
+        where: expect.objectContaining({
+          subjectId: { in: ['report_1', 'resource_1'] },
+        }),
+      }),
+    );
+  });
+
+  it('triages only OPEN reports in the staff campus', async () => {
+    const db = adapter();
+    await triageReport(db, moderator, {
+      reason: 'Initial review assigns this report to the moderator.',
+      reportId: 'report_1',
+    });
+    expect(db.report.updateMany).toHaveBeenCalledWith({
+      data: { assigneeId: moderator.id, status: 'TRIAGED' },
+      where: {
+        campusId: moderator.campusId,
+        id: 'report_1',
+        status: 'OPEN',
+      },
+    });
+  });
+
+  it('dismisses only TRIAGED reports in the staff campus', async () => {
+    const db = adapter();
+    await dismissReport(db, moderator, {
+      reason: 'Completed review found no policy violation.',
+      reportId: 'report_1',
+    });
+    expect(db.report.updateMany).toHaveBeenCalledWith({
+      data: { assigneeId: moderator.id, status: 'DISMISSED' },
+      where: {
+        campusId: moderator.campusId,
+        id: 'report_1',
+        status: 'TRIAGED',
+      },
+    });
+  });
+
+  it('returns a conflict for a repeated triage or concurrent report transition', async () => {
+    const db = adapter({ reportCount: 0 });
+    await expect(
+      triageReport(db, moderator, {
+        reason: 'Repeated review must lose the exact status race.',
+        reportId: 'report_1',
+      }),
+    ).rejects.toBeInstanceOf(ModerationConflictError);
+    expect(db.moderationAction.create).not.toHaveBeenCalled();
+    expect(db.auditLog.create).not.toHaveBeenCalled();
+  });
+
   it('atomically resolves a triaged report, hides a published target, and audits both', async () => {
     const db = adapter();
     await resolveReport(db, moderator, {
@@ -189,10 +272,38 @@ describe('report resolution', () => {
     });
     expect(db.report.updateMany).toHaveBeenCalledWith({
       data: { assigneeId: moderator.id, status: 'RESOLVED' },
-      where: { id: 'report_1', status: { in: ['OPEN', 'TRIAGED'] } },
+      where: {
+        campusId: moderator.campusId,
+        id: 'report_1',
+        status: 'TRIAGED',
+      },
     });
+    expect(db.report.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          campusId: moderator.campusId,
+          id: 'report_1',
+          status: 'TRIAGED',
+        },
+      }),
+    );
     expect(db.moderationAction.create).toHaveBeenCalledTimes(2);
     expect(db.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('denies direct OPEN to RESOLVED transitions without writing history', async () => {
+    const db = adapter();
+    vi.mocked(db.report.findFirst).mockResolvedValue(null);
+    await expect(
+      resolveReport(db, moderator, {
+        hideTarget: false,
+        reason: 'A report must be triaged before final resolution.',
+        reportId: 'report_1',
+      }),
+    ).rejects.toBeInstanceOf(ModerationConflictError);
+    expect(db.report.updateMany).not.toHaveBeenCalled();
+    expect(db.moderationAction.create).not.toHaveBeenCalled();
+    expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 
   it('does not create logs if the report status loses a race', async () => {

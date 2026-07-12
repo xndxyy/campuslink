@@ -81,6 +81,7 @@ describe('administrator user controls', () => {
       data: expect.objectContaining({
         action: 'USER_ROLE_CHANGED',
         actorId: admin.id,
+        campusId: admin.campusId,
         details: {
           from: 'MODERATOR',
           reason: 'Role no longer required for the current term.',
@@ -143,6 +144,35 @@ describe('administrator user controls', () => {
     ).rejects.toBeInstanceOf(AdminForbiddenError);
     expect(db.user.findFirst).not.toHaveBeenCalled();
   });
+
+  it('retries bounded Prisma serialization failures before applying a final-admin change', async () => {
+    const db = adapter();
+    vi.mocked(db.$transaction).mockRejectedValueOnce({ code: 'P2034' });
+    await expect(
+      updateManagedUser(db, admin, {
+        reason: 'Role no longer required after the governance handoff.',
+        role: 'STUDENT',
+        userId: 'user_1',
+      }),
+    ).resolves.toMatchObject({ id: 'user_1', role: 'STUDENT' });
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([{ code: 'P2034' }, { code: '40001' }, { meta: { code: '40001' } }])(
+    'maps exhausted serialization failure %j to a safe conflict',
+    async (error) => {
+      const db = adapter();
+      vi.mocked(db.$transaction).mockRejectedValue(error);
+      await expect(
+        updateManagedUser(db, admin, {
+          reason: 'Concurrent final administrator protection.',
+          status: 'SUSPENDED',
+          userId: 'user_1',
+        }),
+      ).rejects.toBeInstanceOf(AdminConflictError);
+      expect(db.$transaction).toHaveBeenCalledTimes(3);
+    },
+  );
 });
 
 describe('campus settings and audit privacy', () => {
@@ -163,6 +193,7 @@ describe('campus settings and audit privacy', () => {
     expect(db.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: 'CAMPUS_CONFIG_CHANGED',
+        campusId: admin.campusId,
         details: expect.objectContaining({
           allowedEmailDomain: {
             from: 'old.example.edu',
@@ -212,6 +243,7 @@ describe('campus settings and audit privacy', () => {
       expect.objectContaining({
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 21,
+        where: expect.objectContaining({ campusId: admin.campusId }),
       }),
     );
     expect(result.items[0]?.details).toEqual({ reason: 'safe' });

@@ -38,5 +38,41 @@ describe('moderator and administrator workspace contracts', () => {
   it('shows the latest moderator decision reason on author submissions', () => {
     const submissions = source('../../app/me/submissions/page.tsx');
     expect(submissions).toContain('decisionReason');
+    expect(submissions).toContain('decisionAction');
+    expect(submissions).toContain('Latest moderator decision');
+  });
+
+  it('provides pending, published, and hidden queues with valid actions', () => {
+    const moderation = source('../../app/admin/moderation/page.tsx');
+    expect(moderation).toContain("'PENDING'");
+    expect(moderation).toContain("'PUBLISHED'");
+    expect(moderation).toContain("'HIDDEN'");
+    expect(moderation).toContain('action="HIDE"');
+    expect(moderation).toContain('action="RESTORE"');
+  });
+
+  it('links report targets and renders accessible immutable history', () => {
+    const reports = source('../../app/admin/reports/page.tsx');
+    expect(reports).toContain('Open target details');
+    expect(reports).toContain('Prior moderation history');
+    expect(reports).toContain('<Link');
+  });
+
+  it('populates strict audit filters and preserves them in a next-page link', () => {
+    const audit = source('../../app/admin/audit-log/page.tsx');
+    for (const filter of [
+      'actor',
+      'event',
+      'entityType',
+      'entityId',
+      'from',
+      'to',
+      'pageSize',
+      'cursor',
+    ]) {
+      expect(audit).toContain(`name="${filter}"`);
+    }
+    expect(audit).toContain('defaultValue');
+    expect(audit).toContain('Next page');
   });
 });

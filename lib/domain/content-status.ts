@@ -7,9 +7,15 @@ export enum ContentStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
-const allowedTransitions: Readonly<Record<ContentStatus, readonly ContentStatus[]>> = {
+const allowedTransitions: Readonly<
+  Record<ContentStatus, readonly ContentStatus[]>
+> = {
   [ContentStatus.DRAFT]: [ContentStatus.PENDING, ContentStatus.ARCHIVED],
-  [ContentStatus.PENDING]: [ContentStatus.PUBLISHED, ContentStatus.REJECTED, ContentStatus.HIDDEN],
+  [ContentStatus.PENDING]: [
+    ContentStatus.PUBLISHED,
+    ContentStatus.REJECTED,
+    ContentStatus.HIDDEN,
+  ],
   [ContentStatus.PUBLISHED]: [ContentStatus.HIDDEN, ContentStatus.ARCHIVED],
   [ContentStatus.REJECTED]: [ContentStatus.DRAFT, ContentStatus.ARCHIVED],
   [ContentStatus.HIDDEN]: [ContentStatus.PUBLISHED, ContentStatus.ARCHIVED],

@@ -31,4 +31,18 @@ describe('Prisma schema contract', () => {
     expect(schema).not.toMatch(/\n\s*token\s+String(?:\?|\s)/);
     expect(schema).not.toContain('@@unique([identifier, token])');
   });
+
+  it('stores only a unique hash for opaque server sessions', () => {
+    expect(schema).toMatch(
+      /model Session\s*\{[\s\S]*?sessionTokenHash\s+String\s+@unique/,
+    );
+    expect(schema).not.toMatch(
+      /model Session\s*\{[\s\S]*?sessionToken\s+String(?:\?|\s)/,
+    );
+  });
+
+  it('does not retain legacy provider token fields when social authentication is absent', () => {
+    expect(schema).not.toContain('model Account');
+    expect(schema).not.toMatch(/(?:access|refresh|id)_token/);
+  });
 });

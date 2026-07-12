@@ -4,9 +4,9 @@
 
 **Goal:** Transform the Stitch prototype into a tested, deployable CampusLink platform with authentication, uploads, publishing, favourites, reports, and moderated administration.
 
-**Architecture:** A single Next.js App Router application owns the UI and server-side business actions. Prisma persists typed domain aggregates in PostgreSQL, Auth.js authenticates database sessions, and S3-compatible storage receives direct browser uploads through signed, constrained intents.
+**Architecture:** A single Next.js App Router application owns the UI and server-side business actions. Prisma persists typed domain aggregates in PostgreSQL. E-mail/password authentication uses bcrypt plus an opaque server-side database session: only SHA-256 token hashes are stored, while the random value is delivered only in the verification e-mail or the `HttpOnly`, host-only session cookie. S3-compatible storage receives direct browser uploads through signed, constrained intents.
 
-**Tech Stack:** Next.js, React, TypeScript, Tailwind CSS, Prisma, PostgreSQL, Auth.js, Zod, bcryptjs, AWS SDK S3 client, Vitest, Playwright, Docker Compose, MinIO, Mailpit.
+**Tech Stack:** Next.js, React, TypeScript, Tailwind CSS, Prisma, PostgreSQL, Zod, bcryptjs, Nodemailer, Vitest, Playwright, Docker Compose, MinIO, Mailpit.
 
 ---
 
@@ -16,7 +16,7 @@
 | --- | --- |
 | `app/` | Pages, layouts, route handlers, server actions, and error boundaries. |
 | `components/` | Accessible UI primitives and domain-focused forms/lists. |
-| `lib/auth/` | Auth.js configuration, password helpers, session and role guards. |
+| `lib/auth/` | Password helpers, opaque session lifecycle, SMTP mailer, rate limiter, and server role guards. |
 | `lib/domain/` | State transitions, permissions, and shared query policies. |
 | `lib/storage/` | S3 client, upload intent policy, storage keys, and signed reads. |
 | `lib/validation/` | Zod schemas for every external mutation. |
@@ -128,8 +128,8 @@ git commit -m "feat: add CampusLink domain schema"
 ### Task 3: Implement verified credentials authentication and RBAC
 
 **Files:**
-- Create: `auth.ts`, `app/api/auth/[...nextauth]/route.ts`, `app/auth/sign-in/page.tsx`, `app/auth/sign-up/page.tsx`, `app/auth/verify/route.ts`, `lib/auth/password.ts`, `lib/auth/guards.ts`, `lib/auth/verification.ts`, `lib/validation/auth.ts`
-- Test: `tests/unit/password.test.ts`, `tests/unit/guards.test.ts`, `tests/integration/auth.test.ts`, `tests/e2e/auth.spec.ts`
+- Create: `app/api/auth/sign-up/route.ts`, `app/api/auth/sign-in/route.ts`, `app/api/auth/sign-out/route.ts`, `app/api/auth/verify/route.ts`, `app/auth/sign-in/page.tsx`, `app/auth/sign-up/page.tsx`, `app/auth/verify/page.tsx`, `lib/auth/credentials.ts`, `lib/auth/auth-service.ts`, `lib/auth/session.ts`, `lib/auth/guards.ts`, `lib/auth/mailer.ts`, `lib/auth/rate-limit.ts`
+- Test: `tests/unit/auth-*.test.ts`, `tests/integration/auth-flow.test.ts`; add Playwright only once a disposable seeded test database can execute the browser flow reliably.
 
 - [ ] **Step 1: Write failing password and guard tests**
 
@@ -144,23 +144,20 @@ await expect(requireRole({ role: 'STUDENT' }, 'MODERATOR')).rejects.toThrow('For
 Run: `npm run test:unit -- tests/unit/password.test.ts tests/unit/guards.test.ts`  
 Expected: FAIL because authentication helpers do not exist.
 
-- [ ] **Step 3: Add server-only authentication implementation**
+- [ ] **Step 3: Add server-only opaque-session authentication implementation**
 
 ```ts
-export async function requireRole(session: { user?: { role?: string } } | null, required: 'MODERATOR' | 'ADMIN') {
-  if (!session?.user) throw new Error('Unauthenticated');
-  if (required === 'ADMIN' && session.user.role !== 'ADMIN') throw new Error('Forbidden');
-  if (required === 'MODERATOR' && !['MODERATOR', 'ADMIN'].includes(session.user.role ?? '')) throw new Error('Forbidden');
-  return session.user;
+export async function requireRole(required: ('MODERATOR' | 'ADMIN')[]) {
+  // Resolve and verify the opaque session server-side, then enforce RBAC.
 }
 ```
 
-Hash passwords with bcrypt, normalize e-mail before the campus-domain check, store a hashed verification token with a 24-hour expiry, block unverified/suspended accounts from publishing, and add rate limits to sign-up/sign-in routes.
+Hash passwords with bcrypt, normalize e-mail before the campus-domain check, and issue 32-byte opaque random tokens. Store only SHA-256 hashes for the 24-hour verification token and database session; return the raw verification token only in SMTP delivery and the raw session token only in the `HttpOnly`, `Secure`-in-production, `SameSite=Lax`, `__Host-campuslink-session` cookie. One-time verification activates the account, sign-out revokes the stored session hash, and pending/suspended users cannot create or retain mutating sessions. The injectable in-memory rate limiter is local/single-instance protection only; production multi-instance deployment requires a shared replacement. SMTP fallback must never log a link or token.
 
 - [ ] **Step 4: Verify browser flow**
 
-Run: `npm run test:integration -- tests/integration/auth.test.ts && npm run test:e2e -- tests/e2e/auth.spec.ts`  
-Expected: an invalid domain is rejected; a verified seed user signs in; an unverified user cannot submit content.
+Run: `npm run test:integration -- tests/integration/auth-flow.test.ts`
+Expected: when `DATABASE_URL` is available, sign-up writes a pending user, verification activates it once, unverified sign-in fails, verified sign-in creates only a hashed session, and guards reject missing/insufficient roles. Without `DATABASE_URL`, this integration suite explicitly skips; no empty browser test is claimed as coverage.
 
 - [ ] **Step 5: Commit**
 

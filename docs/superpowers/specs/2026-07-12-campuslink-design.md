@@ -28,14 +28,14 @@ Every mutation checks the session on the server. Visibility is a second independ
 
 One Next.js App Router repository provides server-rendered pages, accessible React client components, route handlers, server actions, and the administration interface. TypeScript types are shared across UI, validation, database, and test layers.
 
-PostgreSQL is the authoritative transactional store, accessed only through Prisma. Auth.js uses a credentials provider with a bcrypt password hash, a database session, and an e-mail verification token. Production e-mail delivery uses SMTP settings; development writes the verification URL to the server log and Mailpit, so the flow is still testable without a third-party account.
+PostgreSQL is the authoritative transactional store, accessed only through Prisma. Password authentication uses bcrypt and an opaque, server-side database session, not Auth.js credentials. A cryptographically random session token exists only in the `HttpOnly`, `SameSite=Lax`, host-only `__Host-campuslink-session` cookie; PostgreSQL stores a SHA-256 hash, expiry, and user reference. Verification uses the same raw-token-at-the-boundary/hash-at-rest approach with a 24-hour expiry and one-time consumption. Production e-mail delivery uses configured SMTP. Without SMTP, development emits a non-secret delivery-configuration message and never logs an e-mail link or token.
 
 Files do not pass through the web server. The application validates a requested file's name, MIME type, size, and content category before minting a short-lived S3-compatible PUT URL. The browser uploads directly to Cloudflare R2 in production or MinIO locally, then calls a completion endpoint which creates the asset record. Random object keys are never derived from a user-controlled filename. Published public files use a download endpoint; non-public files are served only with a short-lived signed URL after an authorization check.
 
 ```mermaid
 flowchart LR
   B[Browser] --> N[Next.js application]
-  N --> A[Auth.js session and RBAC]
+  N --> A[Opaque server session and RBAC]
   N --> P[(PostgreSQL via Prisma)]
   N --> S[S3 API: R2 or MinIO]
   M[Moderator] --> N
@@ -52,6 +52,7 @@ The database has the following aggregates. The actual Prisma schema mirrors thes
 | --- | --- | --- |
 | `Campus` | `id`, `name`, `slug`, `allowedEmailDomain` | Exactly one active campus is seeded. A sign-up e-mail must end with its normalized domain. |
 | `User` | `id`, `campusId`, `email`, `name`, `passwordHash`, `role`, `status`, `emailVerifiedAt` | E-mail is unique and lower-cased. `SUSPENDED` users cannot create sessions or mutate content. |
+| `Session` | `id`, `sessionTokenHash`, `userId`, `expires` | The random cookie token is never stored; its SHA-256 hash is unique and is revoked on sign-out. |
 | `VerificationToken` | `identifier`, `tokenHash`, `expiresAt` | Raw tokens are never stored. One successful verification consumes the token. |
 | `Asset` | `id`, `ownerId`, `storageKey`, `kind`, `contentType`, `sizeBytes`, `status` | A random storage key is unique. Only `READY` assets can attach to a submission. |
 | `Resource` | `id`, `authorId`, `campusId`, `title`, `summary`, `courseCode`, `tags`, `status` | Has at least one ready document asset before it may become `PENDING`. |
@@ -73,8 +74,8 @@ Report lifecycle: `OPEN -> TRIAGED -> RESOLVED | DISMISSED`. Resolving a report 
 1. A visitor enters name, campus e-mail, password, and confirmation.
 2. The server normalizes the e-mail, verifies the campus domain, enforces a 12-character password with upper-case, lower-case, number, and symbol, and stores only a bcrypt hash.
 3. A verification link containing a one-time, expiring token is delivered by SMTP. The account remains unverified until the link is opened.
-4. A verified user signs in with e-mail and password. The server creates a database session, rotates it on sign-in, and stores only the signed session cookie in the browser.
-5. Sign-in, sign-up, reset, and verification attempts are rate limited by IP and normalized e-mail. Generic error messages avoid account enumeration.
+4. A verified active user signs in with e-mail and password. The server creates an opaque database session, stores only its SHA-256 hash, and sends the random value only in the `__Host-campuslink-session` `HttpOnly`, `Secure`-in-production, `SameSite=Lax` cookie. Sign-out revokes the hash.
+5. Sign-in, sign-up, reset, and verification attempts are rate limited by IP and normalized e-mail. The first implementation is injectable, process-local, and documented as unsuitable for distributed enforcement. Generic failure messages avoid account enumeration.
 
 ### Resource publishing
 

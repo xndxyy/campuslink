@@ -19,12 +19,6 @@ enum UserStatus {
   SUSPENDED
 }
 
-enum IdentityProvider {
-  GOOGLE
-  MICROSOFT
-  SAML
-}
-
 enum AssetKind {
   RESOURCE_IMAGE
   RESOURCE_DOCUMENT
@@ -102,12 +96,10 @@ model User {
   name             String?            @db.VarChar(200)
   email            String             @unique @db.VarChar(320)
   passwordHash     String?            @db.VarChar(255)
-  identityProvider IdentityProvider?
   role             UserRole           @default(STUDENT)
   status           UserStatus         @default(PENDING_VERIFICATION)
   emailVerifiedAt  DateTime?
   campus           Campus             @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  accounts         Account[]
   sessions         Session[]
   assets           Asset[]
   resources        Resource[]         @relation("ResourceAuthor")
@@ -125,35 +117,14 @@ model User {
   @@index([campusId, role, status])
 }
 
-model Account {
-  id                String   @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?  @db.Text
-  access_token      String?  @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?  @db.Text
-  session_state     String?
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@unique([provider, providerAccountId])
-  @@index([userId])
-}
-
 model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String   @id @default(cuid())
+  sessionTokenHash String   @unique @db.VarChar(128)
+  userId           String
+  expires          DateTime
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([userId])
 }

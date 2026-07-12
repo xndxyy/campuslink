@@ -8,9 +8,6 @@ CREATE TYPE "UserRole" AS ENUM ('STUDENT', 'MODERATOR', 'ADMIN');
 CREATE TYPE "UserStatus" AS ENUM ('PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED');
 
 -- CreateEnum
-CREATE TYPE "IdentityProvider" AS ENUM ('GOOGLE', 'MICROSOFT', 'SAML');
-
--- CreateEnum
 CREATE TYPE "AssetKind" AS ENUM ('RESOURCE_IMAGE', 'RESOURCE_DOCUMENT', 'MARKETPLACE_IMAGE');
 
 -- CreateEnum
@@ -54,7 +51,6 @@ CREATE TABLE "User" (
     "name" VARCHAR(200),
     "email" VARCHAR(320) NOT NULL,
     "passwordHash" VARCHAR(255),
-    "identityProvider" "IdentityProvider",
     "role" "UserRole" NOT NULL DEFAULT 'STUDENT',
     "status" "UserStatus" NOT NULL DEFAULT 'PENDING_VERIFICATION',
     "emailVerifiedAt" TIMESTAMP(3),
@@ -65,29 +61,9 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
-CREATE TABLE "Account" (
-    "id" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "type" TEXT NOT NULL,
-    "provider" TEXT NOT NULL,
-    "providerAccountId" TEXT NOT NULL,
-    "refresh_token" TEXT,
-    "access_token" TEXT,
-    "expires_at" INTEGER,
-    "token_type" TEXT,
-    "scope" TEXT,
-    "id_token" TEXT,
-    "session_state" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Account_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Session" (
     "id" TEXT NOT NULL,
-    "sessionToken" TEXT NOT NULL,
+    "sessionTokenHash" VARCHAR(128) NOT NULL,
     "userId" TEXT NOT NULL,
     "expires" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -242,13 +218,7 @@ CREATE INDEX "User_campusId_idx" ON "User"("campusId");
 CREATE INDEX "User_campusId_role_status_idx" ON "User"("campusId", "role", "status");
 
 -- CreateIndex
-CREATE INDEX "Account_userId_idx" ON "Account"("userId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Account_provider_providerAccountId_key" ON "Account"("provider", "providerAccountId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Session_sessionToken_key" ON "Session"("sessionToken");
+CREATE UNIQUE INDEX "Session_sessionTokenHash_key" ON "Session"("sessionTokenHash");
 
 -- CreateIndex
 CREATE INDEX "Session_userId_idx" ON "Session"("userId");
@@ -320,9 +290,6 @@ CREATE INDEX "AuditLog_actorId_createdAt_idx" ON "AuditLog"("actorId", "createdA
 ALTER TABLE "User" ADD CONSTRAINT "User_campusId_fkey" FOREIGN KEY ("campusId") REFERENCES "Campus"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -369,7 +336,7 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("acto
 
 -- Enforce invariants that Prisma schema syntax cannot express directly.
 ALTER TABLE "User" ADD CONSTRAINT "User_email_normalized_check" CHECK ("email" = lower("email"));
-ALTER TABLE "User" ADD CONSTRAINT "User_password_or_identity_check" CHECK ("passwordHash" IS NOT NULL OR "identityProvider" IS NOT NULL);
+ALTER TABLE "User" ADD CONSTRAINT "User_password_required_check" CHECK ("passwordHash" IS NOT NULL);
 ALTER TABLE "Asset" ADD CONSTRAINT "Asset_sizeBytes_nonnegative_check" CHECK ("sizeBytes" >= 0);
 ALTER TABLE "MarketplaceItem" ADD CONSTRAINT "MarketplaceItem_priceCents_nonnegative_check" CHECK ("priceCents" >= 0);
 

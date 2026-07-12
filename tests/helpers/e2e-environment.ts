@@ -9,6 +9,7 @@ export const requiredE2eEnvironment = [
   'E2E_UNVERIFIED_PASSWORD',
   'E2E_REJECTED_KIND',
   'E2E_REJECTED_ID',
+  'E2E_PUBLISHED_MARKETPLACE_ID',
 ] as const;
 
 type Environment = Record<string, string | undefined>;

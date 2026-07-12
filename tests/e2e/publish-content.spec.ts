@@ -22,6 +22,10 @@ async function signIn(
 test('verified student publishes resource, marketplace item, and job through real forms', async ({
   page,
 }) => {
+  const runId = Date.now().toString(36);
+  const resourceTitle = `E2E algorithms notes ${runId}`;
+  const marketplaceTitle = `E2E textbook ${runId}`;
+  const jobTitle = `E2E weekend assistant ${runId}`;
   await signIn(
     page,
     process.env.E2E_VERIFIED_EMAIL!,
@@ -29,7 +33,7 @@ test('verified student publishes resource, marketplace item, and job through rea
   );
 
   await page.goto('/submit/resource');
-  await page.locator('input[name="title"]').fill('E2E algorithms notes');
+  await page.locator('input[name="title"]').fill(resourceTitle);
   await page
     .locator('textarea[name="summary"]')
     .fill('Complete E2E lecture notes with worked examples and exercises.');
@@ -45,7 +49,7 @@ test('verified student publishes resource, marketplace item, and job through rea
   );
 
   await page.goto('/submit/marketplace');
-  await page.locator('input[name="title"]').fill('E2E textbook');
+  await page.locator('input[name="title"]').fill(marketplaceTitle);
   await page
     .locator('textarea[name="description"]')
     .fill('A carefully used E2E discrete mathematics textbook.');
@@ -63,7 +67,7 @@ test('verified student publishes resource, marketplace item, and job through rea
 
   await page.goto('/submit/job');
   await page.locator('input[name="company"]').fill('E2E Campus Cafe');
-  await page.locator('input[name="title"]').fill('E2E weekend assistant');
+  await page.locator('input[name="title"]').fill(jobTitle);
   await page
     .locator('textarea[name="description"]')
     .fill('Help serve students during the E2E weekend lunch shift.');
@@ -73,9 +77,27 @@ test('verified student publishes resource, marketplace item, and job through rea
   await expect(page.locator('[aria-live="polite"]')).toContainText('审核');
 
   await page.goto('/me/submissions');
-  await expect(page.getByText('E2E algorithms notes')).toBeVisible();
-  await expect(page.getByText('E2E textbook')).toBeVisible();
-  await expect(page.getByText('E2E weekend assistant')).toBeVisible();
+  for (const title of [resourceTitle, marketplaceTitle, jobTitle]) {
+    const row = page.locator('article').filter({ hasText: title }).first();
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('PENDING');
+  }
+});
+
+test('published marketplace image renders through the protected signed-read route', async ({
+  page,
+}) => {
+  await page.goto(`/marketplace/${process.env.E2E_PUBLISHED_MARKETPLACE_ID!}`);
+  const image = page.locator('img[src*="/api/assets/"][src$="/read"]').first();
+  await expect(image).toBeVisible();
+  await expect
+    .poll(() =>
+      image.evaluate((element) => {
+        const img = element as HTMLImageElement;
+        return img.complete && img.naturalWidth > 0;
+      }),
+    )
+    .toBe(true);
 });
 
 test('unverified account is denied sign-in', async ({ page }) => {

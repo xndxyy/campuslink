@@ -4,41 +4,66 @@ import { getDb } from '@/lib/db';
 import {
   authorizeAssetRead,
   type ContentAdapter,
+  type ContentActor,
+  ContentAuthenticationRequiredError,
   ContentForbiddenError,
 } from '@/lib/domain/content-service';
 import { createPresignedGetUrl } from '@/lib/storage/client';
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+interface AssetReadDependencies {
+  authorize?: (
+    actor: ContentActor | null,
+    id: string,
+  ) => Promise<{ contentType: string; kind: string; storageKey: string }>;
+  resolveUser?: typeof getCurrentUser;
+  sign?: typeof createPresignedGetUrl;
+}
+
+export async function handleAssetRead(
+  id: string,
+  dependencies: AssetReadDependencies = {},
 ) {
   try {
-    const { id } = await params;
-    const user = await getCurrentUser();
+    const user = await (dependencies.resolveUser ?? getCurrentUser)();
     const actor = user
       ? { campusId: user.campusId, id: user.id, role: user.role }
       : null;
-    const asset = await authorizeAssetRead(
-      getDb() as unknown as ContentAdapter,
-      actor,
-      id,
-    );
+    const asset = dependencies.authorize
+      ? await dependencies.authorize(actor, id)
+      : await authorizeAssetRead(
+          getDb() as unknown as ContentAdapter,
+          actor,
+          id,
+        );
     const inline = asset.kind.endsWith('_IMAGE');
-    const url = await createPresignedGetUrl(
+    const url = await (dependencies.sign ?? createPresignedGetUrl)(
       asset.storageKey,
       asset.contentType,
       inline ? 'inline' : 'attachment',
     );
     return NextResponse.redirect(url, 307);
   } catch (error) {
+    if (error instanceof ContentAuthenticationRequiredError)
+      return NextResponse.json(
+        { message: 'Sign in is required to download this asset.' },
+        { status: 401 },
+      );
     if (error instanceof ContentForbiddenError)
       return NextResponse.json(
-        { message: 'Asset is not available.' },
-        { status: 404 },
+        { message: 'Asset access is forbidden.' },
+        { status: 403 },
       );
     return NextResponse.json(
       { message: 'Unable to read asset.' },
       { status: 500 },
     );
   }
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  return handleAssetRead(id);
 }

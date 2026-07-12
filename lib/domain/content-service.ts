@@ -80,6 +80,12 @@ export class ContentForbiddenError extends Error {
   }
 }
 
+export class ContentAuthenticationRequiredError extends Error {
+  constructor() {
+    super('A verified account is required to read this asset');
+  }
+}
+
 export class ContentNotFoundError extends Error {
   constructor() {
     super('Content was not found');
@@ -499,6 +505,18 @@ export async function authorizeAssetRead(
     resource?.status === ContentStatus.PUBLISHED ||
     marketplaceItem?.status === ContentStatus.PUBLISHED;
   const privileged = actor?.role === 'MODERATOR' || actor?.role === 'ADMIN';
+  const displayImage =
+    asset.kind === 'RESOURCE_IMAGE' || asset.kind === 'MARKETPLACE_IMAGE';
+  if (!actor) {
+    if (published && displayImage) {
+      return {
+        contentType: String(asset.contentType),
+        kind: String(asset.kind),
+        storageKey: String(asset.storageKey),
+      };
+    }
+    throw new ContentAuthenticationRequiredError();
+  }
   if (!published && !privileged && asset.ownerId !== actor?.id) {
     throw new ContentForbiddenError();
   }

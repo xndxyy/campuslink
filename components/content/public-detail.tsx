@@ -4,10 +4,18 @@ import Image from 'next/image';
 import type { ContentRecord } from '@/lib/domain/content-service';
 import type { PublicContentKind } from '@/lib/domain/public-content';
 
+export function documentAccessLink(assetId: string, canDownload: boolean) {
+  return canDownload
+    ? { href: `/api/assets/${assetId}/read`, label: '下载文档' }
+    : { href: '/auth/sign-in', label: '登录后下载文档' };
+}
+
 export function PublicDetail({
   item,
   kind,
+  canDownloadDocuments = false,
 }: {
+  canDownloadDocuments?: boolean;
   item: ContentRecord;
   kind: PublicContentKind;
 }) {
@@ -73,11 +81,17 @@ export function PublicDetail({
             <h2>资源附件</h2>
             {assets
               .filter((asset) => asset.kind === 'RESOURCE_DOCUMENT')
-              .map((asset, index) => (
-                <a href={`/api/assets/${asset.id}/read`} key={asset.id}>
-                  下载文档 {index + 1} · {asset.contentType}
-                </a>
-              ))}
+              .map((asset, index) => {
+                const access = documentAccessLink(
+                  asset.id,
+                  canDownloadDocuments,
+                );
+                return (
+                  <Link href={access.href} key={asset.id}>
+                    {access.label} {index + 1} · {asset.contentType}
+                  </Link>
+                );
+              })}
           </section>
         ) : null}
         {kind === 'marketplace' ? (

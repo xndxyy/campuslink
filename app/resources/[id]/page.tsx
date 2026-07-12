@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { PublicDetail } from '@/components/content/public-detail';
 import { loadPublicDetail } from '@/lib/domain/public-content';
+import { getCurrentUser } from '@/lib/auth/auth-service';
 
 export default async function ResourceDetailPage({
   params,
@@ -19,5 +20,11 @@ export default async function ResourceDetailPage({
     );
   }
   if (!item) notFound();
-  return <PublicDetail item={item} kind="resource" />;
+  return (
+    <PublicDetail
+      canDownloadDocuments={Boolean(await getCurrentUser())}
+      item={item}
+      kind="resource"
+    />
+  );
 }

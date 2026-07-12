@@ -19,5 +19,7 @@ export default async function MarketplaceDetailPage({
     );
   }
   if (!item) notFound();
-  return <PublicDetail item={item} kind="marketplace" />;
+  return (
+    <PublicDetail canDownloadDocuments={false} item={item} kind="marketplace" />
+  );
 }

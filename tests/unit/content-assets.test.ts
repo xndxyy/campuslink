@@ -54,7 +54,12 @@ describe('asset read authorization', () => {
     ).resolves.toMatchObject({ kind: 'RESOURCE_IMAGE' });
     await expect(
       authorizeAssetRead(
-        db({ ...readyAsset, contentType: 'image/png', kind: 'RESOURCE_IMAGE', resource: { status: 'PENDING' } }),
+        db({
+          ...readyAsset,
+          contentType: 'image/png',
+          kind: 'RESOURCE_IMAGE',
+          resource: { status: 'PENDING' },
+        }),
         null,
         'asset_1',
       ),

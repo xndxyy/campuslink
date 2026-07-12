@@ -19,5 +19,5 @@ export default async function JobDetailPage({
     );
   }
   if (!item) notFound();
-  return <PublicDetail item={item} kind="job" />;
+  return <PublicDetail canDownloadDocuments={false} item={item} kind="job" />;
 }

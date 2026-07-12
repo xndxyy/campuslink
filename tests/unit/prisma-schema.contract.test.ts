@@ -7,8 +7,27 @@ const schema = readFileSync(
   fileURLToPath(new URL('../../prisma/schema.prisma', import.meta.url)),
   'utf8',
 );
+const migration = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../prisma/migrations/20260712044000_init/migration.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
 
 describe('Prisma schema contract', () => {
+  it('requires a credential hash for every user', () => {
+    expect(schema).toMatch(
+      /model User\s*\{[\s\S]*?passwordHash\s+String\s+@db\.VarChar\(255\)/,
+    );
+  });
+
+  it('enforces credential hashes in the initial database migration', () => {
+    expect(migration).toMatch(/"passwordHash" VARCHAR\(255\) NOT NULL/);
+  });
+
   it('models resource documents and marketplace images as attachable assets', () => {
     expect(schema).toMatch(/enum AssetKind\s*\{[\s\S]*?RESOURCE_DOCUMENT/);
     expect(schema).toMatch(
@@ -44,5 +63,7 @@ describe('Prisma schema contract', () => {
   it('does not retain legacy provider token fields when social authentication is absent', () => {
     expect(schema).not.toContain('model Account');
     expect(schema).not.toMatch(/(?:access|refresh|id)_token/);
+    expect(migration).not.toContain('CREATE TABLE "Account"');
+    expect(migration).not.toMatch(/(?:access|refresh|id)_token/);
   });
 });

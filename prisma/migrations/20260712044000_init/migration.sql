@@ -50,7 +50,7 @@ CREATE TABLE "User" (
     "campusId" TEXT NOT NULL,
     "name" VARCHAR(200),
     "email" VARCHAR(320) NOT NULL,
-    "passwordHash" VARCHAR(255),
+    "passwordHash" VARCHAR(255) NOT NULL,
     "role" "UserRole" NOT NULL DEFAULT 'STUDENT',
     "status" "UserStatus" NOT NULL DEFAULT 'PENDING_VERIFICATION',
     "emailVerifiedAt" TIMESTAMP(3),
@@ -336,7 +336,6 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorId_fkey" FOREIGN KEY ("acto
 
 -- Enforce invariants that Prisma schema syntax cannot express directly.
 ALTER TABLE "User" ADD CONSTRAINT "User_email_normalized_check" CHECK ("email" = lower("email"));
-ALTER TABLE "User" ADD CONSTRAINT "User_password_required_check" CHECK ("passwordHash" IS NOT NULL);
 ALTER TABLE "Asset" ADD CONSTRAINT "Asset_sizeBytes_nonnegative_check" CHECK ("sizeBytes" >= 0);
 ALTER TABLE "MarketplaceItem" ADD CONSTRAINT "MarketplaceItem_priceCents_nonnegative_check" CHECK ("priceCents" >= 0);
 

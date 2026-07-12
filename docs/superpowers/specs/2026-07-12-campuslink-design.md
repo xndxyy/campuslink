@@ -53,7 +53,7 @@ The database has the following aggregates. The actual Prisma schema mirrors thes
 | `Campus` | `id`, `name`, `slug`, `allowedEmailDomain` | Exactly one active campus is seeded. A sign-up e-mail must end with its normalized domain. |
 | `User` | `id`, `campusId`, `email`, `name`, `passwordHash`, `role`, `status`, `emailVerifiedAt` | E-mail is unique and lower-cased. `SUSPENDED` users cannot create sessions or mutate content. |
 | `Session` | `id`, `sessionTokenHash`, `userId`, `expires` | The random cookie token is never stored; its SHA-256 hash is unique and is revoked on sign-out. |
-| `VerificationToken` | `identifier`, `tokenHash`, `expiresAt` | Raw tokens are never stored. One successful verification consumes the token. |
+| `VerificationToken` | `identifier`, `tokenHash`, `expires` | Raw tokens are never stored. One successful verification consumes the token. |
 | `Asset` | `id`, `ownerId`, `storageKey`, `kind`, `contentType`, `sizeBytes`, `status` | A random storage key is unique. Only `READY` assets can attach to a submission. |
 | `Resource` | `id`, `authorId`, `campusId`, `title`, `summary`, `courseCode`, `tags`, `status` | Has at least one ready document asset before it may become `PENDING`. |
 | `MarketplaceItem` | `id`, `sellerId`, `campusId`, `title`, `description`, `priceCents`, `condition`, `status` | Price is non-negative and has at least one ready image before submission. |

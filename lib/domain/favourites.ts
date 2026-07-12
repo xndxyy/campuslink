@@ -14,13 +14,18 @@ interface TargetDelegate {
   findFirst(
     args: Record<string, unknown>,
   ): Promise<Record<string, unknown> | null>;
+  findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
 }
 
 interface FavouriteRecord {
-  createdAt?: Date;
+  createdAt: Date;
   id: string;
-  targetId?: string;
-  targetType?: FavouriteTargetType;
+  targetId: string;
+  targetType: FavouriteTargetType;
+}
+
+interface FavouriteIdentity {
+  id: string;
 }
 
 export interface FavouritesAdapter {
@@ -28,8 +33,10 @@ export interface FavouritesAdapter {
   favourite: {
     deleteMany(args: Record<string, unknown>): Promise<{ count: number }>;
     findMany(args: Record<string, unknown>): Promise<FavouriteRecord[]>;
-    findUnique(args: Record<string, unknown>): Promise<FavouriteRecord | null>;
-    upsert(args: Record<string, unknown>): Promise<FavouriteRecord>;
+    findUnique(
+      args: Record<string, unknown>,
+    ): Promise<FavouriteIdentity | null>;
+    upsert(args: Record<string, unknown>): Promise<FavouriteIdentity>;
   };
   jobPost: TargetDelegate;
   marketplaceItem: TargetDelegate;
@@ -98,6 +105,43 @@ async function findVisibleTarget(
       status: 'PUBLISHED',
     },
   });
+}
+
+function targetKey(targetType: FavouriteTargetType, targetId: string) {
+  return `${targetType}:${targetId}`;
+}
+
+async function findVisibleTargets(
+  adapter: FavouritesAdapter,
+  actor: FavouriteActor,
+  records: FavouriteRecord[],
+) {
+  const idsByType = new Map<FavouriteTargetType, Set<string>>();
+  for (const record of records) {
+    const ids = idsByType.get(record.targetType) ?? new Set<string>();
+    ids.add(record.targetId);
+    idsByType.set(record.targetType, ids);
+  }
+
+  const visible = new Map<string, Record<string, unknown>>();
+  await Promise.all(
+    [...idsByType].map(async ([targetType, ids]) => {
+      const items = await delegateFor(adapter, targetType).findMany({
+        select: publicSelect(targetType),
+        where: {
+          campusId: actor.campusId,
+          id: { in: [...ids] },
+          status: 'PUBLISHED',
+        },
+      });
+      for (const item of items) {
+        if (typeof item.id === 'string') {
+          visible.set(targetKey(targetType, item.id), item);
+        }
+      }
+    }),
+  );
+  return visible;
 }
 
 function composite(actor: FavouriteActor, target: FavouriteTarget) {
@@ -189,38 +233,49 @@ export async function listUserFavourites(
   const pageSize = Math.max(1, Math.min(query.pageSize ?? 12, 50));
   const needed = page * pageSize + 1;
   const visible: FavouriteCard[] = [];
-  const staleIds: string[] = [];
   const batchSize = 50;
-  let skip = 0;
+  let cursor: Pick<FavouriteRecord, 'createdAt' | 'id'> | undefined;
 
-  // Scan in the unique stable order, filtering polymorphic targets that have
-  // since been hidden/deleted. The cap prevents unbounded cleanup work.
-  while (visible.length < needed && skip < 500) {
+  while (visible.length < needed) {
     const records = await adapter.favourite.findMany({
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      skip,
       take: batchSize,
-      where: { userId: actor.id },
+      where: {
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { lt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+              ],
+            }
+          : {}),
+        userId: actor.id,
+      },
     });
+    if (records.length === 0) break;
+    const last = records.at(-1)!;
+    cursor = { createdAt: last.createdAt, id: last.id };
+
+    const visibleTargets = await findVisibleTargets(adapter, actor, records);
+    const staleIds: string[] = [];
     for (const record of records) {
-      if (!record.targetId || !record.targetType || !record.createdAt) continue;
       const target = {
         targetId: record.targetId,
         targetType: record.targetType,
       };
-      const item = await findVisibleTarget(adapter, actor, target);
+      const item = visibleTargets.get(
+        targetKey(record.targetType, record.targetId),
+      );
       if (item)
         visible.push({ ...target, favouritedAt: record.createdAt, item });
       else staleIds.push(record.id);
-      if (visible.length >= needed) break;
     }
-    skip += records.length;
+    if (staleIds.length) {
+      await adapter.favourite.deleteMany({
+        where: { id: { in: staleIds }, userId: actor.id },
+      });
+    }
     if (records.length < batchSize) break;
-  }
-  if (staleIds.length) {
-    await adapter.favourite.deleteMany({
-      where: { id: { in: staleIds }, userId: actor.id },
-    });
   }
   const offset = (page - 1) * pageSize;
   return {

@@ -106,3 +106,25 @@ describe('Prisma schema contract', () => {
     expect(migration).not.toMatch(/(?:access|refresh|id)_token/);
   });
 });
+
+describe('upload expiry migration contract', () => {
+  it('backfills existing unfinished assets before indexing expiry', () => {
+    const migration = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../prisma/migrations/20260712100000_add_upload_expiry/migration.sql',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    );
+
+    expect(migration).toMatch(
+      /UPDATE "Asset"[\s\S]*"uploadExpiresAt"\s*=\s*"createdAt"\s*\+\s*INTERVAL '5 minutes'/,
+    );
+    expect(migration).toMatch(
+      /"status" IN \('PENDING', 'REJECTED'\)[\s\S]*"uploadExpiresAt" IS NULL/,
+    );
+    expect(migration).toMatch(/Asset_status_uploadExpiresAt_idx/);
+  });
+});

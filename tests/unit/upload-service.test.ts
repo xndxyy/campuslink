@@ -25,7 +25,9 @@ const pendingAsset: UploadAssetRecord = {
 
 function createDependencies(asset: UploadAssetRecord | null = pendingAsset) {
   const repository: AssetRepository = {
+    claimExpiredPending: vi.fn(async () => true),
     create: vi.fn(async (record) => record),
+    deleteClaimed: vi.fn(async () => true),
     deletePending: vi.fn(async () => true),
     findCleanupCandidates: vi.fn(async () => []),
     findById: vi.fn(async () => asset),
@@ -218,12 +220,69 @@ describe('upload service', () => {
       retainedRejected: 1,
     });
     expect(dependencies.storage.deleteObject).toHaveBeenCalledTimes(2);
-    expect(dependencies.repository.deletePending).toHaveBeenCalledWith({
+    expect(dependencies.repository.claimExpiredPending).toHaveBeenCalledWith({
+      assetId: pendingAsset.id,
+      expiredAtOrBefore: new Date('2026-07-12T08:10:00.000Z'),
+    });
+    expect(dependencies.repository.deleteClaimed).toHaveBeenCalledWith({
       assetId: pendingAsset.id,
       expiredAtOrBefore: new Date('2026-07-12T08:10:00.000Z'),
     });
     expect(dependencies.repository.markRejectedCleaned).toHaveBeenCalledWith(
       'asset_rejected',
+    );
+  });
+
+  it('does not delete storage when completion wins before the cleanup claim', async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.repository.claimExpiredPending).mockResolvedValue(
+      false,
+    );
+    vi.mocked(dependencies.repository.findCleanupCandidates).mockResolvedValue([
+      pendingAsset,
+    ]);
+
+    await expect(
+      cleanupStaleUploads(
+        { ...dependencies, now: () => new Date('2026-07-12T08:10:00.000Z') },
+        25,
+      ),
+    ).resolves.toEqual({
+      deletedPending: 0,
+      failed: 0,
+      retainedRejected: 0,
+    });
+    expect(dependencies.storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('retains a claimed row and prevents READY when cleanup wins', async () => {
+    const dependencies = createDependencies({
+      ...pendingAsset,
+      status: 'CLEANING',
+    });
+    vi.mocked(dependencies.storage.deleteObject).mockRejectedValue(
+      new Error('storage unavailable'),
+    );
+    vi.mocked(dependencies.repository.findCleanupCandidates).mockResolvedValue([
+      pendingAsset,
+    ]);
+
+    await expect(
+      cleanupStaleUploads(
+        { ...dependencies, now: () => new Date('2026-07-12T08:10:00.000Z') },
+        25,
+      ),
+    ).resolves.toEqual({
+      deletedPending: 0,
+      failed: 1,
+      retainedRejected: 0,
+    });
+    expect(dependencies.repository.deleteClaimed).not.toHaveBeenCalled();
+    await expect(
+      completeUpload(pendingAsset.ownerId, pendingAsset.id, dependencies),
+    ).rejects.toThrow('current state');
+    expect(dependencies.repository.transitionStatus).not.toHaveBeenCalledWith(
+      expect.objectContaining({ to: 'READY' }),
     );
   });
 

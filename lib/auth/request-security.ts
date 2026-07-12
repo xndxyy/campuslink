@@ -56,6 +56,10 @@ export function isSameOriginAuthRequest(
   return origin === getApplicationUrl(appUrl).origin;
 }
 
+export function getApplicationRedirectUrl(path: string, appUrl?: string): URL {
+  return new URL(path, getApplicationUrl(appUrl));
+}
+
 export function isTrustedProxyConfigured(): boolean {
   return process.env.TRUST_PROXY === 'true';
 }

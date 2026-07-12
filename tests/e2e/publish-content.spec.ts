@@ -127,7 +127,7 @@ test('owner edits a provisioned rejected record and resubmits it', async ({
   await page.goto(`/me/submissions/${kind}/${id}/edit`);
   await page.locator('input[name="title"]').fill(`Revised rejected ${kind}`);
   await page.getByRole('button', { name: '保存草稿' }).click();
-  await expect(page).toHaveURL(/me\/submissions/);
+  await expect(page).toHaveURL((url) => url.pathname === '/me/submissions');
   const row = page
     .locator('article')
     .filter({ hasText: `Revised rejected ${kind}` });

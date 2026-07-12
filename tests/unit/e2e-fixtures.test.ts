@@ -13,4 +13,13 @@ describe('browser upload fixtures', () => {
     ]);
     expect(path.endsWith('.png')).toBe(true);
   });
+
+  it('keeps the standalone provisioner outside Next server-only modules', () => {
+    const script = readFileSync(
+      fileURLToPath(new URL('../../scripts/provision-e2e.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(script).not.toContain('../lib/storage/client');
+    expect(script).toContain('S3Client');
+  });
 });

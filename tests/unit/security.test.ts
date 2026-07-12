@@ -66,7 +66,7 @@ describe('release security boundary', () => {
       true,
     );
     const csp = development.headers['Content-Security-Policy'];
-    expect(csp).toContain('http://127.0.0.1:9000');
+    expect(csp).toMatch(/img-src[^;]*http:\/\/127\.0\.0\.1:9000/);
     expect(csp).not.toContain('campuslink.127.0.0.1');
   });
 

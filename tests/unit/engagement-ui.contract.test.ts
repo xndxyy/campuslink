@@ -31,4 +31,19 @@ describe('published detail engagement UI', () => {
     expect(source).toContain("'/api/favourites'");
     expect(source).toContain("'/api/reports'");
   });
+
+  it('captures the report form before awaiting and resets the captured element', () => {
+    const submit = source.indexOf('async function submitReport');
+    const capture = source.indexOf(
+      'const formElement = event.currentTarget;',
+      submit,
+    );
+    const firstAwait = source.indexOf('await ', submit);
+
+    expect(capture).toBeGreaterThan(submit);
+    expect(capture).toBeLessThan(firstAwait);
+    expect(source).toContain('new FormData(formElement)');
+    expect(source).toContain('formElement.reset()');
+    expect(source).not.toContain('event.currentTarget.reset()');
+  });
 });

@@ -55,7 +55,10 @@ describeWithDatabase('content publishing actions', () => {
   });
 
   afterAll(async () => {
-    if (campusId) await db.campus.delete({ where: { id: campusId } });
+    if (campusId) {
+      await db.user.deleteMany({ where: { campusId } });
+      await db.campus.delete({ where: { id: campusId } });
+    }
     await db.$disconnect();
   });
 

@@ -4,6 +4,7 @@ import { resendVerificationEmail } from '@/lib/auth/auth-service';
 import { resendVerificationSchema } from '@/lib/auth/credentials';
 import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
 import {
+  getApplicationRedirectUrl,
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
@@ -37,7 +38,7 @@ function rateLimited(
   const response = json
     ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
     : NextResponse.redirect(
-        new URL('/auth/verify?error=rate-limit', request.url),
+        getApplicationRedirectUrl('/auth/verify?error=rate-limit'),
         303,
       );
   response.headers.set('Retry-After', String(retryAfterSeconds));
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
           { status: 403 },
         )
       : NextResponse.redirect(
-          new URL('/auth/verify?error=origin', request.url),
+          getApplicationRedirectUrl('/auth/verify?error=origin'),
           303,
         );
   }
@@ -71,7 +72,10 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return json
       ? NextResponse.json(acknowledgement, { status: 202 })
-      : NextResponse.redirect(new URL('/auth/verify?sent=1', request.url), 303);
+      : NextResponse.redirect(
+          getApplicationRedirectUrl('/auth/verify?sent=1'),
+          303,
+        );
   }
 
   const emailLimit = await rateLimiter.consume(`email:${parsed.data.email}`);
@@ -88,12 +92,15 @@ export async function POST(request: Request) {
           { status: 503 },
         )
       : NextResponse.redirect(
-          new URL('/auth/verify?error=temporary', request.url),
+          getApplicationRedirectUrl('/auth/verify?error=temporary'),
           303,
         );
   }
 
   return json
     ? NextResponse.json(acknowledgement, { status: 202 })
-    : NextResponse.redirect(new URL('/auth/verify?sent=1', request.url), 303);
+    : NextResponse.redirect(
+        getApplicationRedirectUrl('/auth/verify?sent=1'),
+        303,
+      );
 }

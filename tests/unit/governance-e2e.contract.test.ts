@@ -85,4 +85,10 @@ describe('fully parallel governance E2E isolation contract', () => {
     expect(requiredBlock).not.toContain('E2E_MODERATOR_EMAIL');
     expect(requiredBlock).not.toContain('E2E_ADMIN_EMAIL');
   });
+
+  it('selects managed users by an exact email cell instead of row substring text', () => {
+    expect(moderation).toContain('getByText(email, { exact: true })');
+    expect(moderation).toContain('filter({ has: emailText })');
+    expect(moderation).not.toContain('filter({ hasText: email })');
+  });
 });

@@ -4,6 +4,7 @@ import { signUpWithPassword } from '@/lib/auth/auth-service';
 import { signUpSchema } from '@/lib/auth/credentials';
 import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
 import {
+  getApplicationRedirectUrl,
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
@@ -23,7 +24,7 @@ function originFailure(request: Request, json: boolean): NextResponse {
   return json
     ? NextResponse.json({ message: 'Invalid request origin.' }, { status: 403 })
     : NextResponse.redirect(
-        new URL('/auth/sign-up?error=origin', request.url),
+        getApplicationRedirectUrl('/auth/sign-up?error=origin'),
         303,
       );
 }
@@ -36,7 +37,7 @@ function rateLimited(
   const response = json
     ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
     : NextResponse.redirect(
-        new URL('/auth/sign-up?error=rate-limit', request.url),
+        getApplicationRedirectUrl('/auth/sign-up?error=rate-limit'),
         303,
       );
   response.headers.set('Retry-After', String(retryAfterSeconds));
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       : NextResponse.redirect(
-          new URL('/auth/sign-up?error=invalid', request.url),
+          getApplicationRedirectUrl('/auth/sign-up?error=invalid'),
           303,
         );
   }
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
           { status: 503 },
         )
       : NextResponse.redirect(
-          new URL('/auth/sign-up?error=temporary', request.url),
+          getApplicationRedirectUrl('/auth/sign-up?error=temporary'),
           303,
         );
   }
@@ -107,5 +108,8 @@ export async function POST(request: Request) {
         },
         { status: 202 },
       )
-    : NextResponse.redirect(new URL('/auth/verify?sent=1', request.url), 303);
+    : NextResponse.redirect(
+        getApplicationRedirectUrl('/auth/verify?sent=1'),
+        303,
+      );
 }

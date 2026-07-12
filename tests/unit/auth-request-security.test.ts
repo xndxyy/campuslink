@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  getApplicationRedirectUrl,
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
@@ -16,6 +17,15 @@ describe('auth request security', () => {
     expect(isSameOriginAuthRequest(request, 'https://other.example')).toBe(
       false,
     );
+  });
+
+  it('builds redirects from the configured origin instead of a normalized request host', () => {
+    expect(
+      getApplicationRedirectUrl(
+        '/auth/sign-in?error=invalid',
+        'http://127.0.0.1:3000',
+      ).href,
+    ).toBe('http://127.0.0.1:3000/auth/sign-in?error=invalid');
   });
 
   it('ignores spoofable forwarded addresses unless the proxy is explicitly trusted', () => {

@@ -61,13 +61,23 @@ export function buildSecurityHeaders(
   const connectSource = ["'self'", storageOrigin, virtualStorageOrigin]
     .filter(Boolean)
     .join(' ');
+  const imageSource = [
+    "'self'",
+    'data:',
+    'blob:',
+    'https:',
+    storageOrigin,
+    virtualStorageOrigin,
+  ]
+    .filter(Boolean)
+    .join(' ');
   const contentSecurityPolicy = [
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
     "frame-ancestors 'none'",
     "form-action 'self'",
-    "img-src 'self' data: blob: https:",
+    `img-src ${imageSource}`,
     `connect-src ${connectSource}`,
     "font-src 'self' data:",
     // React and the current CSS stack emit style attributes. Scripts remain nonce-only.

@@ -30,6 +30,7 @@ describeWithDatabase('password authentication flow', () => {
       await db.verificationToken.deleteMany({ where: { identifier: email } });
     }
     if (campusId) {
+      await db.user.deleteMany({ where: { campusId } });
       await db.campus.delete({ where: { id: campusId } });
     }
     campusId = undefined;

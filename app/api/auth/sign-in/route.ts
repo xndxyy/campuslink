@@ -4,6 +4,7 @@ import { signInWithPassword } from '@/lib/auth/auth-service';
 import { signInSchema } from '@/lib/auth/credentials';
 import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
 import {
+  getApplicationRedirectUrl,
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
@@ -38,7 +39,7 @@ function rateLimited(
   const response = json
     ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
     : NextResponse.redirect(
-        new URL('/auth/sign-in?error=rate-limit', request.url),
+        getApplicationRedirectUrl('/auth/sign-in?error=rate-limit'),
         303,
       );
   response.headers.set('Retry-After', String(retryAfterSeconds));
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
           { status: 403 },
         )
       : NextResponse.redirect(
-          new URL('/auth/sign-in?error=origin', request.url),
+          getApplicationRedirectUrl('/auth/sign-in?error=origin'),
           303,
         );
   }
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
     return json
       ? NextResponse.json(genericFailure, { status: 401 })
       : NextResponse.redirect(
-          new URL('/auth/sign-in?error=invalid', request.url),
+          getApplicationRedirectUrl('/auth/sign-in?error=invalid'),
           303,
         );
   }
@@ -88,14 +89,14 @@ export async function POST(request: Request) {
     return json
       ? NextResponse.json(genericFailure, { status: 401 })
       : NextResponse.redirect(
-          new URL('/auth/sign-in?error=invalid', request.url),
+          getApplicationRedirectUrl('/auth/sign-in?error=invalid'),
           303,
         );
   }
 
   const response = json
     ? NextResponse.json({ message: 'Signed in.' })
-    : NextResponse.redirect(new URL('/', request.url), 303);
+    : NextResponse.redirect(getApplicationRedirectUrl('/'), 303);
   response.cookies.set({
     ...getSessionCookieOptions(),
     expires: session.expires,

@@ -66,9 +66,10 @@ export function EngagementActions({
 
   async function submitReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setPending('report');
     setMessage(null);
-    const form = new FormData(event.currentTarget);
+    const form = new FormData(formElement);
     try {
       const response = await fetch('/api/reports', {
         body: JSON.stringify({
@@ -85,7 +86,7 @@ export function EngagementActions({
           await responseMessage(response, 'Unable to submit report.'),
         );
       dialogRef.current?.close();
-      event.currentTarget.reset();
+      formElement.reset();
       setMessage(
         'Report received. Thank you for helping the campus community.',
       );

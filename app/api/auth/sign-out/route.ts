@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { revokeCurrentSession } from '@/lib/auth/auth-service';
 import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
 import {
+  getApplicationRedirectUrl,
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
           { message: 'Invalid request origin.' },
           { status: 403 },
         )
-      : NextResponse.redirect(new URL('/?error=origin', request.url), 303);
+      : NextResponse.redirect(getApplicationRedirectUrl('/?error=origin'), 303);
   }
 
   const rateLimit = await rateLimiter.consume(getClientRateLimitKey(request));
@@ -34,7 +35,10 @@ export async function POST(request: Request) {
           { message: 'Please try again later.' },
           { status: 429 },
         )
-      : NextResponse.redirect(new URL('/?error=rate-limit', request.url), 303);
+      : NextResponse.redirect(
+          getApplicationRedirectUrl('/?error=rate-limit'),
+          303,
+        );
     response.headers.set('Retry-After', String(rateLimit.retryAfterSeconds));
     return response;
   }
@@ -43,7 +47,7 @@ export async function POST(request: Request) {
 
   const response = json
     ? new NextResponse(null, { status: 204 })
-    : NextResponse.redirect(new URL('/', request.url), 303);
+    : NextResponse.redirect(getApplicationRedirectUrl('/'), 303);
   response.cookies.set({
     ...getSessionCookieOptions(),
     maxAge: 0,

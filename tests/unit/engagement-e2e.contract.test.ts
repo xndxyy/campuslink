@@ -25,6 +25,8 @@ describe('engagement live E2E isolation contract', () => {
 
   it('captures and deletes only the contact audit created by this run', () => {
     expect(source).toContain('setupStartedAt');
+    expect(source).toContain('clock_timestamp()::timestamp::text');
+    expect(source).toContain('"createdAt" > $4::timestamp');
     expect(source).toContain('contactAuditId');
     expect(source).toContain('MARKETPLACE_CONTACT_REQUESTED');
     expect(source).toMatch(/"campusId"\s*=\s*\$1/);
@@ -34,5 +36,14 @@ describe('engagement live E2E isolation contract', () => {
     expect(auditDeletes).toHaveLength(1);
     expect(auditDeletes[0]).toMatch(/WHERE id = \$1/);
     expect(auditDeletes[0]).not.toContain('actorId');
+  });
+
+  it('owns only the browser session identified by its exact cookie hash', () => {
+    expect(source).toContain("createHash('sha256')");
+    expect(source).toContain('.update(sessionCookie.value)');
+    expect(source).toMatch(/FROM "Session"\s+WHERE "sessionTokenHash" = \$1/);
+    expect(source).not.toMatch(
+      /FROM "Session"[\s\S]{0,200}ORDER BY "createdAt" DESC/,
+    );
   });
 });

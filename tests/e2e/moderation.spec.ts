@@ -441,7 +441,8 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
 
   async function openUserDialog(email: string) {
     await page.goto('/admin/users');
-    const row = page.locator('tr').filter({ hasText: email });
+    const emailText = page.getByText(email, { exact: true });
+    const row = page.locator('tr').filter({ has: emailText });
     await row.getByRole('button', { name: 'Manage' }).click();
     return page.getByRole('dialog', { name: 'Manage user' });
   }

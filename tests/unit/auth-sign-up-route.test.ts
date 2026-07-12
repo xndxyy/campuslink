@@ -4,6 +4,8 @@ import { POST } from '@/app/api/auth/sign-up/route';
 
 describe('sign-up route', () => {
   it('validates the identity-only pending registration request', async () => {
+    const origin = new URL(process.env.APP_URL ?? 'http://localhost:3000')
+      .origin;
     const response = await POST(
       new Request('http://localhost/api/auth/sign-up', {
         body: JSON.stringify({
@@ -11,7 +13,7 @@ describe('sign-up route', () => {
         }),
         headers: {
           'content-type': 'application/json',
-          origin: 'http://localhost:3000',
+          origin,
         },
         method: 'POST',
       }),

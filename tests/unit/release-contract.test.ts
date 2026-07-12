@@ -15,6 +15,9 @@ describe('release contract', () => {
     );
     expect(proxy).toContain('private, no-store');
     expect(proxy).not.toContain('middleware');
+    expect(read('next.config.ts')).toContain(
+      "allowedDevOrigins: ['127.0.0.1']",
+    );
   });
 
   it('routes every JSON mutation through the bounded reader', () => {
@@ -61,6 +64,10 @@ describe('release contract', () => {
     expect(read('vitest.integration.config.ts')).not.toContain(
       'passWithNoTests',
     );
+    const releaseScript = read('scripts/verify-release.ts');
+    expect(releaseScript).toContain('process.env.npm_execpath');
+    expect(releaseScript).toContain('spawnSync(process.execPath');
+    expect(releaseScript).not.toContain('shell:');
   });
 
   it('ships a real, authenticated malware scan callback and database status', () => {

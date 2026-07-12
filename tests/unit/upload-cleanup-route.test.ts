@@ -27,15 +27,20 @@ describe('scheduled upload cleanup route', () => {
   );
 
   it('fails closed when the server secret is not configured', async () => {
-    const response = await handleUploadCleanup(request(`Bearer ${secret}`), {
-      cleanup: vi.fn(),
-      secret: undefined,
-    });
+    vi.stubEnv('UPLOAD_CLEANUP_SECRET', '');
+    try {
+      const response = await handleUploadCleanup(request(`Bearer ${secret}`), {
+        cleanup: vi.fn(),
+        secret: undefined,
+      });
 
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      message: 'Upload cleanup is unavailable.',
-    });
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({
+        message: 'Upload cleanup is unavailable.',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it.each(['x', 'x'.repeat(31), ' \t '])(

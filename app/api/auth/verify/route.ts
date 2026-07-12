@@ -4,6 +4,7 @@ import { verifyEmailToken } from '@/lib/auth/auth-service';
 import { verificationCompletionSchema } from '@/lib/auth/credentials';
 import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
 import {
+  getApplicationRedirectUrl,
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
           { status: 403 },
         )
       : NextResponse.redirect(
-          new URL('/auth/verify?error=origin', request.url),
+          getApplicationRedirectUrl('/auth/verify?error=origin'),
           303,
         );
   }
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
           { status: 429 },
         )
       : NextResponse.redirect(
-          new URL('/auth/verify?error=rate-limit', request.url),
+          getApplicationRedirectUrl('/auth/verify?error=rate-limit'),
           303,
         );
     response.headers.set('Retry-After', String(rateLimit.retryAfterSeconds));
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       : NextResponse.redirect(
-          new URL('/auth/verify?error=invalid', request.url),
+          getApplicationRedirectUrl('/auth/verify?error=invalid'),
           303,
         );
   }
@@ -85,7 +86,7 @@ export async function POST(request: Request) {
           { status: 400 },
         )
       : NextResponse.redirect(
-          new URL('/auth/verify?error=invalid', request.url),
+          getApplicationRedirectUrl('/auth/verify?error=invalid'),
           303,
         );
   }
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
   return json
     ? NextResponse.json({ message: 'E-mail verified.' })
     : NextResponse.redirect(
-        new URL('/auth/sign-in?verified=1', request.url),
+        getApplicationRedirectUrl('/auth/sign-in?verified=1'),
         303,
       );
 }

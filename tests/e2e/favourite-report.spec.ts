@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { expect, test } from '@playwright/test';
 import { Pool } from 'pg';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
@@ -8,7 +9,7 @@ const reportDetails = 'E2E report submitted through the real published detail.';
 let db: Pool | undefined;
 let reporterId = '';
 let reporterCampusId = '';
-let setupStartedAt: Date | undefined;
+let setupStartedAt: string | undefined;
 let contactAuditId = '';
 let sessionId = '';
 const targetId = process.env.E2E_PUBLISHED_MARKETPLACE_ID ?? '';
@@ -84,8 +85,8 @@ test.beforeAll(async () => {
          AND "targetId" = $2 AND status = 'OPEN'`,
       [reporterId, targetId],
     );
-    const marker = await client.query<{ startedAt: Date }>(
-      `SELECT clock_timestamp() AS "startedAt"`,
+    const marker = await client.query<{ startedAt: string }>(
+      `SELECT clock_timestamp()::timestamp::text AS "startedAt"`,
     );
     setupStartedAt = marker.rows[0]?.startedAt;
     await client.query('COMMIT');
@@ -150,15 +151,24 @@ test('verified member favourites, reports, and requests marketplace contact', as
     .fill(process.env.E2E_VERIFIED_PASSWORD!);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
-  if (db && setupStartedAt) {
-    const session = await db.query<{ id: string }>(
-      `SELECT id FROM "Session"
-       WHERE "userId" = $1 AND "createdAt" >= $2
-       ORDER BY "createdAt" DESC, id DESC LIMIT 1`,
-      [reporterId, setupStartedAt],
-    );
-    sessionId = session.rows[0]?.id ?? '';
+  const sessionCookie = (await page.context().cookies()).find(
+    (cookie) =>
+      cookie.name === 'campuslink-dev-session' ||
+      cookie.name === '__Host-campuslink-session',
+  );
+  if (!sessionCookie || !db) {
+    throw new Error('E2E reporter session was not initialized.');
   }
+  const sessionTokenHash = createHash('sha256')
+    .update(sessionCookie.value)
+    .digest('hex');
+  const session = await db.query<{ id: string }>(
+    `SELECT id FROM "Session"
+     WHERE "sessionTokenHash" = $1`,
+    [sessionTokenHash],
+  );
+  expect(session.rows[0]).toBeDefined();
+  sessionId = session.rows[0]!.id;
 
   await page.goto(`/marketplace/${targetId}`);
   const favourite = page.getByRole('button', { name: 'Add favourite' });
@@ -188,7 +198,7 @@ test('verified member favourites, reports, and requests marketplace contact', as
     `SELECT id FROM "AuditLog"
      WHERE "campusId" = $1 AND "actorId" = $2 AND "subjectType" = 'MARKETPLACE_ITEM'
        AND "subjectId" = $3 AND action = 'MARKETPLACE_CONTACT_REQUESTED'
-       AND "createdAt" > $4
+       AND "createdAt" > $4::timestamp
      ORDER BY "createdAt" DESC, id DESC
      LIMIT 1`,
     [reporterCampusId, reporterId, targetId, setupStartedAt],

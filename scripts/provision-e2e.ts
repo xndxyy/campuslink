@@ -1,11 +1,10 @@
 import 'dotenv/config';
 
 import { readFile } from 'node:fs/promises';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { hash } from 'bcryptjs';
 
 import { createDbClient } from '../lib/db';
-import { createS3Client, getStorageConfig } from '../lib/storage/client';
 import { assertSafeDestructiveE2eEnvironment } from '../tests/helpers/e2e-database-safety';
 
 function required(name: string) {
@@ -31,8 +30,20 @@ async function main() {
   }
 
   const db = createDbClient();
-  const storageConfig = getStorageConfig();
-  const storage = createS3Client(storageConfig);
+  const forcePathStyle = required('S3_FORCE_PATH_STYLE');
+  if (forcePathStyle !== 'true' && forcePathStyle !== 'false') {
+    throw new Error('S3_FORCE_PATH_STYLE must be true or false.');
+  }
+  const storageBucket = required('S3_BUCKET');
+  const storage = new S3Client({
+    credentials: {
+      accessKeyId: required('S3_ACCESS_KEY_ID'),
+      secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
+    },
+    endpoint: required('S3_ENDPOINT'),
+    forcePathStyle: forcePathStyle === 'true',
+    region: required('S3_REGION'),
+  });
   try {
     const campus = await db.campus.upsert({
       where: { slug: 'campuslink-e2e' },
@@ -181,7 +192,7 @@ async function main() {
     await storage.send(
       new PutObjectCommand({
         Body: image,
-        Bucket: storageConfig.bucket,
+        Bucket: storageBucket,
         ContentType: 'image/png',
         Key: imageKey,
       }),

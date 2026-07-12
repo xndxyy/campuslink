@@ -1,23 +1,28 @@
 import { spawnSync } from 'node:child_process';
 
+const npmExecPath = process.env.npm_execpath;
+if (!npmExecPath) {
+  console.error('npm_execpath is required; run this script through npm.');
+  process.exit(1);
+}
 const commands = [
-  ['npm', ['run', 'format:check']],
-  ['npm', ['run', 'lint']],
-  ['npm', ['run', 'typecheck']],
-  ['npm', ['run', 'test:unit']],
-  ['npm', ['run', 'db:generate']],
-  ['npm', ['run', 'db:migrate:deploy']],
-  ['npm', ['run', 'test:integration']],
-  ['npm', ['run', 'build']],
-  ['npm', ['run', 'e2e:provision']],
-  ['npm', ['run', 'test:e2e']],
+  ['run', 'format:check'],
+  ['run', 'lint'],
+  ['run', 'typecheck'],
+  ['run', 'test:unit'],
+  ['run', 'db:generate'],
+  ['run', 'db:migrate:deploy'],
+  ['run', 'test:integration'],
+  ['run', 'build'],
+  ['run', 'e2e:provision'],
+  ['run', 'test:e2e'],
 ] as const;
 
-for (const [command, args] of commands) {
-  const result = spawnSync(command, args, {
+for (const args of commands) {
+  const result = spawnSync(process.execPath, [npmExecPath, ...args], {
     env: process.env,
-    shell: process.platform === 'win32',
     stdio: 'inherit',
   });
+  if (result.error) console.error(result.error.message);
   if (result.status !== 0) process.exit(result.status ?? 1);
 }

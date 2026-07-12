@@ -20,7 +20,7 @@ const user = {
 function jsonRequest(
   path: string,
   body: unknown,
-  origin = 'http://localhost:3000',
+  origin = new URL(process.env.APP_URL ?? 'http://localhost:3000').origin,
 ) {
   return new Request(`http://localhost${path}`, {
     body: JSON.stringify(body),

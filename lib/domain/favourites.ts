@@ -224,14 +224,16 @@ export interface FavouriteCard extends FavouriteTarget {
   item: Record<string, unknown>;
 }
 
+const maxFavouritesPage = 50;
+
 export async function listUserFavourites(
   adapter: FavouritesAdapter,
   actor: FavouriteActor,
   query: { page?: number; pageSize?: number } = {},
 ) {
-  const page = Math.max(1, Math.min(query.page ?? 1, 50));
+  const page = Math.max(1, Math.min(query.page ?? 1, maxFavouritesPage));
   const pageSize = Math.max(1, Math.min(query.pageSize ?? 12, 50));
-  const needed = page * pageSize + 1;
+  const needed = page * pageSize + (page < maxFavouritesPage ? 1 : 0);
   const visible: FavouriteCard[] = [];
   const batchSize = 50;
   let cursor: Pick<FavouriteRecord, 'createdAt' | 'id'> | undefined;
@@ -279,7 +281,7 @@ export async function listUserFavourites(
   }
   const offset = (page - 1) * pageSize;
   return {
-    hasNext: visible.length > offset + pageSize,
+    hasNext: page < maxFavouritesPage && visible.length > offset + pageSize,
     items: visible.slice(offset, offset + pageSize),
     page,
     pageSize,

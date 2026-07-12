@@ -227,6 +227,32 @@ describe('favourites domain', () => {
     expect(result.hasNext).toBe(true);
   });
 
+  it('stops at page 50 without hiding the previous page next link', async () => {
+    const page50Source = paginatedAdapter({ total: 2502 });
+    const page50 = await listUserFavourites(page50Source.db, actor, {
+      page: 50,
+      pageSize: 50,
+    });
+
+    expect(page50.items).toHaveLength(50);
+    expect(page50.items[0]?.targetId).toBe(
+      page50Source.records[2450]?.targetId,
+    );
+    expect(page50.items[49]?.targetId).toBe(
+      page50Source.records[2499]?.targetId,
+    );
+    expect(page50.page).toBe(50);
+    expect(page50.hasNext).toBe(false);
+
+    const page49Source = paginatedAdapter({ total: 2502 });
+    const page49 = await listUserFavourites(page49Source.db, actor, {
+      page: 49,
+      pageSize: 50,
+    });
+    expect(page49.page).toBe(49);
+    expect(page49.hasNext).toBe(true);
+  });
+
   it('advances beyond more than 500 leading stale favourites', async () => {
     const { db, records, resourceFindMany } = paginatedAdapter({
       leadingStale: 525,

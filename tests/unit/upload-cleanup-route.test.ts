@@ -38,6 +38,43 @@ describe('scheduled upload cleanup route', () => {
     });
   });
 
+  it.each(['x', 'x'.repeat(31), ' \t '])(
+    'fails closed when the configured secret is too weak',
+    async (configuredSecret) => {
+      const cleanup = vi.fn();
+      const response = await handleUploadCleanup(request('Bearer x'), {
+        cleanup,
+        secret: configuredSecret,
+      });
+
+      expect(response.status).toBe(503);
+      expect(cleanup).not.toHaveBeenCalled();
+    },
+  );
+
+  it('trims a valid configured secret but compares the bearer token exactly', async () => {
+    const minimumSecret = 'b'.repeat(32);
+    const cleanup = vi.fn(async () => ({
+      deletedPending: 0,
+      failed: 0,
+      retainedRejected: 0,
+    }));
+
+    const rejected = await handleUploadCleanup(
+      request(`Bearer  ${minimumSecret}`),
+      { cleanup, secret: `  ${minimumSecret}\t` },
+    );
+    expect(rejected.status).toBe(401);
+    expect(cleanup).not.toHaveBeenCalled();
+
+    const accepted = await handleUploadCleanup(
+      request(`Bearer ${minimumSecret}`),
+      { cleanup, secret: `  ${minimumSecret}\t` },
+    );
+    expect(accepted.status).toBe(200);
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
+
   it('runs cleanup with the exact bearer secret and returns counts only', async () => {
     const cleanup = vi.fn(async () => ({
       deletedPending: 2,

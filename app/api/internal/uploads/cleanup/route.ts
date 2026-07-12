@@ -21,8 +21,10 @@ export async function handleUploadCleanup(
   request: Request,
   dependencies: CleanupRouteDependencies = {},
 ) {
-  const secret = dependencies.secret ?? process.env.UPLOAD_CLEANUP_SECRET;
-  if (!secret) {
+  const configuredSecret =
+    dependencies.secret ?? process.env.UPLOAD_CLEANUP_SECRET;
+  const secret = configuredSecret?.trim();
+  if (!secret || secret.length < 32) {
     return NextResponse.json(
       { message: 'Upload cleanup is unavailable.' },
       { status: 503 },

@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server';
 
 import { signUpWithPassword } from '@/lib/auth/auth-service';
 import { signUpSchema } from '@/lib/auth/credentials';
-import { createInMemoryRateLimiter } from '@/lib/auth/rate-limit';
+import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
+import {
+  getClientRateLimitKey,
+  isSameOriginAuthRequest,
+} from '@/lib/auth/request-security';
 
 export const runtime = 'nodejs';
 
-const rateLimiter = createInMemoryRateLimiter({
-  limit: 5,
-  windowMs: 15 * 60_000,
-});
+const rateLimiter = createEnvironmentRateLimiter({ limit: 5 });
 
 function wantsJson(request: Request): boolean {
   return (
@@ -17,82 +18,63 @@ function wantsJson(request: Request): boolean {
   );
 }
 
-function getClientKey(request: Request): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown-client'
-  );
+function originFailure(request: Request, json: boolean): NextResponse {
+  return json
+    ? NextResponse.json({ message: 'Invalid request origin.' }, { status: 403 })
+    : NextResponse.redirect(
+        new URL('/auth/sign-up?error=origin', request.url),
+        303,
+      );
+}
+
+function rateLimited(
+  request: Request,
+  json: boolean,
+  retryAfterSeconds: number,
+): NextResponse {
+  const response = json
+    ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
+    : NextResponse.redirect(
+        new URL('/auth/sign-up?error=rate-limit', request.url),
+        303,
+      );
+  response.headers.set('Retry-After', String(retryAfterSeconds));
+  return response;
 }
 
 async function getBody(request: Request): Promise<unknown> {
-  if (wantsJson(request)) {
-    return request.json().catch(() => null);
-  }
-
-  return Object.fromEntries(await request.formData());
+  return wantsJson(request)
+    ? request.json().catch(() => null)
+    : Object.fromEntries(await request.formData());
 }
 
 export async function POST(request: Request) {
   const json = wantsJson(request);
-  const rateLimit = rateLimiter.consume(getClientKey(request));
-  if (!rateLimit.allowed) {
-    const response = json
-      ? NextResponse.json(
-          { message: 'Please try again later.' },
-          { status: 429 },
-        )
-      : NextResponse.redirect(
-          new URL('/auth/sign-up?error=rate-limit', request.url),
-          303,
-        );
-    response.headers.set('Retry-After', String(rateLimit.retryAfterSeconds));
-    return response;
+  if (!isSameOriginAuthRequest(request)) {
+    return originFailure(request, json);
+  }
+
+  const clientLimit = await rateLimiter.consume(getClientRateLimitKey(request));
+  if (!clientLimit.allowed) {
+    return rateLimited(request, json, clientLimit.retryAfterSeconds);
   }
 
   const parsed = signUpSchema.safeParse(await getBody(request));
   if (!parsed.success) {
-    const passwordMismatch = parsed.error.issues.some(
-      (issue) =>
-        issue.message === 'Passwords do not match.' &&
-        issue.path[0] === 'confirmPassword',
-    );
     return json
       ? NextResponse.json(
-          {
-            message: passwordMismatch
-              ? 'Passwords do not match.'
-              : 'Invalid registration details.',
-          },
+          { message: 'Invalid registration details.' },
           { status: 400 },
         )
       : NextResponse.redirect(
-          new URL(
-            passwordMismatch
-              ? '/auth/sign-up?error=password-mismatch'
-              : '/auth/sign-up?error=invalid',
-            request.url,
-          ),
+          new URL('/auth/sign-up?error=invalid', request.url),
           303,
         );
   }
 
-  const emailRateLimit = rateLimiter.consume(`email:${parsed.data.email}`);
-  if (!emailRateLimit.allowed) {
-    const response = json
-      ? NextResponse.json(
-          { message: 'Please try again later.' },
-          { status: 429 },
-        )
-      : NextResponse.redirect(
-          new URL('/auth/sign-up?error=rate-limit', request.url),
-          303,
-        );
-    response.headers.set(
-      'Retry-After',
-      String(emailRateLimit.retryAfterSeconds),
-    );
-    return response;
+  const emailLimit = await rateLimiter.consume(`email:${parsed.data.email}`);
+  if (!emailLimit.allowed) {
+    return rateLimited(request, json, emailLimit.retryAfterSeconds);
   }
 
   try {

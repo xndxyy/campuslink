@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { verifyEmailToken } from '@/lib/auth/auth-service';
-import { createInMemoryRateLimiter } from '@/lib/auth/rate-limit';
+import {
+  createEnvironmentRateLimiter,
+  createInMemoryRateLimiter,
+} from '@/lib/auth/rate-limit';
 
 describe('in-memory authentication rate limiting', () => {
-  it('rejects requests beyond the configured window limit and permits them after the window', () => {
+  it('rejects requests beyond the configured window limit and permits them after the window', async () => {
     let now = 1_000;
     const limiter = createInMemoryRateLimiter({
       limit: 2,
@@ -12,51 +14,51 @@ describe('in-memory authentication rate limiting', () => {
       windowMs: 60_000,
     });
 
-    expect(limiter.consume('client')).toMatchObject({ allowed: true });
-    expect(limiter.consume('client')).toMatchObject({ allowed: true });
-    expect(limiter.consume('client')).toMatchObject({ allowed: false });
+    await expect(limiter.consume('ip:127.0.0.1')).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(limiter.consume('ip:127.0.0.1')).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(limiter.consume('ip:127.0.0.1')).resolves.toMatchObject({
+      allowed: false,
+    });
 
     now += 60_001;
 
-    expect(limiter.consume('client')).toMatchObject({ allowed: true });
+    await expect(limiter.consume('ip:127.0.0.1')).resolves.toMatchObject({
+      allowed: true,
+    });
   });
 
-  it('uses a normalized e-mail limiter key before consuming a known verification token', async () => {
-    const limiterKeys: string[] = [];
-    const transaction = {
-      user: {
-        findUnique: async () => ({
-          id: 'pending-user',
-          status: 'PENDING_VERIFICATION',
-        }),
-        update: async () => undefined,
-      },
-      verificationToken: {
-        delete: async () => undefined,
-        findUnique: async () => ({
-          expires: new Date('2030-01-01T00:00:00.000Z'),
-          identifier: ' Student@CampusLink.edu ',
-        }),
-      },
-    };
-    const db = {
-      $transaction: async (
-        callback: (value: typeof transaction) => Promise<boolean>,
-      ) => callback(transaction),
-    };
-    const limiter = {
-      consume(key: string) {
-        limiterKeys.push(key);
-        return { allowed: false, retryAfterSeconds: 60 };
-      },
-    };
+  it('bounds development limiter cardinality and rejects invalid attacker keys', async () => {
+    const limiter = createInMemoryRateLimiter({
+      limit: 2,
+      maxEntries: 1,
+      windowMs: 60_000,
+    });
 
+    await expect(limiter.consume('ip:127.0.0.1')).resolves.toMatchObject({
+      allowed: true,
+    });
+    await expect(limiter.consume('ip:127.0.0.2')).resolves.toMatchObject({
+      allowed: false,
+    });
     await expect(
-      verifyEmailToken('known-token', {
-        db: db as never,
-        rateLimiter: limiter,
+      limiter.consume(`ip:${'x'.repeat(500)}`),
+    ).resolves.toMatchObject({
+      allowed: false,
+    });
+  });
+
+  it('requires a shared database configuration in production', () => {
+    expect(() =>
+      createEnvironmentRateLimiter({
+        databaseUrl: '',
+        environment: 'production',
       }),
-    ).resolves.toBe(false);
-    expect(limiterKeys).toEqual(['email:student@campuslink.edu']);
+    ).toThrow(
+      'DATABASE_URL is required for production authentication rate limiting',
+    );
   });
 });

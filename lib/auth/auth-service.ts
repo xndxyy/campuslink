@@ -13,8 +13,8 @@ import {
 } from './credentials';
 import { createEnvironmentMailer, type VerificationMailer } from './mailer';
 import type { UserRole } from './permissions';
-import type { RateLimiter } from './rate-limit';
-import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from './session';
+import { getApplicationUrl } from './request-security';
+import { getSessionCookieName, SESSION_MAX_AGE_SECONDS } from './session';
 
 const verificationLifetimeMs = 24 * 60 * 60 * 1_000;
 const dummyPasswordHash =
@@ -38,13 +38,11 @@ interface AuthDependencies {
   db?: AuthDatabase;
   mailer?: VerificationMailer;
   now?: () => Date;
-  rateLimiter?: RateLimiter;
 }
 
 export interface SignUpRequest {
   email: string;
   name: string;
-  password: string;
 }
 
 export interface SignInRequest {
@@ -55,10 +53,6 @@ export interface SignInRequest {
 export interface CreatedSession {
   expires: Date;
   token: string;
-}
-
-function getAppUrl(appUrl: string | undefined): string {
-  return appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 }
 
 function sessionUserFromDatabaseUser(user: {
@@ -95,7 +89,6 @@ export async function signUpWithPassword(
 
   const verificationToken = createOpaqueToken();
   const verificationTokenHash = hashOpaqueToken(verificationToken);
-  const passwordHash = await hashPassword(input.password);
   const issuedAt = now();
 
   const created = await db.$transaction(async (transaction) => {
@@ -113,7 +106,6 @@ export async function signUpWithPassword(
         campusId: campus.id,
         email: input.email,
         name: input.name,
-        passwordHash,
         status: 'PENDING_VERIFICATION',
       },
     });
@@ -136,7 +128,7 @@ export async function signUpWithPassword(
 
   const verificationUrl = new URL(
     '/auth/verify',
-    getAppUrl(dependencies.appUrl),
+    getApplicationUrl(dependencies.appUrl),
   );
   verificationUrl.searchParams.set('token', verificationToken);
   await (
@@ -147,8 +139,59 @@ export async function signUpWithPassword(
   });
 }
 
+export async function resendVerificationEmail(
+  email: string,
+  dependencies: AuthDependencies = {},
+): Promise<void> {
+  const db = dependencies.db ?? getDb();
+  const now = dependencies.now ?? (() => new Date());
+  const verificationToken = createOpaqueToken();
+  const verificationTokenHash = hashOpaqueToken(verificationToken);
+  const issuedAt = now();
+
+  const reissued = await db.$transaction(async (transaction) => {
+    const user = await transaction.user.findUnique({
+      where: { email },
+      select: { passwordHash: true, status: true },
+    });
+
+    if (user?.status !== 'PENDING_VERIFICATION' || user.passwordHash !== null) {
+      return false;
+    }
+
+    await transaction.verificationToken.deleteMany({
+      where: { identifier: email },
+    });
+    await transaction.verificationToken.create({
+      data: {
+        expires: new Date(issuedAt.getTime() + verificationLifetimeMs),
+        identifier: email,
+        tokenHash: verificationTokenHash,
+      },
+    });
+    return true;
+  });
+
+  if (!reissued) {
+    return;
+  }
+
+  const verificationUrl = new URL(
+    '/auth/verify',
+    getApplicationUrl(dependencies.appUrl),
+  );
+  verificationUrl.searchParams.set('token', verificationToken);
+  await (
+    dependencies.mailer ?? createEnvironmentMailer()
+  ).sendVerificationEmail({
+    recipient: email,
+    verificationUrl: verificationUrl.toString(),
+  });
+}
+
 export async function verifyEmailToken(
   token: string,
+  password: string,
   dependencies: AuthDependencies = {},
 ): Promise<boolean> {
   if (!token) {
@@ -157,6 +200,7 @@ export async function verifyEmailToken(
 
   const db = dependencies.db ?? getDb();
   const now = dependencies.now ?? (() => new Date());
+  const verificationTime = now();
   const tokenHash = hashOpaqueToken(token);
 
   return db.$transaction(async (transaction) => {
@@ -164,38 +208,40 @@ export async function verifyEmailToken(
       where: { tokenHash },
     });
 
-    if (!verification || verification.expires <= now()) {
+    if (!verification || verification.expires <= verificationTime) {
       if (verification) {
-        await transaction.verificationToken.delete({
+        await transaction.verificationToken.deleteMany({
           where: { tokenHash },
         });
       }
       return false;
     }
 
-    const emailRateLimit = dependencies.rateLimiter?.consume(
-      `email:${verification.identifier.trim().toLowerCase()}`,
-    );
-    if (emailRateLimit && !emailRateLimit.allowed) {
+    // The conditional delete is the one-time consume. A concurrent request may
+    // read the record, but only one can delete a still-valid hash.
+    const consumed = await transaction.verificationToken.deleteMany({
+      where: {
+        expires: { gt: verificationTime },
+        tokenHash,
+      },
+    });
+    if (consumed.count !== 1) {
       return false;
     }
 
-    const user = await transaction.user.findUnique({
-      where: { email: verification.identifier },
-      select: { id: true, status: true },
+    const activated = await transaction.user.updateMany({
+      data: {
+        emailVerifiedAt: verificationTime,
+        passwordHash: await hashPassword(password),
+        status: 'ACTIVE',
+      },
+      where: {
+        email: verification.identifier,
+        passwordHash: null,
+        status: 'PENDING_VERIFICATION',
+      },
     });
-
-    if (!user || user.status !== 'PENDING_VERIFICATION') {
-      await transaction.verificationToken.delete({ where: { tokenHash } });
-      return false;
-    }
-
-    await transaction.user.update({
-      where: { id: user.id },
-      data: { emailVerifiedAt: now(), status: 'ACTIVE' },
-    });
-    await transaction.verificationToken.delete({ where: { tokenHash } });
-    return true;
+    return activated.count === 1;
   });
 }
 
@@ -268,7 +314,7 @@ export async function getSessionUserFromToken(
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const token = cookieStore.get(getSessionCookieName())?.value;
 
   return token ? getSessionUserFromToken(token) : null;
 }
@@ -288,5 +334,5 @@ export async function revokeSessionToken(
 
 export async function revokeCurrentSession(): Promise<void> {
   const cookieStore = await cookies();
-  await revokeSessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value);
+  await revokeSessionToken(cookieStore.get(getSessionCookieName())?.value);
 }

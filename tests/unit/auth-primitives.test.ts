@@ -6,6 +6,7 @@ import {
   hashPassword,
   signInSchema,
   signUpSchema,
+  verificationCompletionSchema,
   verifyPassword,
 } from '@/lib/auth/credentials';
 
@@ -14,8 +15,6 @@ describe('credential primitives', () => {
     const result = signUpSchema.safeParse({
       email: '  Student@CampusLink.edu ',
       name: 'Student One',
-      password: 'SafeCampus!42',
-      confirmPassword: 'SafeCampus!42',
     });
 
     expect(result.success).toBe(true);
@@ -28,30 +27,26 @@ describe('credential primitives', () => {
     const result = signUpSchema.safeParse({
       email: 'student@example.test',
       name: 'Student One',
-      password: 'SafeCampus!42',
-      confirmPassword: 'SafeCampus!42',
     });
 
     expect(result.success).toBe(false);
   });
 
-  it('requires a strong password at the sign-up boundary', () => {
-    const result = signUpSchema.safeParse({
-      email: 'student@campuslink.edu',
-      name: 'Student One',
-      password: 'only-lowercase',
+  it('requires a strong password at the verification completion boundary', () => {
+    const result = verificationCompletionSchema.safeParse({
       confirmPassword: 'only-lowercase',
+      password: 'only-lowercase',
+      token: 'verification-token',
     });
 
     expect(result.success).toBe(false);
   });
 
-  it('rejects a sign-up when password confirmation differs', () => {
-    const result = signUpSchema.safeParse({
-      email: 'student@campuslink.edu',
-      name: 'Student One',
-      password: 'SafeCampus!42',
+  it('rejects verification completion when password confirmation differs', () => {
+    const result = verificationCompletionSchema.safeParse({
       confirmPassword: 'DifferentCampus!42',
+      password: 'SafeCampus!42',
+      token: 'verification-token',
     });
 
     expect(result.success).toBe(false);

@@ -18,14 +18,32 @@ const migration = readFileSync(
 );
 
 describe('Prisma schema contract', () => {
-  it('requires a credential hash for every user', () => {
+  it('allows a pending user to have no credential hash until link-holder activation', () => {
     expect(schema).toMatch(
-      /model User\s*\{[\s\S]*?passwordHash\s+String\s+@db\.VarChar\(255\)/,
+      /model User\s*\{[\s\S]*?passwordHash\s+String\?\s+@db\.VarChar\(255\)/,
     );
   });
 
-  it('enforces credential hashes in the initial database migration', () => {
-    expect(migration).toMatch(/"passwordHash" VARCHAR\(255\) NOT NULL/);
+  it('has an unapplied migration making pending credentials nullable', () => {
+    const pendingCredentialMigration = readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../prisma/migrations/20260712080000_harden_authentication/migration.sql',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    );
+
+    expect(pendingCredentialMigration).toMatch(
+      /ALTER COLUMN "passwordHash" DROP NOT NULL/,
+    );
+  });
+
+  it('models expiring shared rate-limit buckets keyed only by a hash', () => {
+    expect(schema).toMatch(
+      /model RateLimitBucket\s*\{[\s\S]*?keyHash\s+String\s+@id\s+@db\.VarChar\(64\)[\s\S]*?windowStartedAt\s+DateTime[\s\S]*?count\s+Int[\s\S]*?expiresAt\s+DateTime/,
+    );
   });
 
   it('models resource documents and marketplace images as attachable assets', () => {

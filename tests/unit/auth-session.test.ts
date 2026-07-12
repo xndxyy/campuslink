@@ -2,14 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getSessionCookieOptions,
-  SESSION_COOKIE_NAME,
+  getSessionCookieName,
 } from '@/lib/auth/session';
 
 describe('opaque session cookie policy', () => {
-  it('uses a host-only HttpOnly Lax cookie', () => {
-    const options = getSessionCookieOptions();
+  it('uses a host-only HttpOnly Lax cookie only in production', () => {
+    const options = getSessionCookieOptions('production');
 
-    expect(SESSION_COOKIE_NAME).toBe('__Host-campuslink-session');
+    expect(getSessionCookieName('production')).toBe(
+      '__Host-campuslink-session',
+    );
+    expect(getSessionCookieName('development')).toBe('campuslink-dev-session');
     expect(options).toMatchObject({
       httpOnly: true,
       path: '/',

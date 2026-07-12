@@ -95,7 +95,7 @@ model User {
   campusId         String
   name             String?            @db.VarChar(200)
   email            String             @unique @db.VarChar(320)
-  passwordHash     String             @db.VarChar(255)
+  passwordHash     String?            @db.VarChar(255)
   role             UserRole           @default(STUDENT)
   status           UserStatus         @default(PENDING_VERIFICATION)
   emailVerifiedAt  DateTime?
@@ -134,6 +134,17 @@ model VerificationToken {
   tokenHash  String   @unique @db.VarChar(128)
   expires    DateTime
   createdAt  DateTime @default(now())
+}
+
+model RateLimitBucket {
+  keyHash         String   @id @db.VarChar(64)
+  windowStartedAt DateTime
+  count           Int
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([expiresAt])
 }
 
 model Asset {

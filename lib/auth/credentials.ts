@@ -20,20 +20,31 @@ export function getCampusEmailDomain(): string {
     .toLowerCase();
 }
 
-export const signUpSchema = z
+export const signUpSchema = z.object({
+  email: normalizedEmailSchema.refine(
+    (email) => email.endsWith(`@${getCampusEmailDomain()}`),
+    { message: 'Use your campus e-mail address.' },
+  ),
+  name: nameSchema,
+});
+
+export const verificationCompletionSchema = z
   .object({
     confirmPassword: z.string(),
-    email: normalizedEmailSchema.refine(
-      (email) => email.endsWith(`@${getCampusEmailDomain()}`),
-      { message: 'Use your campus e-mail address.' },
-    ),
-    name: nameSchema,
     password: passwordSchema,
+    token: z.string().trim().min(1).max(256),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match.',
     path: ['confirmPassword'],
   });
+
+export const resendVerificationSchema = z.object({
+  email: normalizedEmailSchema.refine(
+    (email) => email.endsWith(`@${getCampusEmailDomain()}`),
+    { message: 'Use your campus e-mail address.' },
+  ),
+});
 
 export const signInSchema = z.object({
   email: normalizedEmailSchema,
@@ -42,6 +53,10 @@ export const signInSchema = z.object({
 
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type SignInInput = z.infer<typeof signInSchema>;
+export type VerificationCompletionInput = z.infer<
+  typeof verificationCompletionSchema
+>;
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);

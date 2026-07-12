@@ -1,21 +1,20 @@
 import { NextResponse } from 'next/server';
 
-import { signInWithPassword } from '@/lib/auth/auth-service';
-import { signInSchema } from '@/lib/auth/credentials';
+import { resendVerificationEmail } from '@/lib/auth/auth-service';
+import { resendVerificationSchema } from '@/lib/auth/credentials';
 import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
 import {
   getClientRateLimitKey,
   isSameOriginAuthRequest,
 } from '@/lib/auth/request-security';
-import {
-  getSessionCookieName,
-  getSessionCookieOptions,
-} from '@/lib/auth/session';
 
 export const runtime = 'nodejs';
 
-const rateLimiter = createEnvironmentRateLimiter();
-const genericFailure = { message: 'Invalid e-mail or password.' };
+const rateLimiter = createEnvironmentRateLimiter({ limit: 5 });
+const acknowledgement = {
+  message:
+    'If this address is pending verification, check your e-mail for a verification link.',
+};
 
 function wantsJson(request: Request): boolean {
   return (
@@ -37,7 +36,7 @@ function rateLimited(
   const response = json
     ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
     : NextResponse.redirect(
-        new URL('/auth/sign-in?error=rate-limit', request.url),
+        new URL('/auth/verify?error=rate-limit', request.url),
         303,
       );
   response.headers.set('Retry-After', String(retryAfterSeconds));
@@ -53,7 +52,7 @@ export async function POST(request: Request) {
           { status: 403 },
         )
       : NextResponse.redirect(
-          new URL('/auth/sign-in?error=origin', request.url),
+          new URL('/auth/verify?error=origin', request.url),
           303,
         );
   }
@@ -63,14 +62,11 @@ export async function POST(request: Request) {
     return rateLimited(request, json, clientLimit.retryAfterSeconds);
   }
 
-  const parsed = signInSchema.safeParse(await getBody(request));
+  const parsed = resendVerificationSchema.safeParse(await getBody(request));
   if (!parsed.success) {
     return json
-      ? NextResponse.json(genericFailure, { status: 401 })
-      : NextResponse.redirect(
-          new URL('/auth/sign-in?error=invalid', request.url),
-          303,
-        );
+      ? NextResponse.json(acknowledgement, { status: 202 })
+      : NextResponse.redirect(new URL('/auth/verify?sent=1', request.url), 303);
   }
 
   const emailLimit = await rateLimiter.consume(`email:${parsed.data.email}`);
@@ -78,24 +74,21 @@ export async function POST(request: Request) {
     return rateLimited(request, json, emailLimit.retryAfterSeconds);
   }
 
-  const session = await signInWithPassword(parsed.data);
-  if (!session) {
+  try {
+    await resendVerificationEmail(parsed.data.email);
+  } catch {
     return json
-      ? NextResponse.json(genericFailure, { status: 401 })
+      ? NextResponse.json(
+          { message: 'Unable to send a verification link. Please try again.' },
+          { status: 503 },
+        )
       : NextResponse.redirect(
-          new URL('/auth/sign-in?error=invalid', request.url),
+          new URL('/auth/verify?error=temporary', request.url),
           303,
         );
   }
 
-  const response = json
-    ? NextResponse.json({ message: 'Signed in.' })
-    : NextResponse.redirect(new URL('/', request.url), 303);
-  response.cookies.set({
-    ...getSessionCookieOptions(),
-    expires: session.expires,
-    name: getSessionCookieName(),
-    value: session.token,
-  });
-  return response;
+  return json
+    ? NextResponse.json(acknowledgement, { status: 202 })
+    : NextResponse.redirect(new URL('/auth/verify?sent=1', request.url), 303);
 }

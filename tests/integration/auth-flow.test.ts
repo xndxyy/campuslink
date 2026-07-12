@@ -45,7 +45,7 @@ describeWithDatabase('password authentication flow', () => {
     await db.$disconnect();
   });
 
-  it('signs up, consumes verification once, creates a hashed session, and rejects unverified sign-in', async () => {
+  it('keeps signup credential-free until the link holder activates it once', async () => {
     const suffix = randomUUID();
     const domain = `${suffix}.example.test`;
     email = `student-${suffix}@${domain}`;
@@ -69,7 +69,6 @@ describeWithDatabase('password authentication flow', () => {
     const request = {
       email,
       name: 'Authentication Test Student',
-      password: 'SafeCampus!42',
     };
 
     await signUpWithPassword(request, { db, mailer });
@@ -78,8 +77,10 @@ describeWithDatabase('password authentication flow', () => {
       where: { email },
     });
     expect(pendingUser.status).toBe('PENDING_VERIFICATION');
-    expect(pendingUser.passwordHash).not.toBe(request.password);
-    await expect(signInWithPassword(request, { db })).resolves.toBeNull();
+    expect(pendingUser.passwordHash).toBeNull();
+    await expect(
+      signInWithPassword({ ...request, password: 'SafeCampus!42' }, { db }),
+    ).resolves.toBeNull();
 
     if (!verificationUrl) {
       throw new Error('Test mailer did not receive a verification link.');
@@ -91,14 +92,17 @@ describeWithDatabase('password authentication flow', () => {
       throw new Error('Verification link did not contain a token.');
     }
 
-    await expect(verifyEmailToken(verificationToken, { db })).resolves.toBe(
-      true,
-    );
-    await expect(verifyEmailToken(verificationToken, { db })).resolves.toBe(
-      false,
-    );
+    await expect(
+      verifyEmailToken(verificationToken, 'SafeCampus!42', { db }),
+    ).resolves.toBe(true);
+    await expect(
+      verifyEmailToken(verificationToken, 'SafeCampus!42', { db }),
+    ).resolves.toBe(false);
 
-    const session = await signInWithPassword(request, { db });
+    const session = await signInWithPassword(
+      { ...request, password: 'SafeCampus!42' },
+      { db },
+    );
     expect(session).not.toBeNull();
     if (!session) {
       throw new Error('Verified user did not receive a session.');

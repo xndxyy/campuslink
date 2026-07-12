@@ -13,7 +13,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
         <h1 className="text-2xl font-bold text-slate-950">Create an account</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           Use your campus e-mail address. We will send a verification link
-          before you can sign in.
+          before you choose a password and activate the account.
         </p>
         {error ? (
           <p
@@ -22,9 +22,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
           >
             {error === 'rate-limit'
               ? 'Please wait a little before trying again.'
-              : error === 'password-mismatch'
-                ? 'Passwords do not match.'
-                : 'Please check your registration details and try again.'}
+              : 'Please check your registration details and try again.'}
           </p>
         ) : null}
         <form
@@ -59,45 +57,11 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             required
             type="email"
           />
-          <label
-            className="block text-sm font-medium text-slate-800"
-            htmlFor="password"
-          >
-            Password
-          </label>
-          <input
-            autoComplete="new-password"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            id="password"
-            minLength={12}
-            name="password"
-            required
-            type="password"
-          />
-          <label
-            className="block text-sm font-medium text-slate-800"
-            htmlFor="confirmPassword"
-          >
-            Confirm password
-          </label>
-          <input
-            autoComplete="new-password"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
-            id="confirmPassword"
-            minLength={12}
-            name="confirmPassword"
-            required
-            type="password"
-          />
-          <p className="text-xs text-slate-600">
-            At least 12 characters, including upper- and lower-case letters, a
-            number, and a symbol.
-          </p>
           <button
             className="w-full rounded-md bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"
             type="submit"
           >
-            Create account
+            Send verification link
           </button>
         </form>
         <p className="mt-6 text-sm text-slate-600">

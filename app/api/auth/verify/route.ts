@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
 
 import { verifyEmailToken } from '@/lib/auth/auth-service';
-import { createInMemoryRateLimiter } from '@/lib/auth/rate-limit';
+import { verificationCompletionSchema } from '@/lib/auth/credentials';
+import { createEnvironmentRateLimiter } from '@/lib/auth/rate-limit';
+import {
+  getClientRateLimitKey,
+  isSameOriginAuthRequest,
+} from '@/lib/auth/request-security';
 
 export const runtime = 'nodejs';
 
-const rateLimiter = createInMemoryRateLimiter({
-  limit: 10,
-  windowMs: 15 * 60_000,
-});
+const rateLimiter = createEnvironmentRateLimiter();
 
 function wantsJson(request: Request): boolean {
   return (
@@ -16,27 +18,27 @@ function wantsJson(request: Request): boolean {
   );
 }
 
-function getClientKey(request: Request): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.headers.get('x-real-ip') ??
-    'unknown-client'
-  );
-}
-
-async function getToken(request: Request): Promise<string> {
-  const payload = wantsJson(request)
-    ? await request.json().catch(() => null)
+async function getBody(request: Request): Promise<unknown> {
+  return wantsJson(request)
+    ? request.json().catch(() => null)
     : Object.fromEntries(await request.formData());
-
-  return typeof payload === 'object' && payload !== null && 'token' in payload
-    ? String(payload.token)
-    : '';
 }
 
 export async function POST(request: Request) {
   const json = wantsJson(request);
-  const rateLimit = rateLimiter.consume(getClientKey(request));
+  if (!isSameOriginAuthRequest(request)) {
+    return json
+      ? NextResponse.json(
+          { message: 'Invalid request origin.' },
+          { status: 403 },
+        )
+      : NextResponse.redirect(
+          new URL('/auth/verify?error=origin', request.url),
+          303,
+        );
+  }
+
+  const rateLimit = await rateLimiter.consume(getClientRateLimitKey(request));
   if (!rateLimit.allowed) {
     const response = json
       ? NextResponse.json(
@@ -51,9 +53,23 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const verified = await verifyEmailToken(await getToken(request), {
-    rateLimiter,
-  });
+  const parsed = verificationCompletionSchema.safeParse(await getBody(request));
+  if (!parsed.success) {
+    return json
+      ? NextResponse.json(
+          { message: 'Verification link is invalid or expired.' },
+          { status: 400 },
+        )
+      : NextResponse.redirect(
+          new URL('/auth/verify?error=invalid', request.url),
+          303,
+        );
+  }
+
+  const verified = await verifyEmailToken(
+    parsed.data.token,
+    parsed.data.password,
+  );
   if (!verified) {
     return json
       ? NextResponse.json(

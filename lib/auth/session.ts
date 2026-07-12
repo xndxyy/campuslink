@@ -1,7 +1,14 @@
-export const SESSION_COOKIE_NAME = '__Host-campuslink-session';
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 type RuntimeEnvironment = 'development' | 'production' | 'test';
+
+export function getSessionCookieName(
+  environment = process.env.NODE_ENV as RuntimeEnvironment | undefined,
+): string {
+  return environment === 'production'
+    ? '__Host-campuslink-session'
+    : 'campuslink-dev-session';
+}
 
 export function getSessionCookieOptions(
   environment = process.env.NODE_ENV as RuntimeEnvironment | undefined,

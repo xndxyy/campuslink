@@ -31,6 +31,18 @@ describe('content validation', () => {
         title: 'Discrete mathematics textbook',
       }),
     ).toThrow();
+
+    expect(() =>
+      createMarketplaceItemSchema.parse({
+        assetIds: ['asset_1'],
+        condition: 'GOOD',
+        contact: 'Campus inbox only',
+        description: 'A carefully used discrete mathematics textbook.',
+        pickupArea: 'North library entrance',
+        price: '21474836.48',
+        title: 'Discrete mathematics textbook',
+      }),
+    ).toThrow();
   });
 
   it('normalizes and deduplicates bounded resource tags and course codes', () => {

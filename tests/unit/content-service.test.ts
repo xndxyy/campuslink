@@ -38,6 +38,7 @@ function createAdapter(assets: Asset[] = []) {
       updateMany: vi.fn(async () => ({ count: assets.length })),
     },
     jobPost: {
+      updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const record = { ...data, id: 'job_1' };
         created.push(record);
@@ -49,6 +50,7 @@ function createAdapter(assets: Asset[] = []) {
       })),
     },
     marketplaceItem: {
+      updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const record = { ...data, id: 'market_1' };
         created.push(record);
@@ -82,6 +84,7 @@ function createAdapter(assets: Asset[] = []) {
         id: 'resource_1',
         ...data,
       })),
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
   };
   return {
@@ -178,13 +181,41 @@ describe('content service', () => {
       }),
     });
     expect(adapter.asset.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { resourceId: 'resource_1' } }),
+      {
+        data: { resourceId: 'resource_1' },
+        where: {
+          id: { in: ['doc_1'] },
+          kind: { in: ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'] },
+          marketplaceItemId: null,
+          ownerId: actor.id,
+          resourceId: null,
+          status: 'READY',
+        },
+      },
     );
     expect(adapter.resource.update).toHaveBeenCalledWith({
       data: { status: 'PENDING' },
       where: { id: 'resource_1' },
     });
     expect(result.status).toBe('PENDING');
+  });
+
+  it('fails before submit when an asset changes after the read', async () => {
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
+    ]);
+    adapter.asset.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(
+      createResource(serviceAdapter, actor, resourceInput),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    expect(adapter.resource.update).not.toHaveBeenCalled();
   });
 
   it('takes owner and campus only from the verified actor', async () => {

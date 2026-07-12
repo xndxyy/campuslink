@@ -22,7 +22,9 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
           >
             {error === 'rate-limit'
               ? 'Please wait a little before trying again.'
-              : 'Please check your registration details and try again.'}
+              : error === 'password-mismatch'
+                ? 'Passwords do not match.'
+                : 'Please check your registration details and try again.'}
           </p>
         ) : null}
         <form
@@ -69,6 +71,21 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             id="password"
             minLength={12}
             name="password"
+            required
+            type="password"
+          />
+          <label
+            className="block text-sm font-medium text-slate-800"
+            htmlFor="confirmPassword"
+          >
+            Confirm password
+          </label>
+          <input
+            autoComplete="new-password"
+            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
+            id="confirmPassword"
+            minLength={12}
+            name="confirmPassword"
             required
             type="password"
           />

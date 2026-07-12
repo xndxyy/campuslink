@@ -51,7 +51,9 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const verified = await verifyEmailToken(await getToken(request));
+  const verified = await verifyEmailToken(await getToken(request), {
+    rateLimiter,
+  });
   if (!verified) {
     return json
       ? NextResponse.json(

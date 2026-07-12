@@ -20,14 +20,20 @@ export function getCampusEmailDomain(): string {
     .toLowerCase();
 }
 
-export const signUpSchema = z.object({
-  email: normalizedEmailSchema.refine(
-    (email) => email.endsWith(`@${getCampusEmailDomain()}`),
-    { message: 'Use your campus e-mail address.' },
-  ),
-  name: nameSchema,
-  password: passwordSchema,
-});
+export const signUpSchema = z
+  .object({
+    confirmPassword: z.string(),
+    email: normalizedEmailSchema.refine(
+      (email) => email.endsWith(`@${getCampusEmailDomain()}`),
+      { message: 'Use your campus e-mail address.' },
+    ),
+    name: nameSchema,
+    password: passwordSchema,
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match.',
+    path: ['confirmPassword'],
+  });
 
 export const signInSchema = z.object({
   email: normalizedEmailSchema,

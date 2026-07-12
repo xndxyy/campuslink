@@ -15,6 +15,7 @@ describe('credential primitives', () => {
       email: '  Student@CampusLink.edu ',
       name: 'Student One',
       password: 'SafeCampus!42',
+      confirmPassword: 'SafeCampus!42',
     });
 
     expect(result.success).toBe(true);
@@ -28,6 +29,7 @@ describe('credential primitives', () => {
       email: 'student@example.test',
       name: 'Student One',
       password: 'SafeCampus!42',
+      confirmPassword: 'SafeCampus!42',
     });
 
     expect(result.success).toBe(false);
@@ -38,9 +40,29 @@ describe('credential primitives', () => {
       email: 'student@campuslink.edu',
       name: 'Student One',
       password: 'only-lowercase',
+      confirmPassword: 'only-lowercase',
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it('rejects a sign-up when password confirmation differs', () => {
+    const result = signUpSchema.safeParse({
+      email: 'student@campuslink.edu',
+      name: 'Student One',
+      password: 'SafeCampus!42',
+      confirmPassword: 'DifferentCampus!42',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          message: 'Passwords do not match.',
+          path: ['confirmPassword'],
+        }),
+      );
+    }
   });
 
   it('normalizes sign-in e-mail without applying the campus sign-up domain restriction', () => {

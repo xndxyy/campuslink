@@ -52,13 +52,27 @@ export async function POST(request: Request) {
 
   const parsed = signUpSchema.safeParse(await getBody(request));
   if (!parsed.success) {
+    const passwordMismatch = parsed.error.issues.some(
+      (issue) =>
+        issue.message === 'Passwords do not match.' &&
+        issue.path[0] === 'confirmPassword',
+    );
     return json
       ? NextResponse.json(
-          { message: 'Invalid registration details.' },
+          {
+            message: passwordMismatch
+              ? 'Passwords do not match.'
+              : 'Invalid registration details.',
+          },
           { status: 400 },
         )
       : NextResponse.redirect(
-          new URL('/auth/sign-up?error=invalid', request.url),
+          new URL(
+            passwordMismatch
+              ? '/auth/sign-up?error=password-mismatch'
+              : '/auth/sign-up?error=invalid',
+            request.url,
+          ),
           303,
         );
   }

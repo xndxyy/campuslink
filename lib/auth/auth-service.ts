@@ -13,6 +13,7 @@ import {
 } from './credentials';
 import { createEnvironmentMailer, type VerificationMailer } from './mailer';
 import type { UserRole } from './permissions';
+import type { RateLimiter } from './rate-limit';
 import { SESSION_COOKIE_NAME, SESSION_MAX_AGE_SECONDS } from './session';
 
 const verificationLifetimeMs = 24 * 60 * 60 * 1_000;
@@ -37,6 +38,7 @@ interface AuthDependencies {
   db?: AuthDatabase;
   mailer?: VerificationMailer;
   now?: () => Date;
+  rateLimiter?: RateLimiter;
 }
 
 export interface SignUpRequest {
@@ -168,6 +170,13 @@ export async function verifyEmailToken(
           where: { tokenHash },
         });
       }
+      return false;
+    }
+
+    const emailRateLimit = dependencies.rateLimiter?.consume(
+      `email:${verification.identifier.trim().toLowerCase()}`,
+    );
+    if (emailRateLimit && !emailRateLimit.allowed) {
       return false;
     }
 

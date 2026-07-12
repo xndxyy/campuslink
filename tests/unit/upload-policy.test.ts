@@ -46,6 +46,9 @@ describe('upload policy', () => {
   it.each([
     ['notes.pdf', 'application/zip', 'RESOURCE_DOCUMENT'],
     ['notes.pdf.zip', 'application/zip', 'RESOURCE_DOCUMENT'],
+    ['archive.backup.zip', 'application/zip', 'RESOURCE_DOCUMENT'],
+    ['photo.backup.jpg', 'image/jpeg', 'MARKETPLACE_IMAGE'],
+    ['notes.tar.pdf', 'application/pdf', 'RESOURCE_DOCUMENT'],
     ['photo.png', 'image/jpeg', 'MARKETPLACE_IMAGE'],
   ] as const)(
     'rejects a mismatched or double extension: %s',
@@ -53,6 +56,20 @@ describe('upload policy', () => {
       expect(
         validateUpload({ contentType, fileName, kind, sizeBytes: 1_024 })
           .success,
+      ).toBe(false);
+    },
+  );
+
+  it.each(['.pdf', '   .pdf   '])(
+    'rejects a hidden or empty-base filename: %s',
+    (fileName) => {
+      expect(
+        validateUpload({
+          contentType: 'application/pdf',
+          fileName,
+          kind: 'RESOURCE_DOCUMENT',
+          sizeBytes: 1_024,
+        }).success,
       ).toBe(false);
     },
   );

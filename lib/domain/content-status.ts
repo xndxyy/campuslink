@@ -10,16 +10,16 @@ export enum ContentStatus {
 const allowedTransitions: Readonly<
   Record<ContentStatus, readonly ContentStatus[]>
 > = {
-  [ContentStatus.DRAFT]: [ContentStatus.PENDING, ContentStatus.ARCHIVED],
+  [ContentStatus.DRAFT]: [ContentStatus.PENDING],
   [ContentStatus.PENDING]: [
     ContentStatus.PUBLISHED,
     ContentStatus.REJECTED,
     ContentStatus.ARCHIVED,
   ],
   [ContentStatus.PUBLISHED]: [ContentStatus.HIDDEN, ContentStatus.ARCHIVED],
-  [ContentStatus.REJECTED]: [ContentStatus.DRAFT, ContentStatus.ARCHIVED],
+  [ContentStatus.REJECTED]: [ContentStatus.DRAFT],
   [ContentStatus.HIDDEN]: [ContentStatus.PUBLISHED, ContentStatus.ARCHIVED],
-  [ContentStatus.ARCHIVED]: [ContentStatus.DRAFT],
+  [ContentStatus.ARCHIVED]: [],
 };
 
 export function transitionContentStatus(

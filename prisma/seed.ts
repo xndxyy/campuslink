@@ -1,6 +1,8 @@
 import 'dotenv/config';
 
 import {
+  AssetKind,
+  AssetStatus,
   ContentStatus,
   UserRole,
   UserStatus,
@@ -95,44 +97,94 @@ async function main() {
       },
     });
 
-    const resource = await db.resource.findFirst({
+    const existingResource = await db.resource.findFirst({
       where: { authorId: student.id, title: 'Calculus I Exam Review Notes' },
       select: { id: true },
     });
-    if (!resource) {
-      await db.resource.create({
-        data: {
-          authorId: student.id,
-          campusId: campus.id,
-          title: 'Calculus I Exam Review Notes',
-          summary:
-            'Approved sample notes covering limits, derivatives, and integration.',
-          courseCode: 'MATH-101',
-          tags: ['calculus', 'exam-review', 'notes'],
-          status: ContentStatus.PUBLISHED,
-        },
-      });
-    }
+    const resource = existingResource
+      ? await db.resource.update({
+          where: { id: existingResource.id },
+          data: { campusId: campus.id, status: ContentStatus.PUBLISHED },
+        })
+      : await db.resource.create({
+          data: {
+            authorId: student.id,
+            campusId: campus.id,
+            title: 'Calculus I Exam Review Notes',
+            summary:
+              'Approved sample notes covering limits, derivatives, and integration.',
+            courseCode: 'MATH-101',
+            tags: ['calculus', 'exam-review', 'notes'],
+            status: ContentStatus.PUBLISHED,
+          },
+        });
 
-    const marketplaceItem = await db.marketplaceItem.findFirst({
+    const existingMarketplaceItem = await db.marketplaceItem.findFirst({
       where: { sellerId: student.id, title: 'Scientific Calculator' },
       select: { id: true },
     });
-    if (!marketplaceItem) {
-      await db.marketplaceItem.create({
-        data: {
-          sellerId: student.id,
-          campusId: campus.id,
-          title: 'Scientific Calculator',
-          description:
-            'Approved sample marketplace listing in excellent working condition.',
-          priceCents: 1800,
-          condition: 'Excellent',
-          contact: 'student@campuslink.edu',
-          status: ContentStatus.PUBLISHED,
-        },
-      });
-    }
+    const marketplaceItem = existingMarketplaceItem
+      ? await db.marketplaceItem.update({
+          where: { id: existingMarketplaceItem.id },
+          data: { campusId: campus.id, status: ContentStatus.PUBLISHED },
+        })
+      : await db.marketplaceItem.create({
+          data: {
+            sellerId: student.id,
+            campusId: campus.id,
+            title: 'Scientific Calculator',
+            description:
+              'Approved sample marketplace listing in excellent working condition.',
+            priceCents: 1800,
+            condition: 'Excellent',
+            contact: 'student@campuslink.edu',
+            status: ContentStatus.PUBLISHED,
+          },
+        });
+
+    await db.asset.upsert({
+      where: { storageKey: 'resources/calculus-i-exam-review-notes.pdf' },
+      update: {
+        ownerId: student.id,
+        resourceId: resource.id,
+        marketplaceItemId: null,
+        kind: AssetKind.RESOURCE_DOCUMENT,
+        contentType: 'application/pdf',
+        sizeBytes: BigInt(262144),
+        status: AssetStatus.READY,
+      },
+      create: {
+        ownerId: student.id,
+        resourceId: resource.id,
+        storageKey: 'resources/calculus-i-exam-review-notes.pdf',
+        kind: AssetKind.RESOURCE_DOCUMENT,
+        contentType: 'application/pdf',
+        sizeBytes: BigInt(262144),
+        status: AssetStatus.READY,
+      },
+    });
+
+    await db.asset.upsert({
+      where: { storageKey: 'marketplace/scientific-calculator.jpg' },
+      update: {
+        ownerId: student.id,
+        resourceId: null,
+        marketplaceItemId: marketplaceItem.id,
+        kind: AssetKind.MARKETPLACE_IMAGE,
+        contentType: 'image/jpeg',
+        sizeBytes: BigInt(196608),
+        status: AssetStatus.READY,
+      },
+      create: {
+        ownerId: student.id,
+        marketplaceItemId: marketplaceItem.id,
+        storageKey: 'marketplace/scientific-calculator.jpg',
+        kind: AssetKind.MARKETPLACE_IMAGE,
+        contentType: 'image/jpeg',
+        sizeBytes: BigInt(196608),
+        status: AssetStatus.READY,
+      },
+    });
 
     const jobPost = await db.jobPost.findFirst({
       where: { authorId: moderator.id, title: 'Peer Tutor – Mathematics' },

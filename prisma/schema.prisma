@@ -27,6 +27,7 @@ enum IdentityProvider {
 
 enum AssetKind {
   RESOURCE_IMAGE
+  RESOURCE_DOCUMENT
   MARKETPLACE_IMAGE
 }
 
@@ -159,26 +160,30 @@ model Session {
 
 model VerificationToken {
   identifier String
-  token      String   @unique
+  tokenHash  String   @unique @db.VarChar(128)
   expires    DateTime
   createdAt  DateTime @default(now())
-
-  @@unique([identifier, token])
 }
 
 model Asset {
-  id          String      @id @default(cuid())
-  ownerId     String
-  storageKey  String      @unique @default(cuid()) @db.VarChar(512)
-  kind        AssetKind
-  contentType String      @db.VarChar(255)
-  sizeBytes   BigInt
-  status      AssetStatus @default(PENDING)
-  owner       User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id                String           @id @default(cuid())
+  ownerId           String
+  resourceId        String?
+  marketplaceItemId String?
+  storageKey        String           @unique @default(cuid()) @db.VarChar(512)
+  kind              AssetKind
+  contentType       String           @db.VarChar(255)
+  sizeBytes         BigInt
+  status            AssetStatus      @default(PENDING)
+  owner             User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  resource          Resource?        @relation("ResourceAssets", fields: [resourceId], references: [id], onDelete: SetNull)
+  marketplaceItem   MarketplaceItem? @relation("MarketplaceItemAssets", fields: [marketplaceItemId], references: [id], onDelete: SetNull)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([ownerId, kind, status])
+  @@index([resourceId])
+  @@index([marketplaceItemId])
 }
 
 model Resource {
@@ -192,6 +197,7 @@ model Resource {
   status     ContentStatus @default(DRAFT)
   author     User          @relation("ResourceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   campus     Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assets     Asset[]       @relation("ResourceAssets")
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 
@@ -211,6 +217,7 @@ model MarketplaceItem {
   status      ContentStatus @default(DRAFT)
   seller      User          @relation("MarketplaceSeller", fields: [sellerId], references: [id], onDelete: Cascade)
   campus      Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assets      Asset[]       @relation("MarketplaceItemAssets")
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 

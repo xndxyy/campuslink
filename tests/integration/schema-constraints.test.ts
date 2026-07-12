@@ -87,7 +87,7 @@ describeWithDatabase('database schema constraints', () => {
 
     const targetId = `resource-${randomUUID()}`;
 
-    await db.report.create({
+    const initialReport = await db.report.create({
       data: {
         reporterId,
         targetType: 'RESOURCE',
@@ -106,5 +106,21 @@ describeWithDatabase('database schema constraints', () => {
         },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
+
+    await db.report.update({
+      where: { id: initialReport.id },
+      data: { status: 'DISMISSED' },
+    });
+
+    const reopenedReport = await db.report.create({
+      data: {
+        reporterId,
+        targetType: 'RESOURCE',
+        targetId,
+        reason: 'A dismissed report may be reported again',
+      },
+    });
+
+    expect(reopenedReport.status).toBe('OPEN');
   });
 });

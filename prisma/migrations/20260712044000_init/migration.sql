@@ -11,7 +11,7 @@ CREATE TYPE "UserStatus" AS ENUM ('PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED')
 CREATE TYPE "IdentityProvider" AS ENUM ('GOOGLE', 'MICROSOFT', 'SAML');
 
 -- CreateEnum
-CREATE TYPE "AssetKind" AS ENUM ('RESOURCE_IMAGE', 'MARKETPLACE_IMAGE');
+CREATE TYPE "AssetKind" AS ENUM ('RESOURCE_IMAGE', 'RESOURCE_DOCUMENT', 'MARKETPLACE_IMAGE');
 
 -- CreateEnum
 CREATE TYPE "AssetStatus" AS ENUM ('PENDING', 'READY', 'REJECTED');
@@ -99,7 +99,7 @@ CREATE TABLE "Session" (
 -- CreateTable
 CREATE TABLE "VerificationToken" (
     "identifier" TEXT NOT NULL,
-    "token" TEXT NOT NULL,
+    "tokenHash" VARCHAR(128) NOT NULL,
     "expires" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -108,6 +108,8 @@ CREATE TABLE "VerificationToken" (
 CREATE TABLE "Asset" (
     "id" TEXT NOT NULL,
     "ownerId" TEXT NOT NULL,
+    "resourceId" TEXT,
+    "marketplaceItemId" TEXT,
     "storageKey" VARCHAR(512) NOT NULL,
     "kind" "AssetKind" NOT NULL,
     "contentType" VARCHAR(255) NOT NULL,
@@ -252,16 +254,19 @@ CREATE UNIQUE INDEX "Session_sessionToken_key" ON "Session"("sessionToken");
 CREATE INDEX "Session_userId_idx" ON "Session"("userId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "VerificationToken_token_key" ON "VerificationToken"("token");
-
--- CreateIndex
-CREATE UNIQUE INDEX "VerificationToken_identifier_token_key" ON "VerificationToken"("identifier", "token");
+CREATE UNIQUE INDEX "VerificationToken_tokenHash_key" ON "VerificationToken"("tokenHash");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Asset_storageKey_key" ON "Asset"("storageKey");
 
 -- CreateIndex
 CREATE INDEX "Asset_ownerId_kind_status_idx" ON "Asset"("ownerId", "kind", "status");
+
+-- CreateIndex
+CREATE INDEX "Asset_resourceId_idx" ON "Asset"("resourceId");
+
+-- CreateIndex
+CREATE INDEX "Asset_marketplaceItemId_idx" ON "Asset"("marketplaceItemId");
 
 -- CreateIndex
 CREATE INDEX "Resource_campusId_status_createdAt_idx" ON "Resource"("campusId", "status", "createdAt");
@@ -322,6 +327,12 @@ ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId"
 
 -- AddForeignKey
 ALTER TABLE "Asset" ADD CONSTRAINT "Asset_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Asset" ADD CONSTRAINT "Asset_resourceId_fkey" FOREIGN KEY ("resourceId") REFERENCES "Resource"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Asset" ADD CONSTRAINT "Asset_marketplaceItemId_fkey" FOREIGN KEY ("marketplaceItemId") REFERENCES "MarketplaceItem"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Resource" ADD CONSTRAINT "Resource_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

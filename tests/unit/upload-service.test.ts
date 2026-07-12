@@ -15,7 +15,7 @@ const pendingAsset: UploadAssetRecord = {
   id: 'asset_01JUPLOADTEST',
   kind: 'RESOURCE_DOCUMENT',
   ownerId: 'user_01JOWNERTEST',
-  sizeBytes: 1_024n,
+  sizeBytes: BigInt(1_024),
   status: 'PENDING',
   storageKey: 'campus/user_01JOWNERTEST/asset_01JUPLOADTEST.pdf',
 };
@@ -116,7 +116,9 @@ describe('upload service', () => {
     ],
   ])('rejects and records a %s mismatch', async (_field, objectMetadata) => {
     const dependencies = createDependencies();
-    vi.mocked(dependencies.storage.headObject).mockResolvedValue(objectMetadata);
+    vi.mocked(dependencies.storage.headObject).mockResolvedValue(
+      objectMetadata,
+    );
 
     await expect(
       completeUpload(pendingAsset.ownerId, pendingAsset.id, dependencies),

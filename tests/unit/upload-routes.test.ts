@@ -16,7 +16,11 @@ const user = {
   status: 'ACTIVE' as const,
 };
 
-function jsonRequest(path: string, body: unknown, origin = 'http://localhost:3000') {
+function jsonRequest(
+  path: string,
+  body: unknown,
+  origin = 'http://localhost:3000',
+) {
   return new Request(`http://localhost${path}`, {
     body: JSON.stringify(body),
     headers: { 'content-type': 'application/json', origin },

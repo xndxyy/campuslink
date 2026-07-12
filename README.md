@@ -10,3 +10,6 @@ The imported Stitch pages live in `design/stitch-export/`. They are visual refer
 
 The validated design is in `docs/superpowers/specs/2026-07-12-campuslink-design.md` and the implementation plan is in `docs/superpowers/plans/2026-07-12-campuslink-product-platform.md`.
 
+Direct upload storage configuration for local MinIO and production Cloudflare
+R2 is documented in `docs/storage.md`.
+

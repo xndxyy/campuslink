@@ -60,12 +60,19 @@ describe('upload policy', () => {
   it.each([
     ['vector.svg', 'image/svg+xml', 'RESOURCE_IMAGE'],
     ['payload.html', 'text/html', 'RESOURCE_DOCUMENT'],
-    ['macro.docm', 'application/vnd.ms-word.document.macroEnabled.12', 'RESOURCE_DOCUMENT'],
-    ['installer.exe', 'application/vnd.microsoft.portable-executable', 'RESOURCE_DOCUMENT'],
+    [
+      'macro.docm',
+      'application/vnd.ms-word.document.macroEnabled.12',
+      'RESOURCE_DOCUMENT',
+    ],
+    [
+      'installer.exe',
+      'application/vnd.microsoft.portable-executable',
+      'RESOURCE_DOCUMENT',
+    ],
   ] as const)('rejects unsafe file %s', (fileName, contentType, kind) => {
     expect(
-      validateUpload({ contentType, fileName, kind, sizeBytes: 1_024 })
-        .success,
+      validateUpload({ contentType, fileName, kind, sizeBytes: 1_024 }).success,
     ).toBe(false);
   });
 

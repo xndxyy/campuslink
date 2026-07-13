@@ -46,6 +46,8 @@ describe('announcement administration UI contract', () => {
     expect(uploader).toContain('onSelectionStart?: () => void');
     expect(uploader).toContain('onActiveChange?: (active: boolean) => void');
     expect(uploader).toContain('beginUploadAttempt');
+    expect(uploader).toContain('transitionUploadAttempt');
+    expect(uploader).toContain('finishUploadAttempt');
     expect(uploader).toContain('isCurrentUploadAttempt');
     expect(form).toContain('onSelectionStart={coverSelectionStart}');
     expect(form).toContain('onActiveChange={setUploadActive}');

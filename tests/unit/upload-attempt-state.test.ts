@@ -1,38 +1,134 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   beginUploadAttempt,
   createUploadAttemptState,
-  isCurrentUploadAttempt,
-  settleUploadAttempt,
+  finishUploadAttempt,
+  transitionUploadAttempt,
+  type UploadAttemptCallbacks,
+  type UploadTerminalPhase,
 } from '@/lib/uploads/attempt-state';
 
-describe('upload attempt generations', () => {
-  it('starts active and lets only the current generation settle', () => {
+function harness() {
+  let coverAssetId: string | null = 'asset_previous';
+  const activeChanges: boolean[] = [];
+  const phases: string[] = [];
+  const onReady = vi.fn((assetId: string) => {
+    coverAssetId = assetId;
+  });
+  const callbacks: UploadAttemptCallbacks = {
+    onActiveChange: (active) => activeChanges.push(active),
+    onReady,
+    onSelectionStart: () => {
+      coverAssetId = null;
+    },
+    onStateChange: (phase) => phases.push(phase),
+  };
+  return {
+    activeChanges,
+    callbacks,
+    cover: () => coverAssetId,
+    onReady,
+    phases,
+  };
+}
+
+describe('upload attempt orchestration', () => {
+  it('ignores an old delayed ready and old settle after a new selection', () => {
     const state = createUploadAttemptState();
-    const first = beginUploadAttempt(state);
+    const events = harness();
+    const first = beginUploadAttempt(state, events.callbacks, {
+      selectionStarted: true,
+    });
+    transitionUploadAttempt(state, first, 'uploading', events.callbacks);
+    const second = beginUploadAttempt(state, events.callbacks, {
+      selectionStarted: true,
+    });
 
+    expect(
+      finishUploadAttempt(
+        state,
+        first,
+        { assetId: 'asset_old', phase: 'ready' },
+        events.callbacks,
+      ),
+    ).toBe(false);
     expect(state.active).toBe(true);
-    expect(isCurrentUploadAttempt(state, first)).toBe(true);
+    expect(events.cover()).toBeNull();
+    expect(events.onReady).not.toHaveBeenCalled();
 
-    const second = beginUploadAttempt(state);
-    expect(isCurrentUploadAttempt(state, first)).toBe(false);
-    expect(isCurrentUploadAttempt(state, second)).toBe(true);
-    expect(settleUploadAttempt(state, first)).toBe(false);
-    expect(state.active).toBe(true);
-    expect(settleUploadAttempt(state, second)).toBe(true);
+    transitionUploadAttempt(state, second, 'completing', events.callbacks);
+    expect(
+      finishUploadAttempt(
+        state,
+        second,
+        { assetId: 'asset_new', phase: 'ready' },
+        events.callbacks,
+      ),
+    ).toBe(true);
     expect(state.active).toBe(false);
+    expect(events.cover()).toBe('asset_new');
+    expect(events.onReady).toHaveBeenCalledOnce();
+    expect(events.onReady).toHaveBeenCalledWith('asset_new');
+    expect(events.activeChanges).toStrictEqual([true, true, false]);
+    expect(events.phases).toStrictEqual([
+      'requesting',
+      'uploading',
+      'requesting',
+      'completing',
+      'ready',
+    ]);
+
+    expect(
+      finishUploadAttempt(
+        state,
+        second,
+        { assetId: 'asset_duplicate', phase: 'ready' },
+        events.callbacks,
+      ),
+    ).toBe(false);
+    expect(events.onReady).toHaveBeenCalledOnce();
   });
 
-  it('drops a late ready callback from an older file selection', () => {
-    const state = createUploadAttemptState();
-    const readyAssets: string[] = [];
-    const first = beginUploadAttempt(state);
-    const second = beginUploadAttempt(state);
+  it.each(['cancelled', 'error'] as UploadTerminalPhase[])(
+    '%s followed by retry uses a new generation and releases active state',
+    (terminalPhase) => {
+      const state = createUploadAttemptState();
+      const events = harness();
+      const failed = beginUploadAttempt(state, events.callbacks, {
+        selectionStarted: true,
+      });
 
-    if (isCurrentUploadAttempt(state, first)) readyAssets.push('asset_old');
-    if (isCurrentUploadAttempt(state, second)) readyAssets.push('asset_new');
+      expect(
+        finishUploadAttempt(
+          state,
+          failed,
+          { phase: terminalPhase },
+          events.callbacks,
+        ),
+      ).toBe(true);
+      expect(state.active).toBe(false);
+      expect(events.cover()).toBeNull();
+      expect(events.onReady).not.toHaveBeenCalled();
 
-    expect(readyAssets).toStrictEqual(['asset_new']);
-  });
+      const retry = beginUploadAttempt(state, events.callbacks, {
+        selectionStarted: false,
+      });
+      expect(retry).toBeGreaterThan(failed);
+      transitionUploadAttempt(state, retry, 'uploading', events.callbacks);
+      expect(
+        finishUploadAttempt(
+          state,
+          retry,
+          { assetId: 'asset_retry', phase: 'ready' },
+          events.callbacks,
+        ),
+      ).toBe(true);
+      expect(state.active).toBe(false);
+      expect(events.cover()).toBe('asset_retry');
+      expect(events.onReady).toHaveBeenCalledOnce();
+      expect(events.activeChanges).toStrictEqual([true, false, true, false]);
+      expect(events.phases.at(-1)).toBe('ready');
+    },
+  );
 });

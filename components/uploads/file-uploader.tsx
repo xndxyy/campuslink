@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   fingerprintFile,
@@ -13,9 +13,13 @@ import {
 import {
   beginUploadAttempt,
   createUploadAttemptState,
+  finishUploadAttempt,
   invalidateUploadAttempts,
   isCurrentUploadAttempt,
-  settleUploadAttempt,
+  transitionUploadAttempt,
+  type UploadActivePhase,
+  type UploadAttemptCallbacks,
+  type UploadAttemptPhase,
 } from '@/lib/uploads/attempt-state';
 import { validateUpload, type UploadKind } from '@/lib/validation/upload';
 
@@ -35,14 +39,7 @@ interface UploadIntentResponse {
   uploadUrl: string;
 }
 
-export type UploadPhase =
-  | 'idle'
-  | 'requesting'
-  | 'uploading'
-  | 'completing'
-  | 'ready'
-  | 'cancelled'
-  | 'error';
+export type UploadPhase = UploadAttemptPhase;
 
 const acceptsByKind: Record<UploadKind, string> = {
   ANNOUNCEMENT_IMAGE: '.jpg,.jpeg,.png,.webp,.avif',
@@ -156,6 +153,10 @@ export function FileUploader({
   const recoveryRef = useRef<UploadRecovery | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const recoveryKey = `campuslink:upload:${kind}`;
+  const attemptCallbacks = useMemo<UploadAttemptCallbacks>(
+    () => ({ onActiveChange, onReady, onSelectionStart, onStateChange }),
+    [onActiveChange, onReady, onSelectionStart, onStateChange],
+  );
 
   const saveRecovery = useCallback(
     (recovery: UploadRecovery | null) => {
@@ -196,10 +197,18 @@ export function FileUploader({
     async (selectedFile: File, generation: number) => {
       const isCurrent = () =>
         isCurrentUploadAttempt(attemptStateRef.current, generation);
-      const setCurrentPhase = (nextPhase: UploadPhase) => {
-        if (!isCurrent()) return false;
+      const setCurrentPhase = (nextPhase: UploadActivePhase) => {
+        if (
+          !transitionUploadAttempt(
+            attemptStateRef.current,
+            generation,
+            nextPhase,
+            attemptCallbacks,
+          )
+        ) {
+          return false;
+        }
         setPhase(nextPhase);
-        onStateChange?.(nextPhase);
         return true;
       };
       const saveCurrentRecovery = (recovery: UploadRecovery | null) => {
@@ -212,14 +221,18 @@ export function FileUploader({
         nextMessage: string,
         readyAssetId?: string,
       ) => {
-        if (!settleUploadAttempt(attemptStateRef.current, generation)) {
+        if (
+          !finishUploadAttempt(
+            attemptStateRef.current,
+            generation,
+            { assetId: readyAssetId, phase: nextPhase },
+            attemptCallbacks,
+          )
+        ) {
           return false;
         }
         setPhase(nextPhase);
         setMessage(nextMessage);
-        onStateChange?.(nextPhase);
-        onActiveChange?.(false);
-        if (readyAssetId) onReady(readyAssetId);
         return true;
       };
 
@@ -388,22 +401,23 @@ export function FileUploader({
         }
       }
     },
-    [kind, onActiveChange, onReady, onStateChange, saveRecovery],
+    [attemptCallbacks, kind, saveRecovery],
   );
 
   const startUpload = useCallback(
     (selectedFile: File, selectionStarted: boolean) => {
       abortActiveTransfers(controllersRef, xhrRef);
-      const generation = beginUploadAttempt(attemptStateRef.current);
-      if (selectionStarted) onSelectionStart?.();
-      onActiveChange?.(true);
+      const generation = beginUploadAttempt(
+        attemptStateRef.current,
+        attemptCallbacks,
+        { selectionStarted },
+      );
       setPhase('requesting');
-      onStateChange?.('requesting');
       setMessage('');
       setProgress(0);
       void runUpload(selectedFile, generation);
     },
-    [onActiveChange, onSelectionStart, onStateChange, runUpload],
+    [attemptCallbacks, runUpload],
   );
 
   const active =

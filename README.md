@@ -2,6 +2,10 @@
 
 CampusLink is a moderated, single-campus platform for sharing learning resources, listing second-hand items, and publishing part-time opportunities.
 
+For the complete Chinese project handoff, user guide, production deployment,
+rollback, backup, and risk register, see
+[`docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md`](docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md).
+
 ## Prerequisites
 
 CampusLink requires Node.js 22.12.0 or later, PostgreSQL, and S3-compatible
@@ -41,4 +45,3 @@ Mailpit is available at `http://127.0.0.1:8025` and MinIO Console at
 Deployment, environment variables, scanner integration, backups, cleanup, and
 incident response are documented in `docs/deployment.md`,
 `docs/operations.md`, and `docs/security.md`.
-

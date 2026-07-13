@@ -64,6 +64,22 @@ test('anonymous mutations and private document reads do not reach protected data
   expect(read.status()).toBe(401);
 });
 
+test('keyboard navigation opens the unified publish center', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const publishLink = page.getByRole('link', { name: '发布内容' });
+  await publishLink.focus();
+  await expect(publishLink).toBeFocused();
+  await page.keyboard.press('Enter');
+
+  await expect(page).toHaveURL('/submit');
+  await expect(
+    page.getByRole('heading', { name: '选择发布类型' }),
+  ).toBeVisible();
+});
+
 test('a signed-in non-owner receives 403 while the owner can obtain a signed read', async ({
   page,
 }) => {

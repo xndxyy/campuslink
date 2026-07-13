@@ -10,6 +10,10 @@ const layout = readFileSync(
   fileURLToPath(new URL('../../app/layout.tsx', import.meta.url)),
   'utf8',
 );
+const home = readFileSync(
+  fileURLToPath(new URL('../../app/page.tsx', import.meta.url)),
+  'utf8',
+);
 const globalStyles = readFileSync(
   fileURLToPath(new URL('../../app/globals.css', import.meta.url)),
   'utf8',
@@ -65,6 +69,40 @@ describe('application layout contract', () => {
     expect(markup).toContain('href="/"');
     expect(markup).toContain('aria-label="西大同学 CampusLink 首页"');
     expect(markup).toContain('西大同学 CampusLink');
+  });
+
+  it('uses the unified publish center from the shared header', () => {
+    expect(layout).toContain('href="/submit"');
+    expect(layout).not.toContain(
+      'className="header-action" href="/submit/resource"',
+    );
+  });
+
+  it('exposes the four approved first-level product sections', () => {
+    for (const [href, label] of [
+      ['/resources', '学习资源'],
+      ['/marketplace', '二手交易'],
+      ['/campus-work', '校园工作'],
+      ['/forum', '校园论坛'],
+    ]) {
+      expect(layout).toContain(`href="${href}"`);
+      expect(layout).toContain(`>${label}</Link>`);
+    }
+    expect(layout).not.toContain('href="/jobs"');
+  });
+
+  it('keeps the home shell static and removes the old recent-content area', () => {
+    expect(home).toContain('<CategoryStrip />');
+    for (const retiredSource of [
+      'getDb',
+      'mergeRecentContent',
+      "dynamic = 'force-dynamic'",
+      'recentContent',
+      'recent-section',
+      '刚刚贴上公告板',
+    ]) {
+      expect(home).not.toContain(retiredSource);
+    }
   });
 
   it.each(brandAssets)('%s is a non-empty PNG asset', (fileName) => {

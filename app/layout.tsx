@@ -8,7 +8,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: '西大同学 CampusLink',
-  description: '经过审核的校园知识、市集与机会公告板。',
+  description: '校园学习资源、二手交易、校园工作与论坛社区。',
 };
 
 export default function RootLayout({
@@ -22,14 +22,19 @@ export default function RootLayout({
         </a>
         <header className="site-header">
           <SiteBrand />
-          <nav aria-label="主导航">
-            <Link href="/resources">资源</Link>
-            <Link href="/marketplace">市集</Link>
-            <Link href="/jobs">工作</Link>
-            <Link href="/me/submissions">我的提交</Link>
-            <Link href="/me/favourites">Favourites</Link>
-          </nav>
-          <Link className="header-action" href="/submit/resource">
+          <div className="header-navigation">
+            <nav aria-label="内容导航" className="product-navigation">
+              <Link href="/resources">学习资源</Link>
+              <Link href="/marketplace">二手交易</Link>
+              <Link href="/campus-work">校园工作</Link>
+              <Link href="/forum">校园论坛</Link>
+            </nav>
+            <nav aria-label="个人中心" className="account-navigation">
+              <Link href="/me/submissions">我的发布</Link>
+              <Link href="/me/favourites">我的收藏</Link>
+            </nav>
+          </div>
+          <Link className="header-action" href="/submit">
             发布内容
           </Link>
         </header>

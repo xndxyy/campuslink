@@ -289,6 +289,19 @@ describe('admin mutation route protections', () => {
       },
     );
 
+    const callsBeforePending = mutate.mock.calls.length;
+    const pendingResponse = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'SET_STATUS',
+        reason: 'Administrators cannot reset verification state.',
+        status: 'PENDING_VERIFICATION',
+        userId: 'user_1',
+      }),
+      { mutate, resolveUser: async () => adminUser, revoke },
+    );
+    expect(pendingResponse.status).toBe(400);
+    expect(mutate).toHaveBeenCalledTimes(callsBeforePending);
+
     const revokeResponse = await handleUserMutation(
       request('/api/admin/users', {
         action: 'REVOKE_SESSIONS',

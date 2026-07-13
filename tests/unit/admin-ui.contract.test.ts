@@ -146,10 +146,52 @@ describe('moderator and administrator workspace contracts', () => {
     for (const tab of ['账号概览', '发布内容', '举报记录', '审计记录']) {
       expect(drawer).toContain(tab);
     }
+    expect(drawer).toContain(
+      'emailVerified={Boolean(overview.emailVerifiedAt)}',
+    );
     expect(css).toContain('.admin-user-drawer');
     expect(css).toMatch(
       /@media \(max-width: 760px\)[\s\S]*\.admin-user-drawer/,
     );
+  });
+
+  it('translates user detail enums and audit metadata without raw JSON', () => {
+    const drawer = optionalSource(
+      '../../components/admin/user-detail-drawer.tsx',
+    );
+    const labels = optionalSource(
+      '../../components/admin/user-detail-labels.ts',
+    );
+    for (const mapping of [
+      "PUBLISHED: '已发布'",
+      "RESOURCE: '学习资源'",
+      "OTHER: '其他原因'",
+      "OPEN: '待处理'",
+      "USER_SESSIONS_REVOKED: '强制退出全部设备'",
+      "return labels[value] ?? '其他治理事件'",
+    ]) {
+      expect(labels).toContain(mapping);
+    }
+    for (const helper of [
+      'contentStatusLabel',
+      'reportTargetTypeLabel',
+      'reportReasonLabel',
+      'reportStatusLabel',
+      'auditActionLabel',
+      'auditDetailRows',
+    ]) {
+      expect(drawer).toContain(helper);
+    }
+    for (const rawExpression of [
+      '?? String(record.status)',
+      '{String(report.targetType)}',
+      '{String(report.reason)}',
+      '<span>{String(report.status)}</span>',
+      '<strong>{String(entry.action)}</strong>',
+      'JSON.stringify(entry.details',
+    ]) {
+      expect(drawer).not.toContain(rawExpression);
+    }
   });
 
   it('requires a reason and explicit confirmation for every supported user action', () => {
@@ -166,6 +208,10 @@ describe('moderator and administrator workspace contracts', () => {
     expect(form).toContain('minLength={5}');
     expect(form).toContain('aria-live="polite"');
     expect(form).toContain('disabled={pending}');
+    expect(form).toContain('emailVerified');
+    expect(form).toContain("currentStatus === 'PENDING_VERIFICATION'");
+    expect(form).toContain("currentStatus === 'SUSPENDED' && emailVerified");
+    expect(form).toContain('管理员不能代为完成邮箱验证');
     expect(form).not.toContain("method: 'DELETE'");
     expect(form).not.toContain('emailVerifiedAt');
   });

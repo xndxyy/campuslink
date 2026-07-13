@@ -266,7 +266,19 @@ describe('administrator user controls', () => {
         createdAt,
         details: {
           email: 'private@example.edu',
-          nested: { reason: 'Security review', sessionToken: 'private' },
+          items: [
+            {
+              object_key: 'private/object',
+              reason: 'Safe array reason',
+              storageKey: 'private/storage',
+            },
+          ],
+          nested: {
+            objectKey: 'private/object',
+            reason: 'Security review',
+            sessionToken: 'private',
+          },
+          storage_key: 'private/storage',
         },
         id: 'audit_1',
       },
@@ -335,7 +347,10 @@ describe('administrator user controls', () => {
       audit: {
         recent: [
           {
-            details: { nested: { reason: 'Security review' } },
+            details: {
+              items: [{ reason: 'Safe array reason' }],
+              nested: { reason: 'Security review' },
+            },
           },
         ],
       },
@@ -351,6 +366,9 @@ describe('administrator user controls', () => {
         resources: { total: 12 },
       },
     });
+    expect(JSON.stringify(result.audit)).not.toMatch(
+      /storageKey|storage_key|objectKey|object_key/,
+    );
   });
 
   it('maps an absent or cross-campus managed user to the same safe conflict', async () => {
@@ -535,6 +553,59 @@ describe('administrator user controls', () => {
         userId: 'user_1',
       }),
     ).rejects.toBeInstanceOf(AdminConflictError);
+  });
+
+  it.each([
+    {
+      emailVerifiedAt: new Date('2026-07-01T00:00:00.000Z'),
+      label: 'pending verified',
+      status: 'PENDING_VERIFICATION' as const,
+    },
+    {
+      emailVerifiedAt: null,
+      label: 'pending unverified',
+      status: 'PENDING_VERIFICATION' as const,
+    },
+    {
+      emailVerifiedAt: null,
+      label: 'suspended unverified',
+      status: 'SUSPENDED' as const,
+    },
+  ])('does not activate a $label account', async (account) => {
+    const db = adapter();
+    vi.mocked(db.user.findFirst).mockResolvedValue({
+      campusId: admin.campusId,
+      emailVerifiedAt: account.emailVerifiedAt,
+      id: 'user_1',
+      role: 'STUDENT',
+      status: account.status,
+    });
+    await expect(
+      updateManagedUser(db, admin, {
+        reason: 'Account activation requested after governance review.',
+        status: 'ACTIVE',
+        userId: 'user_1',
+      }),
+    ).rejects.toBeInstanceOf(AdminConflictError);
+    expect(db.user.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('allows a verified suspended account to be restored', async () => {
+    const db = adapter();
+    vi.mocked(db.user.findFirst).mockResolvedValue({
+      campusId: admin.campusId,
+      emailVerifiedAt: new Date('2026-07-01T00:00:00.000Z'),
+      id: 'user_1',
+      role: 'STUDENT',
+      status: 'SUSPENDED',
+    });
+    await expect(
+      updateManagedUser(db, admin, {
+        reason: 'Verified account restored after governance review.',
+        status: 'ACTIVE',
+        userId: 'user_1',
+      }),
+    ).resolves.toMatchObject({ status: 'ACTIVE' });
   });
 
   it('revokes sessions for every ACTIVE to non-ACTIVE status transition', async () => {

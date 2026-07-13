@@ -145,14 +145,16 @@ function ActionControl({
 export function UserActionForm({
   currentRole,
   currentStatus,
+  emailVerified,
   userId,
 }: {
   currentRole: string;
   currentStatus: string;
+  emailVerified: boolean;
   userId: string;
 }) {
-  const accountAction = currentStatus === 'ACTIVE' ? '停用账号' : '恢复账号';
-  const statusTarget = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+  const isPending = currentStatus === 'PENDING_VERIFICATION';
+  const canRestore = currentStatus === 'SUSPENDED' && emailVerified;
   return (
     <div className="admin-user-actions" aria-label="用户治理操作">
       <ActionControl
@@ -161,13 +163,29 @@ export function UserActionForm({
         label="调整角色"
         userId={userId}
       />
-      <ActionControl
-        action="SET_STATUS"
-        currentRole={currentRole}
-        label={accountAction}
-        statusTarget={statusTarget}
-        userId={userId}
-      />
+      {currentStatus === 'ACTIVE' ? (
+        <ActionControl
+          action="SET_STATUS"
+          currentRole={currentRole}
+          label="停用账号"
+          statusTarget="SUSPENDED"
+          userId={userId}
+        />
+      ) : canRestore ? (
+        <ActionControl
+          action="SET_STATUS"
+          currentRole={currentRole}
+          label="恢复账号"
+          statusTarget="ACTIVE"
+          userId={userId}
+        />
+      ) : (
+        <p className="admin-user-status-readonly">
+          {isPending
+            ? '待验证账号只能由用户完成邮箱验证；管理员不能代为完成邮箱验证。'
+            : '该停用账号尚未验证邮箱，当前不可恢复；管理员不能代为完成邮箱验证。'}
+        </p>
+      )}
       <ActionControl
         action="REVOKE_SESSIONS"
         currentRole={currentRole}

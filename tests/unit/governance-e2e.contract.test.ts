@@ -7,6 +7,7 @@ function source(path: string) {
 }
 
 const moderation = source('../e2e/moderation.spec.ts');
+const userManagement = source('../e2e/user-management.spec.ts');
 const gate = source('../helpers/e2e-environment.ts');
 const safetyPath = fileURLToPath(
   new URL('../helpers/e2e-database-safety.ts', import.meta.url),
@@ -90,5 +91,20 @@ describe('fully parallel governance E2E isolation contract', () => {
     expect(moderation).toContain('getByText(email, { exact: true })');
     expect(moderation).toContain('filter({ has: emailText })');
     expect(moderation).not.toContain('filter({ hasText: email })');
+  });
+
+  it('proves cursor pagination advances without duplicates and preserves filters', () => {
+    expect(userManagement).toContain(
+      '/admin/users?pageSize=1&role=STUDENT&status=ACTIVE&verified=true',
+    );
+    expect(userManagement).toContain('const firstPageUserId');
+    expect(userManagement).toContain("searchParams.get('cursor')");
+    expect(userManagement).toContain("searchParams.get('pageSize')");
+    expect(userManagement).toContain("searchParams.get('role')");
+    expect(userManagement).toContain('const secondPageUserId');
+    expect(userManagement).toContain(
+      'expect(secondPageUserId).not.toBe(firstPageUserId)',
+    );
+    expect(userManagement).toContain('toHaveCount(0)');
   });
 });

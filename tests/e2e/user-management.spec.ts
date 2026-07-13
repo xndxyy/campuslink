@@ -195,6 +195,17 @@ async function signIn(page: import('@playwright/test').Page) {
   sessionIds.add(session.rows[0]!.id);
 }
 
+async function selectedUserId(
+  row: import('@playwright/test').Locator,
+): Promise<string> {
+  const href = await row.getAttribute('href');
+  const userId = href
+    ? new URL(href, 'http://localhost').searchParams.get('user')
+    : null;
+  if (!userId) throw new Error('Managed user row has no selected user ID.');
+  return userId;
+}
+
 test.beforeAll(createFixture);
 test.afterAll(cleanupFixture);
 
@@ -202,8 +213,29 @@ test('administrator filters, pages, inspects, and force-signs-out a campus user'
   page,
 }) => {
   await signIn(page);
-  await page.goto('/admin/users?pageSize=10');
-  await expect(page.getByRole('link', { name: '下一页' })).toBeVisible();
+  await page.goto(
+    '/admin/users?pageSize=1&role=STUDENT&status=ACTIVE&verified=true',
+  );
+  const firstPageRows = page.locator('.admin-user-row');
+  await expect(firstPageRows).toHaveCount(1);
+  const firstPageUserId = await selectedUserId(firstPageRows.first());
+  await page.getByRole('link', { name: '下一页' }).click();
+
+  const searchParams = new URL(page.url()).searchParams;
+  expect(searchParams.get('cursor')).toBeTruthy();
+  expect(searchParams.get('pageSize')).toBe('1');
+  expect(searchParams.get('role')).toBe('STUDENT');
+  expect(searchParams.get('status')).toBe('ACTIVE');
+  expect(searchParams.get('verified')).toBe('true');
+  const secondPageRows = page.locator('.admin-user-row');
+  await expect(secondPageRows).toHaveCount(1);
+  const secondPageUserId = await selectedUserId(secondPageRows.first());
+  expect(secondPageUserId).not.toBe(firstPageUserId);
+  await expect(
+    page.locator(
+      `.admin-user-row[href*="user=${encodeURIComponent(firstPageUserId)}"]`,
+    ),
+  ).toHaveCount(0);
 
   await page.getByLabel('搜索姓名或邮箱').fill(targetEmail);
   await page.getByLabel('角色').selectOption('STUDENT');
@@ -225,7 +257,7 @@ test('administrator filters, pages, inspects, and force-signs-out a campus user'
   await expect(drawer.getByText('该用户提交的举报')).toBeVisible();
   await drawer.getByRole('link', { name: '审计记录' }).click();
   drawer = page.getByRole('dialog', { name: targetName });
-  await expect(drawer.getByText('E2E_USER_REVIEW')).toBeVisible();
+  await expect(drawer.getByText('其他治理事件')).toBeVisible();
   await drawer.getByRole('link', { name: '账号概览' }).click();
   drawer = page.getByRole('dialog', { name: targetName });
 

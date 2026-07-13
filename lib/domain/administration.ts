@@ -609,6 +609,14 @@ export async function updateManagedUser(
     const currentRole = user.role as StaffRole;
     const currentStatus = user.status as ManagedUserStatus;
     if (
+      input.status === 'ACTIVE' &&
+      (currentStatus === 'PENDING_VERIFICATION' || !user.emailVerifiedAt)
+    ) {
+      throw new AdminConflictError(
+        'Pending or unverified users cannot be activated',
+      );
+    }
+    if (
       input.role &&
       input.role !== 'STUDENT' &&
       (currentStatus !== 'ACTIVE' || !user.emailVerifiedAt)

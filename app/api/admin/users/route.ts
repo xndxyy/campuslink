@@ -31,7 +31,7 @@ const statusSchema = z
   .object({
     action: z.literal('SET_STATUS'),
     reason: z.string().trim().min(5).max(1000),
-    status: z.enum(['PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED']),
+    status: z.enum(['ACTIVE', 'SUSPENDED']),
     userId: z.string().trim().min(1).max(191),
   })
   .strict();
@@ -52,7 +52,7 @@ type ManagedUserMutation =
   | { reason: string; role: 'STUDENT' | 'MODERATOR' | 'ADMIN'; userId: string }
   | {
       reason: string;
-      status: 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED';
+      status: 'ACTIVE' | 'SUSPENDED';
       userId: string;
     };
 

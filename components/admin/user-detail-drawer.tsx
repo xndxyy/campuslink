@@ -5,6 +5,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import { UserActionForm } from './user-action-form';
+import {
+  accountStatusLabel,
+  auditActionLabel,
+  auditDetailRows,
+  contentStatusLabel,
+  reportReasonLabel,
+  reportStatusLabel,
+  reportTargetTypeLabel,
+  roleLabel,
+} from './user-detail-labels';
 import type {
   ManagedUserDetail,
   ManagedUserDetailTab,
@@ -16,17 +26,6 @@ const tabs: { id: ManagedUserDetailTab; label: string }[] = [
   { id: 'reports', label: '举报记录' },
   { id: 'audit', label: '审计记录' },
 ];
-
-const roleLabels: Record<string, string> = {
-  ADMIN: '管理员',
-  MODERATOR: '版主',
-  STUDENT: '普通用户',
-};
-const statusLabels: Record<string, string> = {
-  ACTIVE: '正常',
-  PENDING_VERIFICATION: '待验证',
-  SUSPENDED: '已停用',
-};
 
 function formatDate(value: unknown) {
   const date = new Date(String(value));
@@ -57,9 +56,7 @@ function RecentContent({
           {records.map((record) => (
             <li key={String(record.id)}>
               <strong>{String(record.title)}</strong>
-              <span>
-                {statusLabels[String(record.status)] ?? String(record.status)}
-              </span>
+              <span>{contentStatusLabel(String(record.status))}</span>
               <time>{formatDate(record.createdAt)}</time>
             </li>
           ))}
@@ -134,16 +131,11 @@ export function UserDetailDrawer({
             <dl>
               <div>
                 <dt>角色</dt>
-                <dd>
-                  {roleLabels[String(overview.role)] ?? String(overview.role)}
-                </dd>
+                <dd>{roleLabel(String(overview.role))}</dd>
               </div>
               <div>
                 <dt>账号状态</dt>
-                <dd>
-                  {statusLabels[String(overview.status)] ??
-                    String(overview.status)}
-                </dd>
+                <dd>{accountStatusLabel(String(overview.status))}</dd>
               </div>
               <div>
                 <dt>邮箱验证</dt>
@@ -161,6 +153,7 @@ export function UserDetailDrawer({
             <UserActionForm
               currentRole={String(overview.role)}
               currentStatus={String(overview.status)}
+              emailVerified={Boolean(overview.emailVerifiedAt)}
               userId={String(overview.id)}
             />
           </div>
@@ -200,9 +193,10 @@ export function UserDetailDrawer({
                 {detail.reports.recent.map((report) => (
                   <li key={String(report.id)}>
                     <strong>
-                      {String(report.targetType)} · {String(report.reason)}
+                      {reportTargetTypeLabel(String(report.targetType))} ·{' '}
+                      {reportReasonLabel(String(report.reason))}
                     </strong>
-                    <span>{String(report.status)}</span>
+                    <span>{reportStatusLabel(String(report.status))}</span>
                     <time>{formatDate(report.createdAt)}</time>
                   </li>
                 ))}
@@ -219,13 +213,27 @@ export function UserDetailDrawer({
               <p className="empty-state">暂无审计记录</p>
             ) : (
               <ol className="admin-user-audit-list">
-                {detail.audit.recent.map((entry) => (
-                  <li key={String(entry.id)}>
-                    <time>{formatDate(entry.createdAt)}</time>
-                    <strong>{String(entry.action)}</strong>
-                    <pre>{JSON.stringify(entry.details ?? {}, null, 2)}</pre>
-                  </li>
-                ))}
+                {detail.audit.recent.map((entry) => {
+                  const detailRows = auditDetailRows(entry.details);
+                  return (
+                    <li key={String(entry.id)}>
+                      <time>{formatDate(entry.createdAt)}</time>
+                      <strong>{auditActionLabel(String(entry.action))}</strong>
+                      {detailRows.length === 0 ? (
+                        <p>无补充信息</p>
+                      ) : (
+                        <dl className="admin-user-audit-details">
+                          {detailRows.map((row, index) => (
+                            <div key={`${row.label}-${index}`}>
+                              <dt>{row.label}</dt>
+                              <dd>{row.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
+                    </li>
+                  );
+                })}
               </ol>
             )}
           </section>

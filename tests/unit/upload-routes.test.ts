@@ -30,6 +30,85 @@ function jsonRequest(
 }
 
 describe('upload routes', () => {
+  it.each(['STUDENT', 'MODERATOR'] as const)(
+    'forbids verified %s users from creating announcement image intents',
+    async (role) => {
+      const createIntent = vi.fn(async () => ({ assetId: 'asset_forbidden' }));
+      const response = await handleUploadIntent(
+        jsonRequest('/api/uploads/intent', {
+          contentType: 'image/png',
+          fileName: 'announcement.png',
+          kind: 'ANNOUNCEMENT_IMAGE',
+          sizeBytes: 1_024,
+        }),
+        {
+          createIntent,
+          resolveUser: async () => ({ ...user, role }),
+        },
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        message: 'Insufficient permissions.',
+      });
+      expect(createIntent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows a verified administrator to create an announcement image intent', async () => {
+    const createIntent = vi.fn(async () => ({ assetId: 'asset_cover' }));
+    const response = await handleUploadIntent(
+      jsonRequest('/api/uploads/intent', {
+        contentType: 'image/png',
+        fileName: 'announcement.png',
+        kind: 'ANNOUNCEMENT_IMAGE',
+        sizeBytes: 1_024,
+      }),
+      {
+        createIntent,
+        resolveUser: async () => ({ ...user, role: 'ADMIN' }),
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(createIntent).toHaveBeenCalledWith(
+      user.id,
+      expect.objectContaining({ kind: 'ANNOUNCEMENT_IMAGE' }),
+    );
+  });
+
+  it.each([
+    ['STUDENT', 'RESOURCE_DOCUMENT', 'notes.pdf', 'application/pdf'],
+    ['MODERATOR', 'RESOURCE_DOCUMENT', 'notes.pdf', 'application/pdf'],
+    ['STUDENT', 'RESOURCE_IMAGE', 'diagram.png', 'image/png'],
+    ['MODERATOR', 'RESOURCE_IMAGE', 'diagram.png', 'image/png'],
+    ['STUDENT', 'MARKETPLACE_IMAGE', 'item.webp', 'image/webp'],
+    ['MODERATOR', 'MARKETPLACE_IMAGE', 'item.webp', 'image/webp'],
+  ] as const)(
+    'keeps %s access to %s upload intents',
+    async (role, kind, fileName, contentType) => {
+      const createIntent = vi.fn(async () => ({ assetId: 'asset_existing' }));
+      const response = await handleUploadIntent(
+        jsonRequest('/api/uploads/intent', {
+          contentType,
+          fileName,
+          kind,
+          sizeBytes: 1_024,
+        }),
+        {
+          createIntent,
+          resolveUser: async () => ({ ...user, role }),
+        },
+      );
+
+      expect(response.status).toBe(201);
+      expect(createIntent).toHaveBeenCalledWith(
+        user.id,
+        expect.objectContaining({ kind }),
+      );
+    },
+  );
+
   it('checks exact origin before resolving an upload-intent session', async () => {
     const resolveUser = vi.fn(async () => user);
     const createIntent = vi.fn();

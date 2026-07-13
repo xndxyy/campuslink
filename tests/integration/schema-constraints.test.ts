@@ -17,6 +17,8 @@ const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
 describeWithDatabase('database schema constraints', () => {
   let db!: ReturnType<typeof createDbClient>;
   let campusId: string | undefined;
+  let cleanupCampusIds: string[] = [];
+  let cleanupStorageKeys: string[] = [];
   let reporterId: string | undefined;
 
   beforeAll(() => {
@@ -24,6 +26,10 @@ describeWithDatabase('database schema constraints', () => {
   });
 
   beforeEach(async () => {
+    campusId = undefined;
+    cleanupCampusIds = [];
+    cleanupStorageKeys = [];
+    reporterId = undefined;
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
@@ -34,6 +40,7 @@ describeWithDatabase('database schema constraints', () => {
     });
 
     campusId = campus.id;
+    cleanupCampusIds.push(campus.id);
 
     const reporter = await db.user.create({
       data: {
@@ -53,14 +60,26 @@ describeWithDatabase('database schema constraints', () => {
     if (reporterId) {
       await db.asset.deleteMany({ where: { ownerId: reporterId } });
     }
-    if (campusId) {
-      await db.announcement.deleteMany({ where: { campusId } });
+    if (reporterId) {
+      await db.announcement.deleteMany({ where: { authorId: reporterId } });
+    }
+    if (cleanupCampusIds.length > 0) {
+      await db.announcement.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
     }
     if (reporterId) {
-      await db.user.delete({ where: { id: reporterId } });
+      await db.user.deleteMany({ where: { id: reporterId } });
     }
-    if (campusId) {
-      await db.campus.delete({ where: { id: campusId } });
+    if (cleanupStorageKeys.length > 0) {
+      await db.storageDeletionJob.deleteMany({
+        where: { storageKey: { in: cleanupStorageKeys } },
+      });
+    }
+    if (cleanupCampusIds.length > 0) {
+      await db.campus.deleteMany({
+        where: { id: { in: cleanupCampusIds } },
+      });
     }
   });
 
@@ -197,6 +216,101 @@ describeWithDatabase('database schema constraints', () => {
           storageKey: `announcements/${reporterId}/${randomUUID()}.avif`,
         },
       }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('sets a cover asset announcement id to null when its announcement is deleted', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const announcement = await db.announcement.create({
+      data: {
+        authorId: reporterId,
+        body: 'Set-null announcement relation test',
+        campusId,
+        title: 'Set null cover',
+      },
+    });
+    const asset = await db.asset.create({
+      data: {
+        announcementId: announcement.id,
+        contentType: 'image/png',
+        kind: 'ANNOUNCEMENT_IMAGE',
+        ownerId: reporterId,
+        sizeBytes: BigInt(1_024),
+        status: 'READY',
+        storageKey: `announcements/${reporterId}/${randomUUID()}.png`,
+      },
+    });
+
+    await db.announcement.delete({ where: { id: announcement.id } });
+
+    await expect(
+      db.asset.findUniqueOrThrow({ where: { id: asset.id } }),
+    ).resolves.toMatchObject({ announcementId: null });
+  });
+
+  it('restricts deleting an author while their announcement exists', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    await db.announcement.create({
+      data: {
+        authorId: reporterId,
+        body: 'Author restriction relation test',
+        campusId,
+        title: 'Restrict author',
+      },
+    });
+
+    await expect(
+      db.user.delete({ where: { id: reporterId } }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
+  it('restricts deleting a campus referenced only by an announcement', async () => {
+    if (!reporterId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const suffix = randomUUID();
+    const announcementCampus = await db.campus.create({
+      data: {
+        slug: `announcement-campus-${suffix}`,
+        name: 'Announcement-only Campus',
+      },
+    });
+    cleanupCampusIds.push(announcementCampus.id);
+    await db.announcement.create({
+      data: {
+        authorId: reporterId,
+        body: 'Campus restriction relation test',
+        campusId: announcementCampus.id,
+        title: 'Restrict campus',
+      },
+    });
+
+    await expect(
+      db.campus.delete({ where: { id: announcementCampus.id } }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+  });
+
+  it('applies deletion job defaults and rejects duplicate storage keys', async () => {
+    const storageKey = `announcements/deletion-test/${randomUUID()}.png`;
+    cleanupStorageKeys.push(storageKey);
+
+    const job = await db.storageDeletionJob.create({ data: { storageKey } });
+
+    expect(job).toMatchObject({
+      attempts: 0,
+      lastError: null,
+      storageKey,
+    });
+    expect(job.nextAttempt).toBeInstanceOf(Date);
+    await expect(
+      db.storageDeletionJob.create({ data: { storageKey } }),
     ).rejects.toMatchObject({ code: 'P2002' });
   });
 });

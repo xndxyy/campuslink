@@ -26,10 +26,10 @@ describe('announcement persistence schema', () => {
       /enum ModerationSubjectType\s*\{[\s\S]*?ANNOUNCEMENT[\s\S]*?\}/,
     );
     expect(migration).toMatch(
-      /ALTER TYPE "AssetKind" ADD VALUE 'ANNOUNCEMENT_IMAGE'/,
+      /ALTER TYPE "AssetKind" ADD VALUE IF NOT EXISTS 'ANNOUNCEMENT_IMAGE'/,
     );
     expect(migration).toMatch(
-      /ALTER TYPE "ModerationSubjectType" ADD VALUE 'ANNOUNCEMENT'/,
+      /ALTER TYPE "ModerationSubjectType" ADD VALUE IF NOT EXISTS 'ANNOUNCEMENT'/,
     );
   });
 

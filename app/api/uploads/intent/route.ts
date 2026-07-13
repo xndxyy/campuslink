@@ -12,6 +12,7 @@ import {
   createUploadIntent,
   type ValidatedUploadIntent,
 } from '@/lib/storage/policy';
+import { canCreateUploadIntent } from '@/lib/storage/upload-authorization';
 import { uploadIntentSchema } from '@/lib/validation/upload';
 
 export const runtime = 'nodejs';
@@ -61,6 +62,12 @@ export async function handleUploadIntent(
       return NextResponse.json(
         { message: 'Invalid upload details.' },
         { status: 400 },
+      );
+    }
+    if (!canCreateUploadIntent(user.role, parsed.data.kind)) {
+      return NextResponse.json(
+        { message: 'Insufficient permissions.' },
+        { status: 403 },
       );
     }
 

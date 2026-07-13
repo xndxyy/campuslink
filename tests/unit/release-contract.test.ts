@@ -61,6 +61,7 @@ describe('release contract', () => {
     expect(workflow).not.toContain('ALLOW_SKIPPED_INTEGRATION');
     expect(workflow).not.toContain('ALLOW_SKIPPED_E2E');
     expect(read('package.json')).not.toContain('--pass-with-no-tests');
+    expect(read('eslint.config.mjs')).toContain("'.worktrees/**'");
     expect(read('vitest.integration.config.ts')).not.toContain(
       'passWithNoTests',
     );

@@ -12,5 +12,6 @@ export default defineConfig([
     'playwright-report/**',
     'test-results/**',
     'design/**',
+    '.worktrees/**',
   ]),
 ]);

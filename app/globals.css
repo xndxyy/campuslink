@@ -37,8 +37,9 @@ button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  outline: 3px solid var(--green);
-  outline-offset: 3px;
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #087a35;
 }
 .skip-link {
   position: fixed;

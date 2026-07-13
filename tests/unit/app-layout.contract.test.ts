@@ -22,6 +22,10 @@ const focusRule =
   globalStyles.match(
     /a:focus-visible,[\s\S]*?select:focus-visible\s*\{[\s\S]*?\}/,
   )?.[0] ?? '';
+const mobileHeaderStyles = globalStyles.slice(
+  globalStyles.indexOf('@media (max-width: 900px)'),
+  globalStyles.indexOf('@media (max-width: 760px)'),
+);
 const siteBrandPath = fileURLToPath(
   new URL('../../components/brand/site-brand.tsx', import.meta.url),
 );
@@ -89,6 +93,21 @@ describe('application layout contract', () => {
       expect(layout).toContain(`>${label}</Link>`);
     }
     expect(layout).not.toContain('href="/jobs"');
+  });
+
+  it('keeps all four product links visible in a stable mobile header row', () => {
+    expect(mobileHeaderStyles).not.toMatch(
+      /\.header-navigation\s*\{[^}]*display:\s*none;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.site-header\s*\{[^}]*flex-wrap:\s*wrap;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.header-navigation\s*\{[^}]*width:\s*100%;[^}]*order:\s*3;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.site-header \.product-navigation\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/,
+    );
   });
 
   it('keeps the home shell static and removes the old recent-content area', () => {

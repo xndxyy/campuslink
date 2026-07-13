@@ -77,6 +77,9 @@ describe('unified publish navigation contract', () => {
       ['/campus-work', '校园工作'],
       ['/forum', '校园论坛'],
     ]);
+    expect(categoryStripSource).toContain(
+      "summary: '预设标签与自定义标签表达具体类型'",
+    );
     expect(categoryStripSource).toContain('export function CategoryStrip');
   });
 });

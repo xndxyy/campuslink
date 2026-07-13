@@ -17,7 +17,7 @@ const categories = [
     href: '/campus-work',
     label: '校园工作',
     number: '03',
-    summary: '标签表达具体工作类型',
+    summary: '预设标签与自定义标签表达具体类型',
   },
   {
     href: '/forum',

@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 
+import { SiteBrand } from '@/components/brand/site-brand';
+
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'CampusLink 校园联结',
+  title: '西大同学 CampusLink',
   description: '经过审核的校园知识、市集与机会公告板。',
 };
 
@@ -19,9 +21,7 @@ export default function RootLayout({
           跳到主要内容
         </a>
         <header className="site-header">
-          <Link className="wordmark" href="/">
-            <span>CL</span>CampusLink
-          </Link>
+          <SiteBrand />
           <nav aria-label="主导航">
             <Link href="/resources">资源</Link>
             <Link href="/marketplace">市集</Link>
@@ -35,8 +35,10 @@ export default function RootLayout({
         </header>
         <div id="main-content">{children}</div>
         <footer className="site-footer">
-          <strong>CampusLink</strong>
-          <p>校园内容经审核后公开。请尊重知识、隐私与彼此。</p>
+          <strong>西大同学 CampusLink</strong>
+          <p>
+            本站为学生社区，非西南大学官方平台。校园内容经审核后公开，请尊重知识、隐私与彼此。
+          </p>
         </footer>
       </body>
     </html>

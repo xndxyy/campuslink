@@ -439,12 +439,12 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
 }) => {
   await signIn(page, adminEmail, adminId);
 
-  async function openUserDialog(email: string) {
-    await page.goto('/admin/users');
+  async function openUserDrawer(email: string) {
+    await page.goto(`/admin/users?search=${encodeURIComponent(email)}`);
     const emailText = page.getByText(email, { exact: true });
-    const row = page.locator('tr').filter({ has: emailText });
-    await row.getByRole('button', { name: 'Manage' }).click();
-    return page.getByRole('dialog', { name: 'Manage user' });
+    const row = page.locator('.admin-user-row').filter({ has: emailText });
+    await row.click();
+    return page.locator('.admin-user-drawer');
   }
 
   async function manageUser(
@@ -453,11 +453,22 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
     value: string,
     reason: string,
   ) {
-    const dialog = await openUserDialog(email);
-    await dialog.locator('select[name="field"]').selectOption(field);
-    await dialog.locator(`select[name="${field}"]`).selectOption(value);
-    await dialog.getByLabel('Required reason').fill(reason);
-    await dialog.getByRole('button', { name: 'Save change' }).click();
+    const drawer = await openUserDrawer(email);
+    const actionLabel =
+      field === 'role'
+        ? '调整角色'
+        : value === 'SUSPENDED'
+          ? '停用账号'
+          : '恢复账号';
+    await drawer.getByRole('button', { name: actionLabel }).click();
+    const dialog = page.getByRole('dialog', {
+      name: `确认执行“${actionLabel}”`,
+    });
+    if (field === 'role') {
+      await dialog.locator('select[name="role"]').selectOption(value);
+    }
+    await dialog.getByLabel('操作原因').fill(reason);
+    await dialog.getByRole('button', { name: '确认执行' }).click();
   }
 
   await manageUser(
@@ -491,14 +502,18 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
     'STUDENT',
     'Run-scoped administrator completes the reserve governance handoff.',
   );
-  const selfDialog = await openUserDialog(adminEmail);
-  await selfDialog.locator('select[name="field"]').selectOption('status');
-  await selfDialog.locator('select[name="status"]').selectOption('SUSPENDED');
+  const selfDrawer = await openUserDrawer(adminEmail);
+  await selfDrawer.getByRole('button', { name: '停用账号' }).click();
+  const selfDialog = page.getByRole('dialog', {
+    name: '确认执行“停用账号”',
+  });
   await selfDialog
-    .getByLabel('Required reason')
+    .getByLabel('操作原因')
     .fill('Attempt to suspend the final run-scoped active administrator.');
-  await selfDialog.getByRole('button', { name: 'Save change' }).click();
-  await expect(page.getByText('Administration state conflict.')).toBeVisible();
+  await selfDialog.getByRole('button', { name: '确认执行' }).click();
+  await expect(
+    selfDialog.getByText('操作未完成，请检查目标用户状态后重试。'),
+  ).toBeVisible();
   await expect
     .poll(async () => {
       const result = await db!.query<{ count: string }>(

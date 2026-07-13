@@ -3,6 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDbClient } from '@/lib/db';
 import {
+  AdminConflictError,
+  getManagedUserDetail,
+  listManagedUsers,
+  parseManagedUsersQuery,
+  revokeManagedUserSessions,
   updateCampusConfig,
   updateManagedUser,
   type AdministrationAdapter,
@@ -440,6 +445,102 @@ describeWithDatabase('audited administration persistence', () => {
     expect(audit.items.every((entry) => entry.campusId === undefined)).toBe(
       true,
     );
+  });
+
+  it('lists, inspects, and force-signs-out a managed user within one campus', async () => {
+    await db.report.create({
+      data: {
+        campusId,
+        details: 'Managed user submitted this run-scoped report.',
+        reason: 'OTHER',
+        reporterId: managedUserId,
+        targetId: reportedResourceId,
+        targetType: 'RESOURCE',
+      },
+    });
+    await db.auditLog.create({
+      data: {
+        action: 'INTEGRATION_USER_REVIEW',
+        actorId: adminId,
+        campusId,
+        details: {
+          email: 'must-not-leak@example.edu',
+          nested: { reason: 'Safe integration reason', token: 'must-not-leak' },
+        },
+        subjectId: managedUserId,
+        subjectType: 'USER',
+      },
+    });
+    const managed = await db.user.findUniqueOrThrow({
+      where: { id: managedUserId },
+    });
+    const list = await listManagedUsers(
+      db as unknown as AdministrationAdapter,
+      { campusId, id: adminId, role: 'ADMIN' },
+      parseManagedUsersQuery(
+        new URLSearchParams({
+          pageSize: '1',
+          role: 'MODERATOR',
+          search: managed.email,
+          status: 'ACTIVE',
+          verified: 'true',
+        }),
+      ).query,
+    );
+    expect(list.items.map((item) => item.id)).toEqual([managedUserId]);
+    await expect(db.user.count({ where: { campusId } })).resolves.toBe(
+      list.counts.total,
+    );
+
+    const detail = await getManagedUserDetail(
+      db as unknown as AdministrationAdapter,
+      { campusId, id: adminId, role: 'ADMIN' },
+      managedUserId,
+    );
+    expect(detail.overview).toMatchObject({
+      activeSessionCount: 1,
+      email: managed.email,
+      id: managedUserId,
+    });
+    expect(detail.reports.submittedCount).toBe(1);
+    expect(detail.audit.recent).toContainEqual(
+      expect.objectContaining({
+        action: 'INTEGRATION_USER_REVIEW',
+        details: { nested: { reason: 'Safe integration reason' } },
+      }),
+    );
+    await expect(
+      getManagedUserDetail(
+        db as unknown as AdministrationAdapter,
+        { campusId, id: adminId, role: 'ADMIN' },
+        otherModeratorId,
+      ),
+    ).rejects.toBeInstanceOf(AdminConflictError);
+
+    await expect(
+      revokeManagedUserSessions(
+        db as unknown as AdministrationAdapter,
+        { campusId, id: adminId, role: 'ADMIN' },
+        {
+          reason: 'Integration security review signs out every device.',
+          userId: managedUserId,
+        },
+      ),
+    ).resolves.toEqual({ revokedCount: 1 });
+    await expect(
+      db.session.count({ where: { userId: managedUserId } }),
+    ).resolves.toBe(0);
+    const revocationAudit = await db.auditLog.findFirstOrThrow({
+      where: {
+        action: 'USER_SESSIONS_REVOKED',
+        campusId,
+        subjectId: managedUserId,
+      },
+    });
+    expect(revocationAudit.details).toEqual({
+      reason: 'Integration security review signs out every device.',
+      revokedCount: 1,
+    });
   });
 
   it('changes role and status, revokes sessions, and audits campus ownership', async () => {

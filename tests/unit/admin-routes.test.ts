@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import * as userRoute from '@/app/api/admin/users/route';
 import { handleModerationMutation } from '@/app/api/admin/moderation/route';
 import { handleUserMutation } from '@/app/api/admin/users/route';
 import { ModerationConflictError } from '@/lib/domain/moderation';
@@ -26,6 +27,112 @@ function request(
     method: 'POST',
   });
 }
+
+function handleUserGet() {
+  const handler = (
+    userRoute as unknown as {
+      handleUserGet?: (
+        request: Request,
+        dependencies: Record<string, unknown>,
+      ) => Promise<Response>;
+    }
+  ).handleUserGet;
+  expect(handler).toBeTypeOf('function');
+  return handler!;
+}
+
+describe('admin user GET route', () => {
+  it('parses list filters without passing UI state into the list query', async () => {
+    const list = vi.fn(async () => ({
+      counts: { active: 1, staff: 1, suspended: 0, total: 1, unverified: 0 },
+      hasNextPage: false,
+      items: [],
+      nextCursor: null,
+    }));
+    const detail = vi.fn();
+    const response = await handleUserGet()(
+      new Request(
+        'http://localhost/api/admin/users?search=Alice&role=ADMIN&status=ACTIVE&verified=true&pageSize=10&tab=audit',
+      ),
+      {
+        detail,
+        list,
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ campusId: 'campus_1', role: 'ADMIN' }),
+      {
+        pageSize: 10,
+        role: 'ADMIN',
+        search: 'Alice',
+        status: 'ACTIVE',
+        verified: true,
+      },
+    );
+    expect(detail).not.toHaveBeenCalled();
+  });
+
+  it('loads selected same-campus detail without polluting it with list filters', async () => {
+    const detail = vi.fn(async () => ({ overview: { id: 'user_1' } }));
+    const list = vi.fn();
+    const response = await handleUserGet()(
+      new Request(
+        'http://localhost/api/admin/users?search=Alice&cursor=eyJpbnZhbGlkIjp0cnVlfQ&user=user_1&tab=submissions',
+      ),
+      {
+        detail,
+        list,
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(detail).not.toHaveBeenCalled();
+
+    const validResponse = await handleUserGet()(
+      new Request(
+        'http://localhost/api/admin/users?search=Alice&user=user_1&tab=submissions',
+      ),
+      {
+        detail,
+        list,
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+      },
+    );
+    expect(validResponse.status).toBe(200);
+    expect(detail).toHaveBeenCalledWith(
+      expect.objectContaining({ campusId: 'campus_1', role: 'ADMIN' }),
+      'user_1',
+    );
+    expect(list).not.toHaveBeenCalled();
+    await expect(validResponse.json()).resolves.toEqual({
+      detail: { overview: { id: 'user_1' } },
+      tab: 'submissions',
+    });
+  });
+
+  it.each([
+    'unknown=value',
+    'role=ADMIN&role=MODERATOR',
+    'cursor=not-a-cursor',
+  ])('rejects an invalid query before a data lookup: %s', async (query) => {
+    const list = vi.fn();
+    const detail = vi.fn();
+    const response = await handleUserGet()(
+      new Request(`http://localhost/api/admin/users?${query}`),
+      {
+        detail,
+        list,
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(list).not.toHaveBeenCalled();
+    expect(detail).not.toHaveBeenCalled();
+  });
+});
 
 describe('admin mutation route protections', () => {
   it('rejects cross-origin requests before resolving a session', async () => {
@@ -107,6 +214,7 @@ describe('admin mutation route protections', () => {
     const mutate = vi.fn();
     const response = await handleUserMutation(
       request('/api/admin/users', {
+        action: 'SET_ROLE',
         reason: 'Role required for campus operations.',
         role: 'ADMIN',
         userId: 'user_1',
@@ -120,6 +228,7 @@ describe('admin mutation route protections', () => {
   it('maps campus domain uniqueness conflicts to 409 without database details', async () => {
     const response = await handleUserMutation(
       request('/api/admin/users', {
+        action: 'SET_ROLE',
         reason: 'Campus governance update.',
         role: 'STUDENT',
         userId: 'user_1',
@@ -135,5 +244,102 @@ describe('admin mutation route protections', () => {
     await expect(response.json()).resolves.toEqual({
       message: 'Administration state conflict.',
     });
+  });
+
+  it('dispatches strict role, status, and session actions without ambiguous fields', async () => {
+    const adminUser = { ...moderator, role: 'ADMIN' as const };
+    const mutate = vi.fn(async () => ({ updated: true }));
+    const revoke = vi.fn(async () => ({ revokedCount: 2 }));
+
+    const roleResponse = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'SET_ROLE',
+        reason: 'Role required for current campus operations.',
+        role: 'MODERATOR',
+        userId: 'user_1',
+      }),
+      { mutate, resolveUser: async () => adminUser, revoke },
+    );
+    expect(roleResponse.status).toBe(200);
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ role: 'ADMIN' }),
+      {
+        reason: 'Role required for current campus operations.',
+        role: 'MODERATOR',
+        userId: 'user_1',
+      },
+    );
+
+    const statusResponse = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'SET_STATUS',
+        reason: 'Account restored after completed campus review.',
+        status: 'ACTIVE',
+        userId: 'user_1',
+      }),
+      { mutate, resolveUser: async () => adminUser, revoke },
+    );
+    expect(statusResponse.status).toBe(200);
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ role: 'ADMIN' }),
+      {
+        reason: 'Account restored after completed campus review.',
+        status: 'ACTIVE',
+        userId: 'user_1',
+      },
+    );
+
+    const revokeResponse = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'REVOKE_SESSIONS',
+        reason: 'Security review requires a complete device sign-out.',
+        userId: 'user_1',
+      }),
+      { mutate, resolveUser: async () => adminUser, revoke },
+    );
+    expect(revokeResponse.status).toBe(200);
+    expect(revoke).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'ADMIN' }),
+      {
+        reason: 'Security review requires a complete device sign-out.',
+        userId: 'user_1',
+      },
+    );
+
+    const ambiguousResponse = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'SET_ROLE',
+        reason: 'Ambiguous requests must be rejected safely.',
+        role: 'MODERATOR',
+        status: 'ACTIVE',
+        userId: 'user_1',
+      }),
+      { mutate, resolveUser: async () => adminUser, revoke },
+    );
+    expect(ambiguousResponse.status).toBe(400);
+  });
+
+  it('rejects cross-origin user mutations before authentication', async () => {
+    const resolveUser = vi.fn(async () => ({
+      ...moderator,
+      role: 'ADMIN' as const,
+    }));
+    const mutate = vi.fn();
+    const response = await handleUserMutation(
+      request(
+        '/api/admin/users',
+        {
+          action: 'SET_STATUS',
+          reason: 'Cross-origin request must not reach authentication.',
+          status: 'SUSPENDED',
+          userId: 'user_1',
+        },
+        'https://attacker.example',
+      ),
+      { mutate, resolveUser },
+    );
+    expect(response.status).toBe(403);
+    expect(resolveUser).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

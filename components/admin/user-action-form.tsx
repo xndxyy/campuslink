@@ -3,6 +3,145 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+type UserAction = 'SET_ROLE' | 'SET_STATUS' | 'REVOKE_SESSIONS';
+
+const roleLabels: Record<string, string> = {
+  ADMIN: '管理员',
+  MODERATOR: '版主',
+  STUDENT: '普通用户',
+};
+
+function ActionControl({
+  action,
+  currentRole,
+  label,
+  statusTarget,
+  userId,
+}: {
+  action: UserAction;
+  currentRole: string;
+  label: string;
+  statusTarget?: 'ACTIVE' | 'SUSPENDED';
+  userId: string;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState('');
+  const titleId = `manage-user-${action}-${userId}`;
+  const reasonId = `${titleId}-reason`;
+  const defaultRole =
+    currentRole === 'STUDENT'
+      ? 'MODERATOR'
+      : currentRole === 'MODERATOR'
+        ? 'STUDENT'
+        : 'MODERATOR';
+
+  function payload(formData: FormData) {
+    const reason = String(formData.get('reason') ?? '');
+    if (action === 'SET_ROLE') {
+      return {
+        action: 'SET_ROLE' as const,
+        reason,
+        role: String(formData.get('role')),
+        userId,
+      };
+    }
+    if (action === 'SET_STATUS') {
+      return {
+        action: 'SET_STATUS' as const,
+        reason,
+        status: statusTarget,
+        userId,
+      };
+    }
+    return { action: 'REVOKE_SESSIONS' as const, reason, userId };
+  }
+
+  async function submit(formData: FormData) {
+    if (pending) return;
+    setPending(true);
+    setMessage('');
+    try {
+      const response = await fetch('/api/admin/users', {
+        body: JSON.stringify(payload(formData)),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error('操作未完成，请检查目标用户状态后重试。');
+      }
+      setMessage('操作已记录。');
+      dialog.current?.close();
+      router.refresh();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : '操作未完成，请重试。',
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="admin-user-action">
+      <button
+        disabled={pending}
+        onClick={() => dialog.current?.showModal()}
+        type="button"
+      >
+        {label}
+      </button>
+      <dialog aria-labelledby={titleId} ref={dialog}>
+        <form action={submit} className="admin-dialog-form">
+          <p className="eyebrow">管理员操作</p>
+          <h2 id={titleId}>确认执行“{label}”</h2>
+          <p id={reasonId}>该操作会写入审计记录，请填写可复核的治理原因。</p>
+          {action === 'SET_ROLE' ? (
+            <label>
+              新角色（当前：{roleLabels[currentRole] ?? currentRole}）
+              <select defaultValue={defaultRole} name="role">
+                <option value="STUDENT">普通用户</option>
+                <option value="MODERATOR">版主</option>
+                <option value="ADMIN">管理员</option>
+              </select>
+            </label>
+          ) : null}
+          <label>
+            操作原因
+            <textarea
+              aria-describedby={reasonId}
+              maxLength={1000}
+              minLength={5}
+              name="reason"
+              required
+              rows={4}
+            />
+          </label>
+          <span aria-live="polite" className="admin-action-message">
+            {message}
+          </span>
+          <div className="dialog-actions">
+            <button disabled={pending} type="submit">
+              {pending ? '正在处理…' : '确认执行'}
+            </button>
+            <button
+              disabled={pending}
+              onClick={() => dialog.current?.close()}
+              type="button"
+            >
+              取消
+            </button>
+          </div>
+        </form>
+      </dialog>
+      <span aria-live="polite" className="admin-action-message">
+        {message}
+      </span>
+    </div>
+  );
+}
+
 export function UserActionForm({
   currentRole,
   currentStatus,
@@ -12,101 +151,29 @@ export function UserActionForm({
   currentStatus: string;
   userId: string;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState('');
-  const titleId = `manage-user-${userId}`;
-
-  async function submit(formData: FormData) {
-    setPending(true);
-    setMessage('');
-    try {
-      const field = String(formData.get('field'));
-      const value = String(formData.get(field));
-      const response = await fetch('/api/admin/users', {
-        body: JSON.stringify({
-          [field]: value,
-          reason: formData.get('reason'),
-          userId,
-        }),
-        headers: { 'content-type': 'application/json' },
-        method: 'POST',
-      });
-      const result = (await response.json()) as { message?: string };
-      if (!response.ok)
-        throw new Error(result.message ?? 'User change failed.');
-      setMessage('User change recorded.');
-      dialog.current?.close();
-      router.refresh();
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : 'User change failed.',
-      );
-    } finally {
-      setPending(false);
-    }
-  }
-
+  const accountAction = currentStatus === 'ACTIVE' ? '停用账号' : '恢复账号';
+  const statusTarget = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
   return (
-    <div className="admin-inline-action">
-      <button type="button" onClick={() => dialog.current?.showModal()}>
-        Manage
-      </button>
-      <dialog aria-labelledby={titleId} ref={dialog}>
-        <form action={submit} className="admin-dialog-form">
-          <p className="eyebrow">Administrator only</p>
-          <h2 id={titleId}>Manage user</h2>
-          <label>
-            Property
-            <select defaultValue="role" name="field">
-              <option value="role">Role</option>
-              <option value="status">Account status</option>
-            </select>
-          </label>
-          <label>
-            Role (current: {currentRole})
-            <select defaultValue={currentRole} name="role">
-              <option value="STUDENT">Student</option>
-              <option value="MODERATOR">Moderator</option>
-              <option value="ADMIN">Administrator</option>
-            </select>
-          </label>
-          <label>
-            Status (current: {currentStatus})
-            <select defaultValue={currentStatus} name="status">
-              <option value="PENDING_VERIFICATION">Pending verification</option>
-              <option value="ACTIVE">Active</option>
-              <option value="SUSPENDED">Suspended</option>
-            </select>
-          </label>
-          <label>
-            Required reason
-            <textarea
-              maxLength={1000}
-              minLength={5}
-              name="reason"
-              required
-              rows={4}
-            />
-          </label>
-          <div className="dialog-actions">
-            <button disabled={pending} type="submit">
-              {pending ? 'Saving…' : 'Save change'}
-            </button>
-            <button
-              disabled={pending}
-              onClick={() => dialog.current?.close()}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </dialog>
-      <span aria-live="polite" className="admin-action-message">
-        {message}
-      </span>
+    <div className="admin-user-actions" aria-label="用户治理操作">
+      <ActionControl
+        action="SET_ROLE"
+        currentRole={currentRole}
+        label="调整角色"
+        userId={userId}
+      />
+      <ActionControl
+        action="SET_STATUS"
+        currentRole={currentRole}
+        label={accountAction}
+        statusTarget={statusTarget}
+        userId={userId}
+      />
+      <ActionControl
+        action="REVOKE_SESSIONS"
+        currentRole={currentRole}
+        label="强制退出全部设备"
+        userId={userId}
+      />
     </div>
   );
 }

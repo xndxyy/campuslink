@@ -15,7 +15,7 @@ CampusLink 是一个面向单校区的校园内容平台，覆盖学习资料、
 - 单元测试：305 项通过。
 - PostgreSQL/MinIO 集成测试：22 项通过。
 - Playwright 真实浏览器流程：11 项通过。
-- Prisma 迁移：10 个，全部已验证。
+- Prisma 迁移：11 个，全部已验证。
 - ESLint、TypeScript、Prettier、Prisma Schema 校验通过。
 - Next.js production build 通过。
 - 独立代码审查最终无 Critical 或 Important 问题。
@@ -41,7 +41,7 @@ CampusLink 是一个面向单校区的校园内容平台，覆盖学习资料、
 
 CampusLink 已形成从用户进入到平台治理的完整闭环：
 
-1. 用户使用校园邮箱注册并完成邮箱验证。
+1. 用户使用任意有效邮箱注册并完成邮箱验证。
 2. 用户登录后发布资料、二手物品或兼职信息。
 3. 文件通过私有对象存储上传，不经过应用服务器转发大文件。
 4. 内容进入草稿、待审核、已发布、拒绝、隐藏等明确状态。
@@ -112,7 +112,7 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 项目包含：
 
 - TypeScript 严格类型检查。
-- Prisma Schema 和 10 个前向迁移。
+- Prisma Schema 和 11 个前向迁移。
 - 305 项单元测试。
 - 22 项真实 PostgreSQL/MinIO 集成测试。
 - 11 项真实浏览器端到端测试。
@@ -165,8 +165,8 @@ flowchart LR
 ### 4.1 普通学生
 
 1. 打开网站首页。
-2. 进入“注册”，使用允许的校园邮箱创建账号。
-3. 打开验证邮件并完成验证。
+2. 进入“注册”，使用任意有效的普通邮箱创建账号。
+3. 打开验证邮件并完成验证；该步骤只证明用户能够控制此邮箱，不代表学生身份认证。
 4. 登录后可进入：
    - 资源：查看和发布学习资料。
    - 市集：查看和发布二手物品。
@@ -194,7 +194,7 @@ flowchart LR
 
 - 管理用户角色和状态。
 - 暂停或恢复用户。
-- 配置校区名称和允许注册的邮箱域名。
+- 查看校区信息；用户归属由运维配置的默认社区决定，后台不提供邮箱域名准入设置。
 - 过滤和查询审计日志。
 - 执行审核员拥有的全部治理操作。
 
@@ -405,7 +405,7 @@ sudo install -d -o root -g www-data -m 0750 /var/lib/campuslink-edge
 NODE_ENV=production
 APP_URL=https://campus.example.edu
 NEXT_PUBLIC_APP_URL=https://campus.example.edu
-CAMPUS_EMAIL_DOMAIN=example.edu
+DEFAULT_CAMPUS_SLUG=campuslink
 TRUST_PROXY=true
 
 DATABASE_URL=postgresql://campuslink_app:URL_ENCODED_PASSWORD@DB_HOST:5432/campuslink?sslmode=verify-full
@@ -427,7 +427,7 @@ UPLOAD_CLEANUP_SECRET=REPLACE_WITH_RANDOM_32_PLUS_CHARACTERS
 UPLOAD_SCANNER_CALLBACK_SECRET=REPLACE_WITH_A_DIFFERENT_RANDOM_SECRET
 ```
 
-`CAMPUS_EMAIL_DOMAIN` 必须与后续 `Campus.allowedEmailDomain` 完全一致，否则注册接口会返回统一确认信息，但不会创建用户。数据库 URL 中的用户名和密码必须按 URL userinfo 规则编码，尤其要编码 `@`、`:`、`/`、`?`、`#` 和 `%`。
+任意符合格式的邮箱都可以请求注册，邮箱验证只证明用户能够控制该邮箱。运行时会把新用户分配给 `slug` 与 `DEFAULT_CAMPUS_SLUG` 一致且处于启用状态的 Campus；如果没有匹配的启用 Campus，注册接口仍返回防止账号枚举的统一确认信息，但不会创建用户。数据库 URL 中的用户名和密码必须按 URL userinfo 规则编码，尤其要编码 `@`、`:`、`/`、`?`、`#` 和 `%`。
 
 创建只供迁移任务读取的 `/etc/campuslink/migration.env`：
 
@@ -441,7 +441,7 @@ DATABASE_URL=postgresql://campuslink_migrate:URL_ENCODED_PASSWORD@DB_HOST:5432/c
 NODE_ENV=production
 APP_URL=https://campus.example.edu
 NEXT_PUBLIC_APP_URL=https://campus.example.edu
-CAMPUS_EMAIL_DOMAIN=example.edu
+DEFAULT_CAMPUS_SLUG=campuslink
 TRUST_PROXY=true
 
 DATABASE_URL=postgresql://build_only:build_only@127.0.0.1:5432/campuslink_build?sslmode=require
@@ -526,7 +526,7 @@ sudo chmod 600 /etc/campuslink/build.env
 
 不要在 Bash 中 `source /etc/campuslink/campuslink.env`。该文件采用 systemd `EnvironmentFile` 语法，且包含引号和可能有特殊字符的密码；只让 systemd 加载它。SMTP 端口 465 使用隐式 TLS，其他端口由代码强制 STARTTLS；同时要验证 SMTP 服务端证书，并为发件域名配置 SPF、DKIM 和 DMARC。
 
-生产后台虽然提供 `allowedEmailDomain` 编辑界面，但它只能修改数据库，不能修改服务器的 `CAMPUS_EMAIL_DOMAIN`。生产环境禁止单独使用该按钮改域名；域名变更必须作为配置发布：进入维护模式，更新 root-only 环境文件，在事务中同步更新 `Campus.allowedEmailDomain` 并写入 `CAMPUS_CONFIG_CHANGED` 审计记录，重启应用，验证新域名注册，再退出维护模式。旧用户登录不依赖新注册域名，但协调失败会让新注册静默停止。
+`Campus.allowedEmailDomain` 是可空的遗留兼容字段，不参与注册准入；管理后台不提供该字段的编辑入口。切换默认社区属于运维配置变更：先确认目标 Campus 已启用且 `slug` 唯一匹配新值，再更新 root-only 环境文件中的 `DEFAULT_CAMPUS_SLUG`、重启应用并用普通邮箱完成注册验证，同时保留变更和验证记录。该操作改变用户归属社区，不会限制可注册的邮箱域名。
 
 ### 7.4 在非在线目录构建版本并固化发布证据
 
@@ -922,16 +922,16 @@ sudo journalctl -u campuslink-upload-cleanup.service -n 50 --no-pager
 
 ## 8. 首个生产管理员如何建立
 
-不要在生产运行开发 Seed，也不要直接插入带明文或临时密码的管理员。注册逻辑在创建用户前会按 `CAMPUS_EMAIL_DOMAIN` 查找启用的 Campus，因此初始化顺序必须是“先建 Campus，再注册，再提升管理员”。所有 SQL 使用数据库迁移账号或云厂商受审计控制台执行，应用数据库账号不应拥有这些权限。
+不要在生产运行开发 Seed，也不要直接插入带明文或临时密码的管理员。注册逻辑在创建用户前会查找 `slug` 与 `DEFAULT_CAMPUS_SLUG` 匹配的启用 Campus，因此初始化顺序必须是“创建启用的默认 Campus → 使用任意普通邮箱注册 → 完成邮箱验证 → 提升管理员”。所有 SQL 使用数据库迁移账号或云厂商受审计控制台执行，应用数据库账号不应拥有这些权限。
 
-本节的前置条件是 10 个 Prisma 迁移已经成功执行。全新部署应先完成第 7.4 节，并按第 9.1 节执行迁移、切换 `current` 和启动应用；首次业务烟雾测试可以等首管创建完成后再补做，然后回到本节。
+本节的前置条件是 11 个 Prisma 迁移已经成功执行。全新部署应先完成第 7.4 节，并按第 9.1 节执行迁移、切换 `current` 和启动应用；首次业务烟雾测试可以等首管创建完成后再补做，然后回到本节。
 
 ### 8.1 在开放注册前创建首个 Campus
 
 先确认 `/etc/campuslink/campuslink.env` 中：
 
 ```dotenv
-CAMPUS_EMAIL_DOMAIN=example.edu
+DEFAULT_CAMPUS_SLUG=campuslink
 ```
 
 在变更单中记录真实执行人和工单号，替换下列占位符后执行：
@@ -944,10 +944,10 @@ INSERT INTO "Campus" (
   "id", "slug", "name", "allowedEmailDomain",
   "isActive", "createdAt", "updatedAt"
 ) VALUES (
-  'campus-prod-example-001',
-  'example-university',
-  'Example University',
-  'example.edu',
+  'campus-prod-campuslink-001',
+  'campuslink',
+  '西大同学 CampusLink',
+  NULL,
   true,
   now(),
   now()
@@ -958,15 +958,15 @@ INSERT INTO "AuditLog" (
   "subjectType", "subjectId", "details", "createdAt"
 ) VALUES (
   'bootstrap_' || md5(random()::text || clock_timestamp()::text),
-  'campus-prod-example-001',
+  'campus-prod-campuslink-001',
   NULL,
   'BOOTSTRAP_CAMPUS_CREATED',
   'CAMPUS',
-  'campus-prod-example-001',
+  'campus-prod-campuslink-001',
   jsonb_build_object(
     'performedBy', 'REPLACE_WITH_OPERATOR_ID',
     'changeTicket', 'REPLACE_WITH_TICKET_ID',
-    'allowedEmailDomain', 'example.edu'
+    'defaultCampusSlug', 'campuslink'
   ),
   now()
 );
@@ -974,17 +974,18 @@ INSERT INTO "AuditLog" (
 COMMIT;
 ```
 
-该插入故意不是 `ON CONFLICT DO NOTHING`：如果 ID、slug 或域名已经存在，应中止并人工核对，不能静默跳过。确认数据库值与环境变量完全一致：
+该插入故意不是 `ON CONFLICT DO NOTHING`：如果 ID 或 slug 已经存在，应中止并人工核对，不能静默跳过。确认查询只返回一个启用的 Campus，且其 `slug` 与环境变量完全一致；遗留字段 `allowedEmailDomain` 应为 `NULL`：
 
 ```sql
 SELECT "id", "slug", "name", "allowedEmailDomain", "isActive"
-FROM "Campus";
+FROM "Campus"
+WHERE "slug" = 'campuslink' AND "isActive" = true;
 ```
 
 ### 8.2 注册、验证并严格提升一个账号
 
 1. 启动应用。
-2. 管理员本人通过正式页面使用 `admin@example.edu` 注册。
+2. 管理员本人通过正式页面使用普通邮箱 `admin@example.com` 注册。
 3. 管理员本人打开验证邮件、设置符合规则的密码并完成验证。
 4. 运维确认该账号状态为 `ACTIVE`、`emailVerifiedAt` 非空、`passwordHash` 非空。
 5. 替换下列邮箱、执行人和工单号，在一个事务中严格提升账号、撤销全部旧 Session 并写入审计记录：
@@ -1001,7 +1002,7 @@ BEGIN
   SELECT "id", "campusId"
   INTO STRICT target_user_id, target_campus_id
   FROM "User"
-  WHERE lower("email") = lower('admin@example.edu')
+  WHERE lower("email") = lower('admin@example.com')
     AND "status" = 'ACTIVE'
     AND "emailVerifiedAt" IS NOT NULL
     AND "passwordHash" IS NOT NULL
@@ -1027,7 +1028,7 @@ BEGIN
     jsonb_build_object(
       'performedBy', 'REPLACE_WITH_OPERATOR_ID',
       'changeTicket', 'REPLACE_WITH_TICKET_ID',
-      'email', 'admin@example.edu',
+      'email', 'admin@example.com',
       'sessionsRevoked', true
     ),
     now()
@@ -1043,13 +1044,13 @@ COMMIT;
 ```sql
 SELECT "id", "campusId", "email", "role", "status", "emailVerifiedAt"
 FROM "User"
-WHERE lower("email") = lower('admin@example.edu');
+WHERE lower("email") = lower('admin@example.com');
 
 SELECT count(*) AS active_sessions
 FROM "Session"
 WHERE "userId" = (
   SELECT "id" FROM "User"
-  WHERE lower("email") = lower('admin@example.edu')
+  WHERE lower("email") = lower('admin@example.com')
 );
 ```
 
@@ -1431,8 +1432,8 @@ DATABASE_URL="$RESTORE_DATABASE_URL" npx prisma migrate status
 ### 安全配置
 
 - [ ] `APP_URL` 和 `NEXT_PUBLIC_APP_URL` 是同一个正式 HTTPS Origin。
-- [ ] `CAMPUS_EMAIL_DOMAIN` 与数据库 `Campus.allowedEmailDomain` 完全一致。
-- [ ] 校园邮箱域名变更使用维护窗口、事务审计和应用重启，不单独点击后台按钮。
+- [ ] `DEFAULT_CAMPUS_SLUG` 与数据库中一个启用的 `Campus.slug` 完全一致，普通邮箱注册烟雾测试成功。
+- [ ] 未依赖 `Campus.allowedEmailDomain` 或后台域名控制进行注册准入；该可空遗留字段不参与准入且后台没有编辑入口。
 - [ ] `TRUST_PROXY` 与真实网络拓扑一致。
 - [ ] Cloudflare 场景已配置官方可信 CIDR、源站防火墙和真实 IP 验证。
 - [ ] 数据库连接包含 TLS 要求。

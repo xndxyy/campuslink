@@ -74,6 +74,26 @@ describe('release contract', () => {
     expect(releaseScript).not.toContain('shell:');
   });
 
+  it('documents open registration against the active default CampusLink community', () => {
+    const envExample = read('.env.example');
+    const guide = read('docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md');
+
+    expect(envExample).toMatch(/^DEFAULT_CAMPUS_SLUG=campuslink$/m);
+    expect(guide).toContain('DEFAULT_CAMPUS_SLUG=campuslink');
+    expect(guide).not.toContain('CAMPUS_EMAIL_DOMAIN');
+    expect(guide).toContain('11 个 Prisma 迁移');
+    expect(guide).not.toMatch(/10\s*个[^\n]*迁移/);
+    expect(guide).toMatch(
+      /'campuslink',\s*\n\s*'西大同学 CampusLink',\s*\n\s*NULL,/,
+    );
+    expect(guide).toMatch(/'defaultCampusSlug',\s*'campuslink'/);
+    expect(guide).toMatch(
+      /allowedEmailDomain[^\n]*(?:旧|遗留)[^\n]*(?:不参与|不是)[^\n]*注册准入/,
+    );
+    expect(guide).not.toContain('allowedEmailDomain` 编辑界面');
+    expect(guide).not.toMatch(/允许注册的邮箱域名|校园邮箱域名变更/);
+  });
+
   it('ships a real, authenticated malware scan callback and database status', () => {
     expect(
       existsSync(

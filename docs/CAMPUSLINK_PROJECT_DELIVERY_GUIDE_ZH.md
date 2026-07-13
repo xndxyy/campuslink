@@ -1140,6 +1140,10 @@ sudo ln -sfnT "/var/cache/campuslink/${RELEASE_ID}/next" \
   "$resolved_release/.next/cache"
 ```
 
+`20260713180000_add_user_governance_indexes` 必须保持非事务，不能在 migration 中加入 `BEGIN`/`COMMIT`。它使用 `CREATE INDEX CONCURRENTLY`，不会阻塞 `User` 表的常规 `INSERT`、`UPDATE`、`DELETE`，但索引构建仍会消耗磁盘与 I/O；发布期间必须监控 `pg_stat_progress_create_index`、数据库磁盘余量、I/O 延迟和复制延迟。
+
+如果该 migration 失败，不要在还有索引构建活动时重试。先用 `pg_stat_progress_create_index` 和 `pg_stat_activity` 确认没有仍在运行的 create-index 进程，再在同一个已审核 release、同一个迁移账号环境中执行 `prisma migrate resolve --rolled-back 20260713180000_add_user_governance_indexes`，然后重新运行 `npm run db:migrate:deploy`。重跑时 migration 只会清理它自己的三个 partial/invalid 索引：`User_campus_createdAt_id_idx`、`User_name_trgm_idx`、`User_email_trgm_idx`，随后重新并发创建；不得在生产手工删除其他索引。若实际数据库状态与这个白名单不一致，应停止发布并交由 DBA 审核。
+
 这一步把 release 固化为 `root:campuslink`，运行用户只有读取/执行权限；唯一可写位置是独立的版本缓存目录。固化后禁止再运行 `npm install`、构建或直接修改文件，任何改动都必须生成新 release。
 
 6. 原子切换版本并启动：

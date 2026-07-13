@@ -203,6 +203,7 @@ export async function createUploadIntent(
     ownerId,
     assetId,
     input.canonicalExtension,
+    input.kind,
   );
   const asset: UploadAssetRecord = {
     contentType: input.contentType,

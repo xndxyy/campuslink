@@ -8,6 +8,49 @@ import {
 
 describe('upload policy', () => {
   it.each([
+    ['cover.png', 'image/png', 'png'],
+    ['cover.jpeg', 'image/jpeg', 'jpg'],
+    ['cover.avif', 'image/avif', 'avif'],
+    ['cover.webp', 'image/webp', 'webp'],
+  ] as const)(
+    'accepts safe announcement image %s',
+    (fileName, contentType, expectedExtension) => {
+      const result = validateUpload({
+        contentType,
+        fileName,
+        kind: 'ANNOUNCEMENT_IMAGE',
+        sizeBytes: 1_024,
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.canonicalExtension).toBe(expectedExtension);
+      }
+    },
+  );
+
+  it.each([
+    ['cover.svg', 'image/svg+xml', 1_024],
+    ['cover.html', 'text/html', 1_024],
+    ['notice.pdf', 'application/pdf', 1_024],
+    ['cover.png', 'image/jpeg', 1_024],
+    ['cover.preview.png', 'image/png', 1_024],
+    ['cover.png', 'image/png', MAX_IMAGE_SIZE_BYTES + 1],
+  ] as const)(
+    'rejects unsafe announcement upload %s with %s',
+    (fileName, contentType, sizeBytes) => {
+      expect(
+        validateUpload({
+          contentType,
+          fileName,
+          kind: 'ANNOUNCEMENT_IMAGE',
+          sizeBytes,
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it.each([
     {
       contentType: 'application/pdf',
       expectedExtension: 'pdf',

@@ -64,6 +64,38 @@ function createDependencies(asset: UploadAssetRecord | null = pendingAsset) {
 }
 
 describe('upload service', () => {
+  it('creates announcement image intents in the announcement namespace', async () => {
+    const dependencies = createDependencies();
+
+    await createUploadIntent(
+      pendingAsset.ownerId,
+      {
+        canonicalExtension: 'png',
+        contentType: 'image/png',
+        displayName: 'cover.png',
+        kind: 'ANNOUNCEMENT_IMAGE',
+        sizeBytes: 1_024,
+      },
+      {
+        ...dependencies,
+        createAssetId: () => pendingAsset.id,
+        now: () => new Date('2026-07-12T08:00:00.000Z'),
+      },
+    );
+
+    expect(dependencies.repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'ANNOUNCEMENT_IMAGE',
+        storageKey: 'announcements/user_01JOWNERTEST/asset_01JUPLOADTEST.png',
+      }),
+    );
+    expect(dependencies.storage.createPresignedPutUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'announcements/user_01JOWNERTEST/asset_01JUPLOADTEST.png',
+      }),
+    );
+  });
+
   it('creates a pending owned asset and signs exactly five minutes', async () => {
     const dependencies = createDependencies();
 

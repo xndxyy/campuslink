@@ -23,6 +23,7 @@ enum AssetKind {
   RESOURCE_IMAGE
   RESOURCE_DOCUMENT
   MARKETPLACE_IMAGE
+  ANNOUNCEMENT_IMAGE
 }
 
 enum AssetStatus {
@@ -90,6 +91,7 @@ enum ModerationSubjectType {
   CAMPUS
   USER
   ASSET
+  ANNOUNCEMENT
   RESOURCE
   MARKETPLACE_ITEM
   JOB_POST
@@ -117,6 +119,7 @@ model Campus {
   resources          Resource[]
   marketplaceItems   MarketplaceItem[]
   jobPosts           JobPost[]
+  announcements      Announcement[]    @relation("AnnouncementCampus")
   reports            Report[]
   auditLogs          AuditLog[]
   createdAt          DateTime          @default(now())
@@ -138,6 +141,7 @@ model User {
   resources        Resource[]         @relation("ResourceAuthor")
   marketplaceItems MarketplaceItem[]  @relation("MarketplaceSeller")
   jobPosts         JobPost[]          @relation("JobAuthor")
+  announcements    Announcement[]     @relation("AnnouncementAuthor")
   favourites       Favourite[]
   reports          Report[]           @relation("ReportReporter")
   assignedReports  Report[]           @relation("ReportAssignee")
@@ -185,6 +189,7 @@ model Asset {
   ownerId           String
   resourceId        String?
   marketplaceItemId String?
+  announcementId    String?          @unique
   storageKey        String           @unique @default(cuid()) @db.VarChar(512)
   kind              AssetKind
   contentType       String           @db.VarChar(255)
@@ -197,6 +202,7 @@ model Asset {
   owner             User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   resource          Resource?        @relation("ResourceAssets", fields: [resourceId], references: [id], onDelete: SetNull)
   marketplaceItem   MarketplaceItem? @relation("MarketplaceItemAssets", fields: [marketplaceItemId], references: [id], onDelete: SetNull)
+  announcement      Announcement?    @relation("AnnouncementCover", fields: [announcementId], references: [id], onDelete: SetNull)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
@@ -205,6 +211,34 @@ model Asset {
   @@index([kind, scanStatus, status])
   @@index([resourceId])
   @@index([marketplaceItemId])
+}
+
+model Announcement {
+  id          String   @id @default(cuid())
+  campusId    String
+  authorId    String
+  title       String   @db.VarChar(200)
+  body        String   @db.Text
+  isPinned    Boolean  @default(false)
+  publishedAt DateTime @default(now())
+  campus      Campus   @relation("AnnouncementCampus", fields: [campusId], references: [id], onDelete: Restrict)
+  author      User     @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  cover       Asset?   @relation("AnnouncementCover")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([campusId, isPinned, publishedAt, id])
+}
+
+model StorageDeletionJob {
+  id          String   @id @default(cuid())
+  storageKey  String   @unique @db.VarChar(512)
+  attempts    Int      @default(0)
+  nextAttempt DateTime @default(now())
+  lastError   String?  @db.VarChar(200)
+  createdAt   DateTime @default(now())
+
+  @@index([nextAttempt, id])
 }
 
 model Resource {

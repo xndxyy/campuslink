@@ -51,6 +51,12 @@ describeWithDatabase('database schema constraints', () => {
 
   afterEach(async () => {
     if (reporterId) {
+      await db.asset.deleteMany({ where: { ownerId: reporterId } });
+    }
+    if (campusId) {
+      await db.announcement.deleteMany({ where: { campusId } });
+    }
+    if (reporterId) {
       await db.user.delete({ where: { id: reporterId } });
     }
     if (campusId) {
@@ -128,5 +134,69 @@ describeWithDatabase('database schema constraints', () => {
     });
 
     expect(reopenedReport.status).toBe('OPEN');
+  });
+
+  it('allows one cover per announcement and rejects a duplicate cover', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const [firstAnnouncement, secondAnnouncement] = await Promise.all([
+      db.announcement.create({
+        data: {
+          authorId: reporterId,
+          body: 'First schema constraint announcement',
+          campusId,
+          title: 'First announcement',
+        },
+      }),
+      db.announcement.create({
+        data: {
+          authorId: reporterId,
+          body: 'Second schema constraint announcement',
+          campusId,
+          title: 'Second announcement',
+        },
+      }),
+    ]);
+
+    await Promise.all([
+      db.asset.create({
+        data: {
+          announcementId: firstAnnouncement.id,
+          contentType: 'image/png',
+          kind: 'ANNOUNCEMENT_IMAGE',
+          ownerId: reporterId,
+          sizeBytes: BigInt(1_024),
+          status: 'READY',
+          storageKey: `announcements/${reporterId}/${randomUUID()}.png`,
+        },
+      }),
+      db.asset.create({
+        data: {
+          announcementId: secondAnnouncement.id,
+          contentType: 'image/webp',
+          kind: 'ANNOUNCEMENT_IMAGE',
+          ownerId: reporterId,
+          sizeBytes: BigInt(2_048),
+          status: 'READY',
+          storageKey: `announcements/${reporterId}/${randomUUID()}.webp`,
+        },
+      }),
+    ]);
+
+    await expect(
+      db.asset.create({
+        data: {
+          announcementId: firstAnnouncement.id,
+          contentType: 'image/avif',
+          kind: 'ANNOUNCEMENT_IMAGE',
+          ownerId: reporterId,
+          sizeBytes: BigInt(512),
+          status: 'READY',
+          storageKey: `announcements/${reporterId}/${randomUUID()}.avif`,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
   });
 });

@@ -4,6 +4,7 @@ export const MAX_DOCUMENT_SIZE_BYTES = 25 * 1024 * 1024;
 export const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
 export const uploadKinds = [
+  'ANNOUNCEMENT_IMAGE',
   'RESOURCE_DOCUMENT',
   'RESOURCE_IMAGE',
   'MARKETPLACE_IMAGE',
@@ -47,6 +48,10 @@ const imageTypes: Readonly<Record<string, AllowedFileType>> = {
 const policyByKind: Readonly<
   Record<UploadKind, { maxSizeBytes: number; types: typeof documentTypes }>
 > = {
+  ANNOUNCEMENT_IMAGE: {
+    maxSizeBytes: MAX_IMAGE_SIZE_BYTES,
+    types: imageTypes,
+  },
   MARKETPLACE_IMAGE: {
     maxSizeBytes: MAX_IMAGE_SIZE_BYTES,
     types: imageTypes,

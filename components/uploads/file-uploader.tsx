@@ -35,12 +35,14 @@ type UploadPhase =
   | 'error';
 
 const acceptsByKind: Record<UploadKind, string> = {
+  ANNOUNCEMENT_IMAGE: '.jpg,.jpeg,.png,.webp,.avif',
   MARKETPLACE_IMAGE: '.jpg,.jpeg,.png,.webp,.avif',
   RESOURCE_DOCUMENT: '.pdf,.docx,.pptx,.xlsx,.zip',
   RESOURCE_IMAGE: '.jpg,.jpeg,.png,.webp,.avif',
 };
 
 const labelsByKind: Record<UploadKind, string> = {
+  ANNOUNCEMENT_IMAGE: 'Announcement image',
   MARKETPLACE_IMAGE: 'Marketplace image',
   RESOURCE_DOCUMENT: 'Resource document',
   RESOURCE_IMAGE: 'Resource image',

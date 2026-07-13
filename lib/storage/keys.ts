@@ -11,10 +11,20 @@ const canonicalExtensions = new Set([
   'zip',
 ]);
 
+export const storageNamespaceByKind = {
+  ANNOUNCEMENT_IMAGE: 'announcements',
+  MARKETPLACE_IMAGE: 'campus',
+  RESOURCE_DOCUMENT: 'campus',
+  RESOURCE_IMAGE: 'campus',
+} as const;
+
+export type StorageKeyKind = keyof typeof storageNamespaceByKind;
+
 export function buildStorageKey(
   ownerId: string,
   assetId: string,
   canonicalExtension: string,
+  kind: StorageKeyKind,
 ): string {
   if (!strictKeySegment.test(ownerId) || !strictKeySegment.test(assetId)) {
     throw new Error('Invalid storage key segment.');
@@ -24,5 +34,10 @@ export function buildStorageKey(
     throw new Error('Invalid canonical file extension.');
   }
 
-  return `campus/${ownerId}/${assetId}.${canonicalExtension}`;
+  if (!Object.hasOwn(storageNamespaceByKind, kind)) {
+    throw new Error('Invalid storage key kind.');
+  }
+
+  const namespace = storageNamespaceByKind[kind];
+  return `${namespace}/${ownerId}/${assetId}.${canonicalExtension}`;
 }

@@ -12,8 +12,8 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
       <section className="w-full max-w-md rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
         <h1 className="text-2xl font-bold text-slate-950">Create an account</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Use your campus e-mail address. We will send a verification link
-          before you choose a password and activate the account.
+          Enter any valid email address. We will send a verification link before
+          you choose a password and activate the account.
         </p>
         {error ? (
           <p
@@ -47,7 +47,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             className="block text-sm font-medium text-slate-800"
             htmlFor="email"
           >
-            Campus e-mail
+            Email address
           </label>
           <input
             autoComplete="email"

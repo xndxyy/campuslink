@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { signUpWithPassword } from '@/lib/auth/auth-service';
@@ -5,6 +8,11 @@ import { resendVerificationSchema, signUpSchema } from '@/lib/auth/credentials';
 import { isPasswordValid } from '@/lib/auth/password';
 import { isRoleAllowed } from '@/lib/auth/permissions';
 import { getDefaultCampusSlug } from '@/lib/config';
+
+const signUpPageSource = readFileSync(
+  fileURLToPath(new URL('../../app/auth/sign-up/page.tsx', import.meta.url)),
+  'utf8',
+);
 
 describe('authentication foundation', () => {
   it('accepts a password with at least 12 characters and every required character class', () => {
@@ -61,6 +69,11 @@ describe('authentication foundation', () => {
     expect(
       resendVerificationSchema.safeParse({ email: 'not-an-email' }).success,
     ).toBe(false);
+  });
+
+  it('presents sign-up as open to any valid email address', () => {
+    expect(signUpPageSource).toContain('Email address');
+    expect(signUpPageSource).not.toMatch(/campus e-mail/i);
   });
 
   it('creates a pending user in the active default campus', async () => {

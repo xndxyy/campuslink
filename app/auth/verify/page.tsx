@@ -18,7 +18,7 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
             className="mt-4 rounded-md bg-blue-50 p-3 text-sm text-blue-900"
             role="status"
           >
-            If your registration is eligible, check your campus inbox for a
+            If your registration is eligible, check your e-mail inbox for a
             verification link.
           </p>
         ) : null}
@@ -98,7 +98,7 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
                 className="block text-sm font-medium text-slate-800"
                 htmlFor="email"
               >
-                Need another link? Enter your campus e-mail
+                Need another link? Enter your e-mail address
               </label>
               <input
                 autoComplete="email"

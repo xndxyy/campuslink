@@ -13,6 +13,10 @@ const signUpPageSource = readFileSync(
   fileURLToPath(new URL('../../app/auth/sign-up/page.tsx', import.meta.url)),
   'utf8',
 );
+const verifyPageSource = readFileSync(
+  fileURLToPath(new URL('../../app/auth/verify/page.tsx', import.meta.url)),
+  'utf8',
+);
 
 describe('authentication foundation', () => {
   it('accepts a password with at least 12 characters and every required character class', () => {
@@ -74,6 +78,12 @@ describe('authentication foundation', () => {
   it('presents sign-up as open to any valid email address', () => {
     expect(signUpPageSource).toContain('Email address');
     expect(signUpPageSource).not.toMatch(/campus e-mail/i);
+  });
+
+  it('presents verification for any registered email address', () => {
+    expect(verifyPageSource).toContain('check your e-mail inbox');
+    expect(verifyPageSource).toContain('Enter your e-mail address');
+    expect(verifyPageSource).not.toMatch(/campus (?:inbox|e-mail)/i);
   });
 
   it('creates a pending user in the active default campus', async () => {

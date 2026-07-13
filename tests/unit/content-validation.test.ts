@@ -14,6 +14,7 @@ describe('content validation', () => {
     '<!--comment-->',
     '<!DOCTYPE html>',
     '<script',
+    '< script',
     '<b>',
     'javascript:alert(1)',
   ])('rejects unsafe plain text syntax: %s', (value) => {
@@ -24,6 +25,9 @@ describe('content validation', () => {
 
   it('allows ordinary comparison text without treating it as markup', () => {
     expect(plainText(1, 200, 'Text').parse('x < y')).toBe('x < y');
+    expect(plainText(1, 200, 'Text').parse('x < y and z > 0')).toBe(
+      'x < y and z > 0',
+    );
   });
 
   it('parses marketplace prices into exact integer cents', () => {

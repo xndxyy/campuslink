@@ -24,6 +24,7 @@ const unsafeText = [
   '<!--comment-->',
   '<!DOCTYPE html>',
   '<script',
+  '< script',
   '<b>',
   'javascript:alert(1)',
 ];
@@ -77,6 +78,16 @@ describe('announcement input', () => {
     ).toMatchObject({
       body: 'When x < y, use the smaller value.',
       title: 'x < y',
+    });
+    expect(
+      announcementInput.parse({
+        ...validInput,
+        body: 'x < y and z > 0',
+        title: 'x < y and z > 0',
+      }),
+    ).toMatchObject({
+      body: 'x < y and z > 0',
+      title: 'x < y and z > 0',
     });
   });
 

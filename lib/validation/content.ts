@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const completeHtmlTag = /<\s*\/?\s*[a-z][^>]*>/i;
+const completeHtmlTag = /<\/?[a-z][^>]*>/i;
 const unsafeHtmlSyntax =
   /<!--|<!doctype\b|javascript\s*:|<\s*\/?\s*(?:script|style|iframe|img|svg|object|embed|link|meta|form|input|button|textarea|select|option)\b[^>]*$/i;
 export const MAX_PRICE_CENTS = 2_147_483_647;

@@ -27,11 +27,35 @@ function jsonRequest(method: string, body: unknown, requestOrigin = origin) {
 }
 
 describe('announcement administrator route', () => {
+  it('allows ordinary comparison prose through to the create dependency', async () => {
+    const create = vi.fn(async () => ({ id: 'announcement_1' }));
+    const response = await handleAnnouncementPost(
+      jsonRequest('POST', {
+        body: 'x < y and z > 0',
+        coverAssetId: null,
+        isPinned: false,
+        title: 'x < y and z > 0',
+      }),
+      { create, resolveUser: async () => admin },
+    );
+    expect(response.status).toBe(200);
+    expect(create).toHaveBeenCalledWith(
+      { campusId: admin.campusId, id: admin.id, role: 'ADMIN' },
+      {
+        body: 'x < y and z > 0',
+        coverAssetId: null,
+        isPinned: false,
+        title: 'x < y and z > 0',
+      },
+    );
+  });
+
   it.each([
     '<img src=x onerror=alert(1)>',
     '<!--comment-->',
     '<!DOCTYPE html>',
     '<script',
+    '< script',
     '<b>',
     'javascript:alert(1)',
   ])('rejects unsafe plain text before invoking create: %s', async (value) => {

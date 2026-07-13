@@ -43,6 +43,15 @@ describe('announcement administration UI contract', () => {
     expect(form).not.toContain('campusId');
     expect(form).not.toContain('authorId');
     expect(uploader).toContain("ANNOUNCEMENT_IMAGE: '公告封面图'");
+    expect(uploader).toContain('onSelectionStart?: () => void');
+    expect(uploader).toContain('onActiveChange?: (active: boolean) => void');
+    expect(uploader).toContain('beginUploadAttempt');
+    expect(uploader).toContain('isCurrentUploadAttempt');
+    expect(form).toContain('onSelectionStart={coverSelectionStart}');
+    expect(form).toContain('onActiveChange={setUploadActive}');
+    expect(form).toContain('pending || uploadActive');
+    expect(form).toContain('if (pending || uploadActive)');
+    expect(form).toContain('setCoverAssetId(null)');
   });
 
   it('uses a native two-step irreversible deletion dialog', () => {
@@ -86,6 +95,11 @@ describe('public announcement UI contract', () => {
     expect(drawer).toContain('href="/announcements"');
     expect(drawer).toContain('<dialog');
     expect(drawer).toContain('showModal()');
+    expect(drawer).toContain("router.replace('/announcements'");
+    expect(drawer).not.toContain("router.push('/announcements'");
+    expect(drawer).toMatch(
+      /<Link[\s\S]*?href="\/announcements"[\s\S]*?replace/,
+    );
   });
 
   it('renders protected matching covers, a brand fallback, and plain text only', () => {

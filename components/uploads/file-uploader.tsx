@@ -10,11 +10,21 @@ import {
   type UploadRecovery,
   type UploadRecoveryPhase,
 } from '@/lib/uploads/recovery';
+import {
+  beginUploadAttempt,
+  createUploadAttemptState,
+  invalidateUploadAttempts,
+  isCurrentUploadAttempt,
+  settleUploadAttempt,
+} from '@/lib/uploads/attempt-state';
 import { validateUpload, type UploadKind } from '@/lib/validation/upload';
 
 interface FileUploaderProps {
   kind: UploadKind;
+  onActiveChange?: (active: boolean) => void;
   onReady: (assetId: string) => void;
+  onSelectionStart?: () => void;
+  onStateChange?: (phase: UploadPhase) => void;
 }
 
 interface UploadIntentResponse {
@@ -25,7 +35,7 @@ interface UploadIntentResponse {
   uploadUrl: string;
 }
 
-type UploadPhase =
+export type UploadPhase =
   | 'idle'
   | 'requesting'
   | 'uploading'
@@ -101,7 +111,7 @@ function putFile(
       }
     });
     xhr.addEventListener('load', () => {
-      xhrRef.current = null;
+      if (xhrRef.current === xhr) xhrRef.current = null;
       if ((xhr.status >= 200 && xhr.status < 300) || xhr.status === 412) {
         onProgress(100);
         resolve();
@@ -110,11 +120,11 @@ function putFile(
       }
     });
     xhr.addEventListener('error', () => {
-      xhrRef.current = null;
+      if (xhrRef.current === xhr) xhrRef.current = null;
       reject(new Error('The upload connection failed.'));
     });
     xhr.addEventListener('abort', () => {
-      xhrRef.current = null;
+      if (xhrRef.current === xhr) xhrRef.current = null;
       reject(new UploadCancelledError());
     });
     xhr.send(file);
@@ -130,11 +140,18 @@ function abortActiveTransfers(
   xhrRef.current?.abort();
 }
 
-export function FileUploader({ kind, onReady }: FileUploaderProps) {
+export function FileUploader({
+  kind,
+  onActiveChange,
+  onReady,
+  onSelectionStart,
+  onStateChange,
+}: FileUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<UploadPhase>('idle');
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
+  const attemptStateRef = useRef(createUploadAttemptState());
   const controllersRef = useRef(new Set<AbortController>());
   const recoveryRef = useRef<UploadRecovery | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -160,6 +177,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
   );
 
   useEffect(() => {
+    const attemptState = attemptStateRef.current;
     try {
       recoveryRef.current = parseUploadRecovery(
         sessionStorage.getItem(recoveryKey),
@@ -169,23 +187,53 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
     }
 
     return () => {
+      invalidateUploadAttempts(attemptState);
       abortActiveTransfers(controllersRef, xhrRef);
     };
   }, [recoveryKey]);
 
   const runUpload = useCallback(
-    async (selectedFile: File | null) => {
-      const validation = selectedFile
-        ? validateUpload({
-            contentType: selectedFile.type,
-            fileName: selectedFile.name,
-            kind,
-            sizeBytes: selectedFile.size,
-          })
-        : null;
-      if (validation && !validation.success) {
-        setPhase('error');
-        setMessage(validation.error.issues[0]?.message ?? 'Invalid file.');
+    async (selectedFile: File, generation: number) => {
+      const isCurrent = () =>
+        isCurrentUploadAttempt(attemptStateRef.current, generation);
+      const setCurrentPhase = (nextPhase: UploadPhase) => {
+        if (!isCurrent()) return false;
+        setPhase(nextPhase);
+        onStateChange?.(nextPhase);
+        return true;
+      };
+      const saveCurrentRecovery = (recovery: UploadRecovery | null) => {
+        if (!isCurrent()) return false;
+        saveRecovery(recovery);
+        return true;
+      };
+      const finishAttempt = (
+        nextPhase: 'ready' | 'cancelled' | 'error',
+        nextMessage: string,
+        readyAssetId?: string,
+      ) => {
+        if (!settleUploadAttempt(attemptStateRef.current, generation)) {
+          return false;
+        }
+        setPhase(nextPhase);
+        setMessage(nextMessage);
+        onStateChange?.(nextPhase);
+        onActiveChange?.(false);
+        if (readyAssetId) onReady(readyAssetId);
+        return true;
+      };
+
+      const validation = validateUpload({
+        contentType: selectedFile.type,
+        fileName: selectedFile.name,
+        kind,
+        sizeBytes: selectedFile.size,
+      });
+      if (!validation.success) {
+        finishAttempt(
+          'error',
+          validation.error.issues[0]?.message ?? 'Invalid file.',
+        );
         return;
       }
 
@@ -199,14 +247,17 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
       };
       const updateRecoveryPhase = (phaseValue: UploadRecoveryPhase) => {
         const recovery = recoveryRef.current;
-        if (recovery) saveRecovery({ ...recovery, phase: phaseValue });
+        if (recovery) {
+          saveCurrentRecovery({ ...recovery, phase: phaseValue });
+        }
       };
 
       const completeIntent = async (): Promise<'ready' | 'concluded'> => {
+        if (!isCurrent()) return 'concluded';
         const recovery = recoveryRef.current;
         if (!recovery) return 'concluded';
         updateRecoveryPhase('completing');
-        setPhase('completing');
+        setCurrentPhase('completing');
         const controller = createController();
         try {
           const response = await fetch('/api/uploads/complete', {
@@ -215,8 +266,9 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
             method: 'POST',
             signal: controller.signal,
           });
+          if (!isCurrent()) return 'concluded';
           if (response.status === 409) {
-            saveRecovery(null);
+            saveCurrentRecovery(null);
             return 'concluded';
           }
           if (!response.ok) {
@@ -228,16 +280,15 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
             assetId?: unknown;
             status?: unknown;
           };
+          if (!isCurrent()) return 'concluded';
           if (
             completed.assetId !== recovery.assetId ||
             completed.status !== 'READY'
           ) {
             throw new Error('The server did not confirm the uploaded asset.');
           }
-          saveRecovery(null);
-          setPhase('ready');
-          setMessage('Upload is ready.');
-          onReady(recovery.assetId);
+          saveCurrentRecovery(null);
+          finishAttempt('ready', 'Upload is ready.', recovery.assetId);
           return 'ready';
         } finally {
           releaseController(controller);
@@ -245,17 +296,21 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
       };
 
       const putAndComplete = async (selected: File) => {
+        if (!isCurrent()) return;
         const recovery = recoveryRef.current;
         if (!recovery) throw new Error('Upload intent is unavailable.');
-        setPhase('uploading');
-        await putFile(recovery, selected, xhrRef, setProgress);
+        setCurrentPhase('uploading');
+        await putFile(recovery, selected, xhrRef, (nextProgress) => {
+          if (isCurrent()) setProgress(nextProgress);
+        });
+        if (!isCurrent()) return;
         updateRecoveryPhase('put-complete');
         await completeIntent();
       };
 
       const requestIntent = async (selected: File) => {
-        if (!validation?.success) return;
-        setPhase('requesting');
+        if (!isCurrent()) return;
+        setCurrentPhase('requesting');
         const controller = createController();
         try {
           const response = await fetch('/api/uploads/intent', {
@@ -269,6 +324,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
             method: 'POST',
             signal: controller.signal,
           });
+          if (!isCurrent()) return;
           if (!response.ok) {
             throw new Error(
               await responseMessage(response, 'Unable to start upload.'),
@@ -278,7 +334,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
           if (!intent || intent.contentType !== validation.data.contentType) {
             throw new Error('The server returned an invalid upload intent.');
           }
-          saveRecovery({
+          saveCurrentRecovery({
             ...intent,
             fileFingerprint: fingerprintFile(selected),
             phase: 'put-pending',
@@ -286,34 +342,33 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
         } finally {
           releaseController(controller);
         }
-        await putAndComplete(selected);
+        if (isCurrent()) await putAndComplete(selected);
       };
 
-      setMessage('');
-      setProgress(0);
       try {
-        const fingerprint = selectedFile ? fingerprintFile(selectedFile) : '';
+        const fingerprint = fingerprintFile(selectedFile);
+        if (
+          recoveryRef.current &&
+          recoveryRef.current.fileFingerprint !== fingerprint
+        ) {
+          saveCurrentRecovery(null);
+        }
         const action = getRecoveryAction(
           recoveryRef.current,
           fingerprint,
           Date.now(),
         );
         if (action === 'request-intent') {
-          if (selectedFile) await requestIntent(selectedFile);
+          await requestIntent(selectedFile);
           return;
         }
         if (action === 'put') {
-          if (!selectedFile) {
-            setPhase('error');
-            setMessage('Select the original file to resume the upload.');
-            return;
-          }
           await putAndComplete(selectedFile);
           return;
         }
 
         const completion = await completeIntent();
-        if (completion === 'concluded' && selectedFile) {
+        if (completion === 'concluded' && isCurrent()) {
           await requestIntent(selectedFile);
         }
       } catch (error) {
@@ -321,15 +376,34 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
           error instanceof UploadCancelledError ||
           (error instanceof DOMException && error.name === 'AbortError')
         ) {
-          setPhase('cancelled');
-          setMessage('Upload cancelled. Retry will resume this intent.');
+          finishAttempt(
+            'cancelled',
+            'Upload cancelled. Retry will resume this intent.',
+          );
         } else {
-          setPhase('error');
-          setMessage(error instanceof Error ? error.message : 'Upload failed.');
+          finishAttempt(
+            'error',
+            error instanceof Error ? error.message : 'Upload failed.',
+          );
         }
       }
     },
-    [kind, onReady, saveRecovery],
+    [kind, onActiveChange, onReady, onStateChange, saveRecovery],
+  );
+
+  const startUpload = useCallback(
+    (selectedFile: File, selectionStarted: boolean) => {
+      abortActiveTransfers(controllersRef, xhrRef);
+      const generation = beginUploadAttempt(attemptStateRef.current);
+      if (selectionStarted) onSelectionStart?.();
+      onActiveChange?.(true);
+      setPhase('requesting');
+      onStateChange?.('requesting');
+      setMessage('');
+      setProgress(0);
+      void runUpload(selectedFile, generation);
+    },
+    [onActiveChange, onSelectionStart, onStateChange, runUpload],
   );
 
   const active =
@@ -359,7 +433,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
         onChange={(event) => {
           const selectedFile = event.target.files?.[0] ?? null;
           setFile(selectedFile);
-          if (selectedFile) void runUpload(selectedFile);
+          if (selectedFile) startUpload(selectedFile, true);
         }}
         type="file"
       />
@@ -389,7 +463,7 @@ export function FileUploader({ kind, onReady }: FileUploaderProps) {
         {(phase === 'error' || phase === 'cancelled') && file ? (
           <button
             className="h-10 shrink-0 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white"
-            onClick={() => void runUpload(file)}
+            onClick={() => startUpload(file, false)}
             type="button"
           >
             Retry

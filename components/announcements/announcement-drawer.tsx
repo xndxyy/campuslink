@@ -34,7 +34,7 @@ export function AnnouncementDrawer({
       className="announcement-drawer"
       onCancel={(event) => {
         event.preventDefault();
-        router.push('/announcements');
+        router.replace('/announcements', { scroll: false });
       }}
       ref={dialogRef}
     >
@@ -47,7 +47,7 @@ export function AnnouncementDrawer({
             {announcement.title}
           </h2>
         </div>
-        <Link aria-label="关闭公告详情" href="/announcements">
+        <Link aria-label="关闭公告详情" href="/announcements" replace>
           关闭
         </Link>
       </header>

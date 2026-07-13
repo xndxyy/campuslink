@@ -223,6 +223,12 @@ test('administrator publishes, pins, previews, and permanently deletes an announ
     )
     .toBe(true);
 
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(/\/announcements$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto(`/announcements?announcement=${announcementId}`);
+
   await page.setViewportSize({ height: 760, width: 375 });
   await page.reload();
   bounds = await page.getByRole('dialog', { name: title }).boundingBox();

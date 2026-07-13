@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import * as administration from '@/lib/domain/administration';
+import * as userActionForm from '@/components/admin/user-action-form';
+import * as userDetailPresentation from '@/components/admin/user-detail-labels';
 
 function source(path: string) {
   return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
@@ -194,6 +196,34 @@ describe('moderator and administrator workspace contracts', () => {
     }
   });
 
+  it('formats drawer timestamps in Asia/Shanghai independently of host TZ', () => {
+    const format = (
+      userDetailPresentation as unknown as {
+        formatAdminDateTime?: (value: unknown) => string;
+      }
+    ).formatAdminDateTime;
+    expect(format).toBeTypeOf('function');
+    const originalTz = process.env.TZ;
+    try {
+      process.env.TZ = 'UTC';
+      const fromUtcHost = format!('2026-07-14T12:34:56.000Z');
+      process.env.TZ = 'Asia/Shanghai';
+      const fromShanghaiHost = format!('2026-07-14T12:34:56.000Z');
+      expect(fromUtcHost).toBe(fromShanghaiHost);
+      expect(fromUtcHost).toContain('20:34');
+      expect(format!('not-a-date')).toBe('时间未知');
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+
+    const drawer = source('../../components/admin/user-detail-drawer.tsx');
+    expect(drawer).toContain('formatAdminDateTime');
+    expect(drawer).toContain('adminDateTimeIso');
+    expect(drawer).toContain('<time dateTime=');
+    expect(drawer).not.toContain('toLocaleString');
+  });
+
   it('requires a reason and explicit confirmation for every supported user action', () => {
     const form = source('../../components/admin/user-action-form.tsx');
     expect(form).toContain("action: 'SET_ROLE'");
@@ -214,5 +244,30 @@ describe('moderator and administrator workspace contracts', () => {
     expect(form).toContain('管理员不能代为完成邮箱验证');
     expect(form).not.toContain("method: 'DELETE'");
     expect(form).not.toContain('emailVerifiedAt');
+  });
+
+  it('hard-navigates after self revocation and refreshes only other actions', () => {
+    const complete = (
+      userActionForm as unknown as {
+        completeUserAction?: (
+          result: { selfRevoked?: boolean },
+          effects: {
+            navigate: (href: string) => void;
+            refresh: () => void;
+          },
+        ) => void;
+      }
+    ).completeUserAction;
+    expect(complete).toBeTypeOf('function');
+    const navigate = vi.fn();
+    const refresh = vi.fn();
+    complete!({ selfRevoked: true }, { navigate, refresh });
+    expect(navigate).toHaveBeenCalledWith('/auth/sign-in');
+    expect(refresh).not.toHaveBeenCalled();
+
+    navigate.mockClear();
+    complete!({ selfRevoked: false }, { navigate, refresh });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledOnce();
   });
 });

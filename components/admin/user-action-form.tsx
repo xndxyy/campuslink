@@ -11,6 +11,17 @@ const roleLabels: Record<string, string> = {
   STUDENT: '普通用户',
 };
 
+export function completeUserAction(
+  result: { selfRevoked?: boolean },
+  effects: { navigate: (href: string) => void; refresh: () => void },
+) {
+  if (result.selfRevoked) {
+    effects.navigate('/auth/sign-in');
+    return;
+  }
+  effects.refresh();
+}
+
 function ActionControl({
   action,
   currentRole,
@@ -68,12 +79,18 @@ function ActionControl({
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
+      const result = (await response.json()) as {
+        selfRevoked?: boolean;
+      };
       if (!response.ok) {
         throw new Error('操作未完成，请检查目标用户状态后重试。');
       }
       setMessage('操作已记录。');
       dialog.current?.close();
-      router.refresh();
+      completeUserAction(result, {
+        navigate: (href) => window.location.assign(href),
+        refresh: () => router.refresh(),
+      });
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : '操作未完成，请重试。',

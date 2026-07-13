@@ -86,7 +86,7 @@ interface CountAndFindManyDelegate {
 export interface AdministrationAdapter {
   $transaction<T>(
     operation: (tx: AdministrationAdapter) => Promise<T>,
-    options?: { isolationLevel: 'Serializable' },
+    options?: { isolationLevel: 'RepeatableRead' | 'Serializable' },
   ): Promise<T>;
   auditLog: CreateDelegate & {
     findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
@@ -344,64 +344,72 @@ export async function listManagedUsers(
       ],
     });
   }
-  const [records, total, active, suspended, unverified, staff] =
-    await Promise.all([
-      adapter.user.findMany({
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
-          createdAt: true,
-          email: true,
-          emailVerifiedAt: true,
-          id: true,
-          name: true,
-          role: true,
-          status: true,
-        },
-        take: pageSize + 1,
-        where: {
-          ...(filters.length > 0 ? { AND: filters } : {}),
-          campusId: actor.campusId,
-          ...(query.verified === undefined
-            ? {}
-            : query.verified
-              ? { emailVerifiedAt: { not: null } }
-              : { emailVerifiedAt: null }),
-          ...(query.role ? { role: query.role } : {}),
-          ...(query.status ? { status: query.status } : {}),
-        },
-      }),
-      adapter.user.count({ where: { campusId: actor.campusId } }),
-      adapter.user.count({
-        where: { campusId: actor.campusId, status: 'ACTIVE' },
-      }),
-      adapter.user.count({
-        where: { campusId: actor.campusId, status: 'SUSPENDED' },
-      }),
-      adapter.user.count({
-        where: { campusId: actor.campusId, emailVerifiedAt: null },
-      }),
-      adapter.user.count({
-        where: {
-          campusId: actor.campusId,
-          role: { in: ['MODERATOR', 'ADMIN'] },
-        },
-      }),
-    ]);
-  const items = records.slice(0, pageSize) as unknown as ManagedUserListItem[];
-  const hasNextPage = records.length > pageSize;
-  const last = items.at(-1);
-  return {
-    counts: { active, staff, suspended, total, unverified },
-    hasNextPage,
-    items,
-    nextCursor:
-      hasNextPage && last
-        ? encodeManagedUserCursor({
-            createdAt: last.createdAt as Date,
-            id: String(last.id),
-          })
-        : null,
-  };
+  return adapter.$transaction(
+    async (tx) => {
+      const [records, total, active, suspended, unverified, staff] =
+        await Promise.all([
+          tx.user.findMany({
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: {
+              createdAt: true,
+              email: true,
+              emailVerifiedAt: true,
+              id: true,
+              name: true,
+              role: true,
+              status: true,
+            },
+            take: pageSize + 1,
+            where: {
+              ...(filters.length > 0 ? { AND: filters } : {}),
+              campusId: actor.campusId,
+              ...(query.verified === undefined
+                ? {}
+                : query.verified
+                  ? { emailVerifiedAt: { not: null } }
+                  : { emailVerifiedAt: null }),
+              ...(query.role ? { role: query.role } : {}),
+              ...(query.status ? { status: query.status } : {}),
+            },
+          }),
+          tx.user.count({ where: { campusId: actor.campusId } }),
+          tx.user.count({
+            where: { campusId: actor.campusId, status: 'ACTIVE' },
+          }),
+          tx.user.count({
+            where: { campusId: actor.campusId, status: 'SUSPENDED' },
+          }),
+          tx.user.count({
+            where: { campusId: actor.campusId, emailVerifiedAt: null },
+          }),
+          tx.user.count({
+            where: {
+              campusId: actor.campusId,
+              role: { in: ['MODERATOR', 'ADMIN'] },
+            },
+          }),
+        ]);
+      const items = records.slice(
+        0,
+        pageSize,
+      ) as unknown as ManagedUserListItem[];
+      const hasNextPage = records.length > pageSize;
+      const last = items.at(-1);
+      return {
+        counts: { active, staff, suspended, total, unverified },
+        hasNextPage,
+        items,
+        nextCursor:
+          hasNextPage && last
+            ? encodeManagedUserCursor({
+                createdAt: last.createdAt as Date,
+                id: String(last.id),
+              })
+            : null,
+      };
+    },
+    { isolationLevel: 'RepeatableRead' },
+  );
 }
 
 export function encodeManagedUserCursor(cursor: ManagedUserCursor) {

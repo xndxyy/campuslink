@@ -383,6 +383,10 @@ describe('administrator user controls', () => {
 
   it('lists a campus-scoped filtered cursor page with stable unfiltered counts', async () => {
     const db = adapter();
+    const tx = adapter();
+    vi.mocked(db.$transaction).mockImplementation(async (operation) =>
+      operation(tx),
+    );
     const first = {
       createdAt: new Date('2026-07-13T12:00:00.000Z'),
       email: 'first@example.edu',
@@ -399,8 +403,8 @@ describe('administrator user controls', () => {
       id: 'user_1',
       name: 'Second User',
     };
-    vi.mocked(db.user.findMany).mockResolvedValue([first, second]);
-    vi.mocked(db.user.count)
+    vi.mocked(tx.user.findMany).mockResolvedValue([first, second]);
+    vi.mocked(tx.user.count)
       .mockResolvedValueOnce(8)
       .mockResolvedValueOnce(5)
       .mockResolvedValueOnce(2)
@@ -419,7 +423,12 @@ describe('administrator user controls', () => {
       verified: true,
     });
 
-    expect(db.user.findMany).toHaveBeenCalledWith({
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'RepeatableRead',
+    });
+    expect(db.user.findMany).not.toHaveBeenCalled();
+    expect(db.user.count).not.toHaveBeenCalled();
+    expect(tx.user.findMany).toHaveBeenCalledWith({
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         createdAt: true,
@@ -455,13 +464,13 @@ describe('administrator user controls', () => {
         status: 'ACTIVE',
       },
     });
-    expect(db.user.count).toHaveBeenNthCalledWith(1, {
+    expect(tx.user.count).toHaveBeenNthCalledWith(1, {
       where: { campusId: admin.campusId },
     });
-    expect(db.user.count).toHaveBeenNthCalledWith(4, {
+    expect(tx.user.count).toHaveBeenNthCalledWith(4, {
       where: { campusId: admin.campusId, emailVerifiedAt: null },
     });
-    expect(db.user.count).toHaveBeenNthCalledWith(5, {
+    expect(tx.user.count).toHaveBeenNthCalledWith(5, {
       where: {
         campusId: admin.campusId,
         role: { in: ['MODERATOR', 'ADMIN'] },

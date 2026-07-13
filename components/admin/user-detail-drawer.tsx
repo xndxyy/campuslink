@@ -7,9 +7,11 @@ import { useRouter } from 'next/navigation';
 import { UserActionForm } from './user-action-form';
 import {
   accountStatusLabel,
+  adminDateTimeIso,
   auditActionLabel,
   auditDetailRows,
   contentStatusLabel,
+  formatAdminDateTime,
   reportReasonLabel,
   reportStatusLabel,
   reportTargetTypeLabel,
@@ -27,11 +29,10 @@ const tabs: { id: ManagedUserDetailTab; label: string }[] = [
   { id: 'audit', label: '审计记录' },
 ];
 
-function formatDate(value: unknown) {
-  const date = new Date(String(value));
-  return Number.isNaN(date.getTime())
-    ? '时间未知'
-    : date.toLocaleString('zh-CN');
+function AdminDateTime({ value }: { value: unknown }) {
+  return (
+    <time dateTime={adminDateTimeIso(value)}>{formatAdminDateTime(value)}</time>
+  );
 }
 
 function RecentContent({
@@ -57,7 +58,7 @@ function RecentContent({
             <li key={String(record.id)}>
               <strong>{String(record.title)}</strong>
               <span>{contentStatusLabel(String(record.status))}</span>
-              <time>{formatDate(record.createdAt)}</time>
+              <AdminDateTime value={record.createdAt} />
             </li>
           ))}
         </ol>
@@ -147,7 +148,9 @@ export function UserDetailDrawer({
               </div>
               <div>
                 <dt>加入时间</dt>
-                <dd>{formatDate(overview.createdAt)}</dd>
+                <dd>
+                  <AdminDateTime value={overview.createdAt} />
+                </dd>
               </div>
             </dl>
             <UserActionForm
@@ -197,7 +200,7 @@ export function UserDetailDrawer({
                       {reportReasonLabel(String(report.reason))}
                     </strong>
                     <span>{reportStatusLabel(String(report.status))}</span>
-                    <time>{formatDate(report.createdAt)}</time>
+                    <AdminDateTime value={report.createdAt} />
                   </li>
                 ))}
               </ol>
@@ -217,7 +220,7 @@ export function UserDetailDrawer({
                   const detailRows = auditDetailRows(entry.details);
                   return (
                     <li key={String(entry.id)}>
-                      <time>{formatDate(entry.createdAt)}</time>
+                      <AdminDateTime value={entry.createdAt} />
                       <strong>{auditActionLabel(String(entry.action))}</strong>
                       {detailRows.length === 0 ? (
                         <p>无补充信息</p>

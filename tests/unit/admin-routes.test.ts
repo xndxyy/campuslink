@@ -5,6 +5,10 @@ import { handleModerationMutation } from '@/app/api/admin/moderation/route';
 import { handleUserMutation } from '@/app/api/admin/users/route';
 import { ModerationConflictError } from '@/lib/domain/moderation';
 import { AdminConflictError } from '@/lib/domain/administration';
+import {
+  getSessionCookieName,
+  getSessionCookieOptions,
+} from '@/lib/auth/session';
 
 const moderator = {
   campusId: 'campus_1',
@@ -135,6 +139,104 @@ describe('admin user GET route', () => {
 });
 
 describe('admin mutation route protections', () => {
+  it.each([
+    {
+      body: {
+        action: 'REVOKE_SESSIONS',
+        reason: 'Self sign-out requested after a security review.',
+        userId: moderator.id,
+      },
+      result: { revokedCount: 1 },
+      useRevoke: true,
+    },
+    {
+      body: {
+        action: 'SET_ROLE',
+        reason: 'Administrator completes their governance handoff.',
+        role: 'MODERATOR',
+        userId: moderator.id,
+      },
+      result: { role: 'MODERATOR', sessionsRevoked: true },
+      useRevoke: false,
+    },
+    {
+      body: {
+        action: 'SET_STATUS',
+        reason: 'Administrator suspends their own account after review.',
+        status: 'SUSPENDED',
+        userId: moderator.id,
+      },
+      result: { sessionsRevoked: true, status: 'SUSPENDED' },
+      useRevoke: false,
+    },
+  ])(
+    'clears the current cookie only after successful self revocation: $body.action',
+    async ({ body, result, useRevoke }) => {
+      const mutate = vi.fn(async () => result);
+      const revoke = vi.fn(async () => result);
+      const response = await handleUserMutation(
+        request('/api/admin/users', body),
+        {
+          mutate,
+          resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+          revoke,
+        },
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        ...result,
+        selfRevoked: true,
+      });
+      expect(useRevoke ? revoke : mutate).toHaveBeenCalledOnce();
+      const cookie = response.headers.get('set-cookie');
+      expect(cookie).toContain(`${getSessionCookieName()}=`);
+      expect(cookie).toContain('Max-Age=0');
+      expect(cookie).toContain('Path=/');
+      expect(cookie).toContain('HttpOnly');
+      expect(cookie).toContain('SameSite=lax');
+      if (getSessionCookieOptions().secure) expect(cookie).toContain('Secure');
+      else expect(cookie).not.toContain('Secure');
+    },
+  );
+
+  it('does not clear the current cookie for another managed user', async () => {
+    const response = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'REVOKE_SESSIONS',
+        reason: 'Another user must sign out after a security review.',
+        userId: 'user_1',
+      }),
+      {
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+        revoke: vi.fn(async () => ({ revokedCount: 2 })),
+      },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      revokedCount: 2,
+      selfRevoked: false,
+    });
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('does not clear the current cookie when self revocation conflicts', async () => {
+    const response = await handleUserMutation(
+      request('/api/admin/users', {
+        action: 'REVOKE_SESSIONS',
+        reason: 'Conflicting self sign-out must not clear the cookie.',
+        userId: moderator.id,
+      }),
+      {
+        resolveUser: async () => ({ ...moderator, role: 'ADMIN' }),
+        revoke: vi.fn(async () => {
+          throw new AdminConflictError();
+        }),
+      },
+    );
+    expect(response.status).toBe(409);
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
   it('rejects cross-origin requests before resolving a session', async () => {
     const resolveUser = vi.fn(async () => moderator);
     const mutate = vi.fn();

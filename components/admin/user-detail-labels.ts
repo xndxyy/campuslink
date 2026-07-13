@@ -1,5 +1,30 @@
 import { sanitizeAuditDetails } from '@/lib/domain/audit-details';
 
+const adminDateTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  day: '2-digit',
+  hour: '2-digit',
+  hourCycle: 'h23',
+  minute: '2-digit',
+  month: '2-digit',
+  second: '2-digit',
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+});
+
+function validDate(value: unknown) {
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatAdminDateTime(value: unknown) {
+  const date = validDate(value);
+  return date ? adminDateTimeFormatter.format(date) : '时间未知';
+}
+
+export function adminDateTimeIso(value: unknown) {
+  return validDate(value)?.toISOString();
+}
+
 const roleLabels: Record<string, string> = {
   ADMIN: '管理员',
   MODERATOR: '版主',

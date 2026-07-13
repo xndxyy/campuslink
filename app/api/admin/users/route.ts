@@ -2,6 +2,10 @@ import { z } from 'zod';
 
 import { requireRole, type CurrentUserResolver } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
+import {
+  getSessionCookieName,
+  getSessionCookieOptions,
+} from '@/lib/auth/session';
 import { getDb } from '@/lib/db';
 import { adminErrorResponse, adminJson } from '@/lib/domain/admin-route';
 import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
@@ -75,6 +79,22 @@ function actorFrom(user: {
   return { campusId: user.campusId, id: user.id, role: user.role };
 }
 
+function mutationResultBody(result: unknown, selfRevoked: boolean) {
+  if (result && !Array.isArray(result) && typeof result === 'object') {
+    return { ...(result as Record<string, unknown>), selfRevoked };
+  }
+  return { result, selfRevoked };
+}
+
+function mutationRevokedSessions(result: unknown) {
+  return (
+    Boolean(result) &&
+    typeof result === 'object' &&
+    !Array.isArray(result) &&
+    (result as Record<string, unknown>).sessionsRevoked === true
+  );
+}
+
 export async function handleUserGet(
   request: Request,
   dependencies: UserRouteDependencies = {},
@@ -131,6 +151,7 @@ export async function handleUserMutation(
     }
     const actor = actorFrom(user);
     let result: unknown;
+    let sessionsRevoked = false;
     if (parsed.data.action === 'REVOKE_SESSIONS') {
       const input = {
         reason: parsed.data.reason,
@@ -143,6 +164,7 @@ export async function handleUserMutation(
             actor,
             input,
           );
+      sessionsRevoked = true;
     } else if (parsed.data.action === 'SET_ROLE') {
       const input = {
         reason: parsed.data.reason,
@@ -156,6 +178,7 @@ export async function handleUserMutation(
             actor,
             input,
           );
+      sessionsRevoked = mutationRevokedSessions(result);
     } else {
       const input = {
         reason: parsed.data.reason,
@@ -169,8 +192,20 @@ export async function handleUserMutation(
             actor,
             input,
           );
+      sessionsRevoked = mutationRevokedSessions(result);
     }
-    return adminJson(result);
+    const selfRevoked =
+      parsed.data.userId === actor.id && sessionsRevoked === true;
+    const response = adminJson(mutationResultBody(result, selfRevoked));
+    if (selfRevoked) {
+      response.cookies.set({
+        ...getSessionCookieOptions(),
+        maxAge: 0,
+        name: getSessionCookieName(),
+        value: '',
+      });
+    }
+    return response;
   } catch (error) {
     return adminErrorResponse(error);
   }

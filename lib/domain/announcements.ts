@@ -6,14 +6,15 @@ import {
   type StorageDeletionAdapter,
   type StorageDeletionResult,
 } from '@/lib/storage/deletion-jobs';
+import { plainText } from '@/lib/validation/content';
 import type { StaffActor } from './moderation';
 
 export const announcementInput = z
   .object({
-    body: z.string().trim().min(1).max(10_000),
+    body: plainText(1, 10_000, 'Announcement body'),
     coverAssetId: z.string().trim().min(1).max(191).nullable(),
     isPinned: z.boolean(),
-    title: z.string().trim().min(3).max(200),
+    title: plainText(3, 200, 'Announcement title'),
   })
   .strict();
 
@@ -255,7 +256,11 @@ export async function deleteAnnouncement(
           jobId,
         ));
     const processed = await processDeletion(deleted.jobId);
-    return { id, storageDeletionQueued: processed.status === 'retry' };
+    return {
+      id,
+      storageDeletionQueued:
+        processed.status === 'retry' || processed.status === 'deferred',
+    };
   } catch {
     return { id, storageDeletionQueued: true };
   }

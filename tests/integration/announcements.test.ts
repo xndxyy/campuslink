@@ -25,6 +25,11 @@ describeWithDatabase(
     let otherCampusId = '';
     let adminId = '';
     let otherAdminId = '';
+    const campusIds: string[] = [];
+    const userIds: string[] = [];
+    const assetIds: string[] = [];
+    const announcementIds: string[] = [];
+    const storageKeys: string[] = [];
 
     beforeAll(async () => {
       db = createDbClient();
@@ -32,60 +37,85 @@ describeWithDatabase(
       const campus = await db.campus.create({
         data: { name: 'Announcement Campus', slug: `announcement-${suffix}` },
       });
+      campusIds.push(campus.id);
+      campusId = campus.id;
       const otherCampus = await db.campus.create({
         data: { name: 'Other Campus', slug: `announcement-other-${suffix}` },
       });
-      campusId = campus.id;
+      campusIds.push(otherCampus.id);
       otherCampusId = otherCampus.id;
-      const [admin, otherAdmin] = await Promise.all([
-        db.user.create({
-          data: {
-            campusId,
-            email: `admin-${suffix}@example.com`,
-            emailVerifiedAt: new Date(),
-            role: 'ADMIN',
-            status: 'ACTIVE',
-          },
-        }),
-        db.user.create({
-          data: {
-            campusId: otherCampusId,
-            email: `other-admin-${suffix}@example.com`,
-            emailVerifiedAt: new Date(),
-            role: 'ADMIN',
-            status: 'ACTIVE',
-          },
-        }),
-      ]);
+      const admin = await db.user.create({
+        data: {
+          campusId,
+          email: `admin-${suffix}@example.com`,
+          emailVerifiedAt: new Date(),
+          role: 'ADMIN',
+          status: 'ACTIVE',
+        },
+      });
+      userIds.push(admin.id);
       adminId = admin.id;
+      const otherAdmin = await db.user.create({
+        data: {
+          campusId: otherCampusId,
+          email: `other-admin-${suffix}@example.com`,
+          emailVerifiedAt: new Date(),
+          role: 'ADMIN',
+          status: 'ACTIVE',
+        },
+      });
+      userIds.push(otherAdmin.id);
       otherAdminId = otherAdmin.id;
     });
 
     afterAll(async () => {
       if (!db) return;
-      if (!campusId) {
-        await db.$disconnect();
-        return;
+      const errors: unknown[] = [];
+      const attempt = async (operation: () => Promise<unknown>) => {
+        try {
+          await operation();
+        } catch (error) {
+          errors.push(error);
+        }
+      };
+      if (storageKeys.length > 0) {
+        await attempt(() =>
+          db.storageDeletionJob.deleteMany({
+            where: { storageKey: { in: storageKeys } },
+          }),
+        );
       }
-      await db.storageDeletionJob.deleteMany({
-        where: { storageKey: { startsWith: `announcements/${adminId}/` } },
-      });
-      await db.auditLog.deleteMany({
-        where: { campusId: { in: [campusId, otherCampusId] } },
-      });
-      await db.asset.deleteMany({
-        where: { ownerId: { in: [adminId, otherAdminId] } },
-      });
-      await db.announcement.deleteMany({
-        where: { campusId: { in: [campusId, otherCampusId] } },
-      });
-      await db.user.deleteMany({
-        where: { id: { in: [adminId, otherAdminId] } },
-      });
-      await db.campus.deleteMany({
-        where: { id: { in: [campusId, otherCampusId] } },
-      });
-      await db.$disconnect();
+      if (campusIds.length > 0) {
+        await attempt(() =>
+          db.auditLog.deleteMany({ where: { campusId: { in: campusIds } } }),
+        );
+      }
+      if (assetIds.length > 0) {
+        await attempt(() =>
+          db.asset.deleteMany({ where: { id: { in: assetIds } } }),
+        );
+      }
+      if (announcementIds.length > 0) {
+        await attempt(() =>
+          db.announcement.deleteMany({
+            where: { id: { in: announcementIds } },
+          }),
+        );
+      }
+      if (userIds.length > 0) {
+        await attempt(() =>
+          db.user.deleteMany({ where: { id: { in: userIds } } }),
+        );
+      }
+      if (campusIds.length > 0) {
+        await attempt(() =>
+          db.campus.deleteMany({ where: { id: { in: campusIds } } }),
+        );
+      }
+      await attempt(() => db.$disconnect());
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'Announcement fixture cleanup failed');
+      }
     });
 
     it('creates campus-scoped announcements, keeps one pin, validates covers, and deletes with an auditable outbox', async () => {
@@ -100,6 +130,7 @@ describeWithDatabase(
           title: '第一条公告',
         },
       );
+      announcementIds.push(first.id);
       const cover = await db.asset.create({
         data: {
           contentType: 'image/png',
@@ -110,6 +141,8 @@ describeWithDatabase(
           storageKey: `announcements/${adminId}/${randomUUID()}`,
         },
       });
+      assetIds.push(cover.id);
+      storageKeys.push(cover.storageKey);
       const second = await createAnnouncement(
         db as unknown as AnnouncementAdapter,
         actor,
@@ -120,6 +153,7 @@ describeWithDatabase(
           title: '第二条公告',
         },
       );
+      announcementIds.push(second.id);
       expect(
         await db.announcement.count({ where: { campusId, isPinned: true } }),
       ).toBe(1);
@@ -137,6 +171,7 @@ describeWithDatabase(
           title: '其他校园公告',
         },
       );
+      announcementIds.push(otherAnnouncement.id);
       await expect(
         deleteAnnouncement(
           db as unknown as AnnouncementAdapter,
@@ -158,6 +193,8 @@ describeWithDatabase(
           storageKey: `announcements/${otherAdminId}/${randomUUID()}`,
         },
       });
+      assetIds.push(foreignCover.id);
+      storageKeys.push(foreignCover.storageKey);
       await expect(
         createAnnouncement(db as unknown as AnnouncementAdapter, actor, {
           body: '不可使用其他校园管理员的封面。',
@@ -167,28 +204,30 @@ describeWithDatabase(
         }),
       ).rejects.toBeInstanceOf(AnnouncementConflictError);
 
-      const [wrongKind, pendingCover] = await Promise.all([
-        db.asset.create({
-          data: {
-            contentType: 'image/png',
-            kind: 'RESOURCE_IMAGE',
-            ownerId: adminId,
-            sizeBytes: 10,
-            status: 'READY',
-            storageKey: `resources/${adminId}/${randomUUID()}`,
-          },
-        }),
-        db.asset.create({
-          data: {
-            contentType: 'image/png',
-            kind: 'ANNOUNCEMENT_IMAGE',
-            ownerId: adminId,
-            sizeBytes: 10,
-            status: 'PENDING',
-            storageKey: `announcements/${adminId}/${randomUUID()}`,
-          },
-        }),
-      ]);
+      const wrongKind = await db.asset.create({
+        data: {
+          contentType: 'image/png',
+          kind: 'RESOURCE_IMAGE',
+          ownerId: adminId,
+          sizeBytes: 10,
+          status: 'READY',
+          storageKey: `resources/${adminId}/${randomUUID()}`,
+        },
+      });
+      assetIds.push(wrongKind.id);
+      storageKeys.push(wrongKind.storageKey);
+      const pendingCover = await db.asset.create({
+        data: {
+          contentType: 'image/png',
+          kind: 'ANNOUNCEMENT_IMAGE',
+          ownerId: adminId,
+          sizeBytes: 10,
+          status: 'PENDING',
+          storageKey: `announcements/${adminId}/${randomUUID()}`,
+        },
+      });
+      assetIds.push(pendingCover.id);
+      storageKeys.push(pendingCover.storageKey);
       for (const ineligibleCover of [wrongKind, pendingCover]) {
         await expect(
           createAnnouncement(db as unknown as AnnouncementAdapter, actor, {
@@ -244,6 +283,8 @@ describeWithDatabase(
           storageKey: `announcements/${adminId}/${randomUUID()}`,
         },
       });
+      assetIds.push(cover.id);
+      storageKeys.push(cover.storageKey);
       const announcement = await createAnnouncement(
         db as unknown as AnnouncementAdapter,
         actor,
@@ -254,6 +295,7 @@ describeWithDatabase(
           title: '删除重试公告',
         },
       );
+      announcementIds.push(announcement.id);
       const failureStorage = {
         deleteObject: vi.fn(async () => {
           throw new Error('private endpoint failure');
@@ -290,6 +332,7 @@ describeWithDatabase(
             }),
           },
           job!.id,
+          () => new Date(job!.nextAttempt.getTime() + 1),
         ),
       ).resolves.toEqual({ status: 'deleted' });
       expect(

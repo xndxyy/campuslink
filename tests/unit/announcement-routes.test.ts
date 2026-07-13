@@ -27,6 +27,28 @@ function jsonRequest(method: string, body: unknown, requestOrigin = origin) {
 }
 
 describe('announcement administrator route', () => {
+  it.each([
+    '<img src=x onerror=alert(1)>',
+    '<!--comment-->',
+    '<!DOCTYPE html>',
+    '<script',
+    '<b>',
+    'javascript:alert(1)',
+  ])('rejects unsafe plain text before invoking create: %s', async (value) => {
+    const create = vi.fn();
+    const response = await handleAnnouncementPost(
+      jsonRequest('POST', {
+        body: value,
+        coverAssetId: null,
+        isPinned: false,
+        title: 'Safe title',
+      }),
+      { create, resolveUser: async () => admin },
+    );
+    expect(response.status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it('rejects a cross-origin POST before resolving the user', async () => {
     const create = vi.fn();
     const resolveUser = vi.fn(async () => admin);
@@ -160,11 +182,17 @@ describe('internal storage deletion route', () => {
 
   it('returns safe counts and hides processing failures', async () => {
     const ok = await handleStorageDeletions(request(`Bearer ${secret}`), {
-      process: vi.fn(async () => ({ deleted: 2, missing: 1, retried: 3 })),
+      process: vi.fn(async () => ({
+        deferred: 4,
+        deleted: 2,
+        missing: 1,
+        retried: 3,
+      })),
       secret,
     });
     expect(ok.status).toBe(200);
     await expect(ok.json()).resolves.toEqual({
+      deferred: 4,
       deleted: 2,
       missing: 1,
       retried: 3,

@@ -5,9 +5,27 @@ import {
   createJobSchema,
   createMarketplaceItemSchema,
   createResourceSchema,
+  plainText,
 } from '@/lib/validation/content';
 
 describe('content validation', () => {
+  it.each([
+    '<img src=x onerror=alert(1)>',
+    '<!--comment-->',
+    '<!DOCTYPE html>',
+    '<script',
+    '<b>',
+    'javascript:alert(1)',
+  ])('rejects unsafe plain text syntax: %s', (value) => {
+    expect(() => plainText(1, 200, 'Text').parse(value)).toThrow(
+      'Text must be plain text',
+    );
+  });
+
+  it('allows ordinary comparison text without treating it as markup', () => {
+    expect(plainText(1, 200, 'Text').parse('x < y')).toBe('x < y');
+  });
+
   it('parses marketplace prices into exact integer cents', () => {
     expect(
       createMarketplaceItemSchema.parse({

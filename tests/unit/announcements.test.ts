@@ -19,6 +19,14 @@ const validInput = {
   isPinned: true,
   title: '暑期交易安全提醒',
 };
+const unsafeText = [
+  '<img src=x onerror=alert(1)>',
+  '<!--comment-->',
+  '<!DOCTYPE html>',
+  '<script',
+  '<b>',
+  'javascript:alert(1)',
+];
 
 function adapter() {
   const value = {
@@ -50,6 +58,28 @@ function adapter() {
 }
 
 describe('announcement input', () => {
+  it.each(unsafeText)('rejects unsafe title and body text: %s', (value) => {
+    expect(() =>
+      announcementInput.parse({ ...validInput, title: value }),
+    ).toThrow();
+    expect(() =>
+      announcementInput.parse({ ...validInput, body: value }),
+    ).toThrow();
+  });
+
+  it('allows ordinary comparison text', () => {
+    expect(
+      announcementInput.parse({
+        ...validInput,
+        body: 'When x < y, use the smaller value.',
+        title: 'x < y',
+      }),
+    ).toMatchObject({
+      body: 'When x < y, use the smaller value.',
+      title: 'x < y',
+    });
+  });
+
   it('allows administrators to filter audit history by announcement entity', () => {
     expect(
       parseAuditQuery(new URLSearchParams('entityType=ANNOUNCEMENT')),
@@ -250,6 +280,22 @@ describe('permanent announcement deletion', () => {
     ).resolves.toEqual({ id: 'announcement_1', storageDeletionQueued: true });
     expect(db.announcement.deleteMany).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    ['retry', true],
+    ['deferred', true],
+    ['deleted', false],
+    ['missing', false],
+  ] as const)(
+    'reports immediate storage result %s with queued=%s',
+    async (status, storageDeletionQueued) => {
+      await expect(
+        deleteAnnouncement(adapter(), admin, 'announcement_1', {
+          processDeletion: vi.fn(async () => ({ status })),
+        }),
+      ).resolves.toEqual({ id: 'announcement_1', storageDeletionQueued });
+    },
+  );
 
   it('returns the same not-found error for absent and cross-campus records', async () => {
     const db = adapter();

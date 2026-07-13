@@ -18,6 +18,7 @@ export interface StorageDeletionAdapter {
       args: Record<string, unknown>,
     ): Promise<StorageDeletionRecord | null>;
     findMany(args: Record<string, unknown>): Promise<StorageDeletionRecord[]>;
+    findUnique(args: Record<string, unknown>): Promise<{ id: string } | null>;
     updateMany(args: {
       data: Record<string, unknown>;
       where: Record<string, unknown>;
@@ -30,11 +31,15 @@ export interface ObjectDeletionStorage {
 }
 
 export type StorageDeletionResult =
-  { status: 'deleted' } | { status: 'missing' } | { status: 'retry' };
+  | { status: 'deferred' }
+  | { status: 'deleted' }
+  | { status: 'missing' }
+  | { status: 'retry' };
 
 const MAX_BATCH_SIZE = 100;
 const MAX_BACKOFF_MS = 24 * 60 * 60 * 1000;
 const INITIAL_BACKOFF_MS = 60 * 1000;
+const LEASE_MS = 10 * 60 * 1000;
 const safeLastError = 'Storage deletion failed.';
 
 function retryAt(now: Date, attempts: number) {
@@ -56,17 +61,35 @@ export async function processStorageDeletionJob(
   jobId: string,
   clock: () => Date = () => new Date(),
 ): Promise<StorageDeletionResult> {
+  const now = clock();
   const job = await adapter.storageDeletionJob.findFirst({
     select: recordSelect,
-    where: { id: jobId },
+    where: { id: jobId, nextAttempt: { lte: now } },
   });
-  if (!job) return { status: 'missing' };
+  if (!job) {
+    const existing = await adapter.storageDeletionJob.findUnique({
+      select: { id: true },
+      where: { id: jobId },
+    });
+    return existing ? { status: 'deferred' } : { status: 'missing' };
+  }
+
+  const leaseUntil = new Date(now.getTime() + LEASE_MS);
+  const claimed = await adapter.storageDeletionJob.updateMany({
+    data: { nextAttempt: leaseUntil },
+    where: {
+      AND: [{ nextAttempt: job.nextAttempt }, { nextAttempt: { lte: now } }],
+      attempts: job.attempts,
+      id: job.id,
+    },
+  });
+  if (claimed.count !== 1) return { status: 'deferred' };
 
   try {
     await storage.deleteObject(job.storageKey);
   } catch (error) {
     if (!(error instanceof StorageObjectNotFoundError)) {
-      await adapter.storageDeletionJob.updateMany({
+      const rescheduled = await adapter.storageDeletionJob.updateMany({
         data: {
           attempts: { increment: 1 },
           lastError: safeLastError,
@@ -75,21 +98,23 @@ export async function processStorageDeletionJob(
         where: {
           attempts: job.attempts,
           id: job.id,
-          nextAttempt: job.nextAttempt,
+          nextAttempt: leaseUntil,
         },
       });
-      return { status: 'retry' };
+      return rescheduled.count === 1
+        ? { status: 'retry' }
+        : { status: 'deferred' };
     }
   }
 
-  await adapter.storageDeletionJob.deleteMany({
+  const completed = await adapter.storageDeletionJob.deleteMany({
     where: {
       attempts: job.attempts,
       id: job.id,
-      nextAttempt: job.nextAttempt,
+      nextAttempt: leaseUntil,
     },
   });
-  return { status: 'deleted' };
+  return completed.count === 1 ? { status: 'deleted' } : { status: 'deferred' };
 }
 
 export async function processDueStorageDeletions(
@@ -113,7 +138,7 @@ export async function processDueStorageDeletions(
     take,
     where: { nextAttempt: { lte: now } },
   });
-  const counts = { deleted: 0, missing: 0, retried: 0 };
+  const counts = { deferred: 0, deleted: 0, missing: 0, retried: 0 };
   for (const job of jobs) {
     const result = await processStorageDeletionJob(
       adapter,
@@ -121,7 +146,8 @@ export async function processDueStorageDeletions(
       job.id,
       clock,
     );
-    if (result.status === 'deleted') counts.deleted += 1;
+    if (result.status === 'deferred') counts.deferred += 1;
+    else if (result.status === 'deleted') counts.deleted += 1;
     else if (result.status === 'missing') counts.missing += 1;
     else counts.retried += 1;
   }

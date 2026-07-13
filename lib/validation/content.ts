@@ -1,15 +1,24 @@
 import { z } from 'zod';
 
-const htmlLike = /<\/?[a-z][^>]*>|javascript\s*:/i;
+const completeHtmlTag = /<\s*\/?\s*[a-z][^>]*>/i;
+const unsafeHtmlSyntax =
+  /<!--|<!doctype\b|javascript\s*:|<\s*\/?\s*(?:script|style|iframe|img|svg|object|embed|link|meta|form|input|button|textarea|select|option)\b[^>]*$/i;
 export const MAX_PRICE_CENTS = 2_147_483_647;
 
-function plainText(min: number, max: number, label: string) {
+function containsHtmlLikeSyntax(value: string) {
+  return completeHtmlTag.test(value) || unsafeHtmlSyntax.test(value);
+}
+
+export function plainText(min: number, max: number, label: string) {
   return z
     .string()
     .trim()
     .min(min, `${label} is too short`)
     .max(max, `${label} is too long`)
-    .refine((value) => !htmlLike.test(value), `${label} must be plain text`);
+    .refine(
+      (value) => !containsHtmlLikeSyntax(value),
+      `${label} must be plain text`,
+    );
 }
 
 const assetIds = z
@@ -54,14 +63,7 @@ export const marketplaceConditions = [
 export const createResourceSchema = z
   .object({
     assetIds,
-    courseCode: z
-      .string()
-      .trim()
-      .max(64)
-      .refine(
-        (value) => !htmlLike.test(value),
-        'Course code must be plain text',
-      )
+    courseCode: plainText(0, 64, 'Course code')
       .transform((value) => value.replace(/\s+/g, ' ').toUpperCase())
       .optional()
       .transform((value) => value || undefined),

@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 
 interface StorageDeletionRouteDependencies {
   process?: () => Promise<{
+    deferred: number;
     deleted: number;
     missing: number;
     retried: number;

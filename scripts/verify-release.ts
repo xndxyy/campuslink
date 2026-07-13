@@ -7,10 +7,10 @@ if (!npmExecPath) {
 }
 const commands = [
   ['run', 'format:check'],
+  ['run', 'db:generate'],
   ['run', 'lint'],
   ['run', 'typecheck'],
   ['run', 'test:unit'],
-  ['run', 'db:generate'],
   ['run', 'db:migrate:deploy'],
   ['run', 'test:integration'],
   ['run', 'build'],

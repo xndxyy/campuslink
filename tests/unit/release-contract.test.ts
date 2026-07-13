@@ -66,6 +66,9 @@ describe('release contract', () => {
       'passWithNoTests',
     );
     const releaseScript = read('scripts/verify-release.ts');
+    expect(releaseScript.indexOf("['run', 'db:generate']")).toBeLessThan(
+      releaseScript.indexOf("['run', 'typecheck']"),
+    );
     expect(releaseScript).toContain('process.env.npm_execpath');
     expect(releaseScript).toContain('spawnSync(process.execPath');
     expect(releaseScript).not.toContain('shell:');

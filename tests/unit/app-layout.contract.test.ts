@@ -22,6 +22,10 @@ const focusRule =
   globalStyles.match(
     /a:focus-visible,[\s\S]*?select:focus-visible\s*\{[\s\S]*?\}/,
   )?.[0] ?? '';
+const tabletHeaderStyles = globalStyles.slice(
+  globalStyles.indexOf('@media (max-width: 1080px)'),
+  globalStyles.indexOf('@media (max-width: 1000px)'),
+);
 const mobileHeaderStyles = globalStyles.slice(
   globalStyles.indexOf('@media (max-width: 900px)'),
   globalStyles.indexOf('@media (max-width: 760px)'),
@@ -67,6 +71,17 @@ describe('application layout contract', () => {
     expect(layout).toContain('非西南大学官方平台');
   });
 
+  it('registers the existing brand icon through Next metadata', () => {
+    expect(layout).toContain("icons: { icon: '/brand/campuslink-icon.png' }");
+    expect(
+      existsSync(
+        fileURLToPath(
+          new URL('../../public/brand/campuslink-icon.png', import.meta.url),
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it('renders the brand as an accessible home link', () => {
     const markup = renderToStaticMarkup(createElement(SiteBrand));
 
@@ -99,14 +114,34 @@ describe('application layout contract', () => {
     expect(mobileHeaderStyles).not.toMatch(
       /\.header-navigation\s*\{[^}]*display:\s*none;/,
     );
-    expect(mobileHeaderStyles).toMatch(
+    expect(tabletHeaderStyles).toMatch(
       /\.site-header\s*\{[^}]*flex-wrap:\s*wrap;/,
     );
-    expect(mobileHeaderStyles).toMatch(
+    expect(tabletHeaderStyles).toMatch(
       /\.header-navigation\s*\{[^}]*width:\s*100%;[^}]*order:\s*3;/,
     );
     expect(mobileHeaderStyles).toMatch(
       /\.site-header \.product-navigation\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);/,
+    );
+  });
+
+  it('keeps personal navigation visible and touchable at responsive widths', () => {
+    expect(layout).toContain('href="/me/submissions">我的发布</Link>');
+    expect(layout).toContain('href="/me/favourites">我的收藏</Link>');
+    expect(globalStyles).not.toMatch(
+      /\.account-navigation\s*\{[^}]*display:\s*none;/,
+    );
+    expect(tabletHeaderStyles).toMatch(
+      /\.site-header\s*\{[^}]*flex-wrap:\s*wrap;/,
+    );
+    expect(tabletHeaderStyles).toMatch(
+      /\.header-navigation\s*\{[^}]*width:\s*100%;[^}]*order:\s*3;/,
+    );
+    expect(tabletHeaderStyles).toMatch(
+      /\.header-navigation a\s*\{[^}]*min-height:\s*2\.75rem;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.site-header \.account-navigation\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);[^}]*padding-left:\s*0;[^}]*border-left:\s*0;/,
     );
   });
 

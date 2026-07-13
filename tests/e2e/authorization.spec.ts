@@ -80,6 +80,29 @@ test('keyboard navigation opens the unified publish center', async ({
   ).toBeVisible();
 });
 
+test('mobile header keeps all shared navigation links visible and focusable', async ({
+  page,
+}) => {
+  await page.setViewportSize({ height: 900, width: 320 });
+  await page.goto('/');
+
+  const header = page.getByRole('banner');
+  for (const name of [
+    '学习资源',
+    '二手交易',
+    '校园工作',
+    '校园论坛',
+    '我的发布',
+    '我的收藏',
+  ]) {
+    const link = header.getByRole('link', { exact: true, name });
+    await expect(link).toBeVisible();
+    expect((await link.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await link.focus();
+    await expect(link).toBeFocused();
+  }
+});
+
 test('a signed-in non-owner receives 403 while the owner can obtain a signed read', async ({
   page,
 }) => {

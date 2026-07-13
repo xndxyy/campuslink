@@ -9,6 +9,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: '西大同学 CampusLink',
   description: '校园学习资源、二手交易、校园工作与论坛社区。',
+  icons: { icon: '/brand/campuslink-icon.png' },
 };
 
 export default function RootLayout({

@@ -13,6 +13,7 @@ const entityTypes = new Set([
   'CAMPUS',
   'USER',
   'ASSET',
+  'ANNOUNCEMENT',
   'RESOURCE',
   'MARKETPLACE_ITEM',
   'JOB_POST',

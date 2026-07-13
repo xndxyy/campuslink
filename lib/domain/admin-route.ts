@@ -11,6 +11,12 @@ import {
   AdminValidationError,
 } from './administration';
 import {
+  AnnouncementConflictError,
+  AnnouncementForbiddenError,
+  AnnouncementNotFoundError,
+  AnnouncementValidationError,
+} from './announcements';
+import {
   ModerationConflictError,
   ModerationForbiddenError,
   ModerationValidationError,
@@ -35,6 +41,7 @@ export function adminErrorResponse(error: unknown) {
   if (
     error instanceof VerificationRequiredError ||
     error instanceof InsufficientPermissionsError ||
+    error instanceof AnnouncementForbiddenError ||
     error instanceof ModerationForbiddenError ||
     error instanceof AdminForbiddenError
   ) {
@@ -42,6 +49,7 @@ export function adminErrorResponse(error: unknown) {
   }
   if (
     error instanceof ModerationValidationError ||
+    error instanceof AnnouncementValidationError ||
     error instanceof AdminValidationError
   ) {
     return adminJson(
@@ -53,6 +61,18 @@ export function adminErrorResponse(error: unknown) {
     return adminJson(
       { message: 'Moderation state conflict.' },
       { status: 409 },
+    );
+  }
+  if (error instanceof AnnouncementConflictError) {
+    return adminJson(
+      { message: 'Announcement state conflict.' },
+      { status: 409 },
+    );
+  }
+  if (error instanceof AnnouncementNotFoundError) {
+    return adminJson(
+      { message: 'Announcement was not found.' },
+      { status: 404 },
     );
   }
   if (error instanceof AdminConflictError) {

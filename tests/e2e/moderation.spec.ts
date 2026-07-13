@@ -510,23 +510,22 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
     })
     .toBe('1');
 
-  const temporaryDomain = `${runId}.governance-updated.test`;
   await page.goto('/admin/settings');
+  await expect(page.getByLabel('Allowed email domain')).toHaveCount(0);
   await page.getByLabel('Campus name').fill(`${campusName} Updated`);
-  await page.getByLabel('Allowed email domain').fill(temporaryDomain);
   await page
     .getByLabel('Change reason')
     .fill('Run-scoped administrator verifies isolated campus settings.');
   await page.getByRole('button', { name: 'Save audited settings' }).click();
   await expect
     .poll(async () => {
-      const result = await db!.query<{ domain: string }>(
-        `SELECT "allowedEmailDomain" AS domain FROM "Campus" WHERE id = $1`,
+      const result = await db!.query<{ name: string }>(
+        `SELECT name FROM "Campus" WHERE id = $1`,
         [campusId],
       );
-      return result.rows[0]?.domain;
+      return result.rows[0]?.name;
     })
-    .toBe(temporaryDomain);
+    .toBe(`${campusName} Updated`);
 
   await page.goto(
     `/admin/audit-log?actor=${adminId}&event=USER_ROLE_CHANGED&entityType=USER&entityId=${managedStudentId}&pageSize=1`,

@@ -14,7 +14,6 @@ export const runtime = 'nodejs';
 
 const schema = z
   .object({
-    allowedEmailDomain: z.string().trim().min(3).max(253),
     name: z.string().trim().min(2).max(200),
     reason: z.string().trim().min(5).max(1000),
   })

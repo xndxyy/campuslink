@@ -23,13 +23,13 @@ describe('credential primitives', () => {
     }
   });
 
-  it('rejects an e-mail outside the configured campus domain', () => {
+  it('accepts a valid e-mail outside the legacy campus domain', () => {
     const result = signUpSchema.safeParse({
-      email: 'student@example.test',
-      name: 'Student One',
+      email: 'member@qq.com',
+      name: 'Community Member',
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it('requires a strong password at the verification completion boundary', () => {

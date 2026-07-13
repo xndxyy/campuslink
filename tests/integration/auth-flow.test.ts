@@ -18,11 +18,11 @@ describeWithDatabase('password authentication flow', () => {
   let db!: ReturnType<typeof createDbClient>;
   let campusId: string | undefined;
   let email: string | undefined;
-  let previousCampusDomain: string | undefined;
+  let previousDefaultCampusSlug: string | undefined;
 
   beforeAll(() => {
     db = createDbClient();
-    previousCampusDomain = process.env.CAMPUS_EMAIL_DOMAIN;
+    previousDefaultCampusSlug = process.env.DEFAULT_CAMPUS_SLUG;
   });
 
   afterEach(async () => {
@@ -38,25 +38,25 @@ describeWithDatabase('password authentication flow', () => {
   });
 
   afterAll(async () => {
-    if (previousCampusDomain === undefined) {
-      delete process.env.CAMPUS_EMAIL_DOMAIN;
+    if (previousDefaultCampusSlug === undefined) {
+      delete process.env.DEFAULT_CAMPUS_SLUG;
     } else {
-      process.env.CAMPUS_EMAIL_DOMAIN = previousCampusDomain;
+      process.env.DEFAULT_CAMPUS_SLUG = previousDefaultCampusSlug;
     }
     await db.$disconnect();
   });
 
-  it('keeps signup credential-free until the link holder activates it once', async () => {
+  it('registers member@qq.com in the active default campus and keeps it credential-free until one-time activation', async () => {
     const suffix = randomUUID();
-    const domain = `${suffix}.example.test`;
-    email = `student-${suffix}@${domain}`;
-    process.env.CAMPUS_EMAIL_DOMAIN = domain;
+    const defaultCampusSlug = `auth-flow-${suffix}`;
+    email = 'member@qq.com';
+    process.env.DEFAULT_CAMPUS_SLUG = defaultCampusSlug;
 
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: domain,
+        allowedEmailDomain: `${suffix}.example.test`,
         name: 'Authentication Flow Test Campus',
-        slug: `auth-flow-${suffix}`,
+        slug: defaultCampusSlug,
       },
     });
     campusId = campus.id;
@@ -77,6 +77,7 @@ describeWithDatabase('password authentication flow', () => {
     const pendingUser = await db.user.findUniqueOrThrow({
       where: { email },
     });
+    expect(pendingUser.campusId).toBe(campus.id);
     expect(pendingUser.status).toBe('PENDING_VERIFICATION');
     expect(pendingUser.passwordHash).toBeNull();
     await expect(
@@ -119,5 +120,43 @@ describeWithDatabase('password authentication flow', () => {
       email,
       status: 'ACTIVE',
     });
+  });
+
+  it('returns the same no-op for an inactive or missing default campus', async () => {
+    const suffix = randomUUID();
+    const inactiveSlug = `inactive-auth-flow-${suffix}`;
+    email = `inactive-${suffix}@qq.com`;
+    process.env.DEFAULT_CAMPUS_SLUG = inactiveSlug;
+    const campus = await db.campus.create({
+      data: {
+        allowedEmailDomain: `${suffix}.inactive.example.test`,
+        isActive: false,
+        name: 'Inactive Authentication Flow Test Campus',
+        slug: inactiveSlug,
+      },
+    });
+    campusId = campus.id;
+    const mailer: VerificationMailer = {
+      sendVerificationEmail: async () => {
+        throw new Error('Inactive campus must not send verification mail.');
+      },
+    };
+
+    await expect(
+      signUpWithPassword(
+        { email, name: 'Inactive Campus Member' },
+        { db, mailer },
+      ),
+    ).resolves.toBeUndefined();
+    await expect(db.user.findUnique({ where: { email } })).resolves.toBeNull();
+
+    process.env.DEFAULT_CAMPUS_SLUG = `missing-auth-flow-${suffix}`;
+    await expect(
+      signUpWithPassword(
+        { email, name: 'Missing Campus Member' },
+        { db, mailer },
+      ),
+    ).resolves.toBeUndefined();
+    await expect(db.user.findUnique({ where: { email } })).resolves.toBeNull();
   });
 });

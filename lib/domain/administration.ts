@@ -84,12 +84,6 @@ function isSerializationFailure(error: unknown) {
   );
 }
 
-function isUniqueConflict(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const code = String((error as { code?: unknown }).code ?? '');
-  return code === 'P2002' || code === '23505';
-}
-
 async function serializableTransaction<T>(
   adapter: AdministrationAdapter,
   operation: (tx: AdministrationAdapter) => Promise<T>,
@@ -242,60 +236,41 @@ export async function updateManagedUser(
   });
 }
 
-const domainPattern =
-  /^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-
 export async function updateCampusConfig(
   adapter: AdministrationAdapter,
   actor: StaffActor,
-  input: { allowedEmailDomain: string; name: string; reason: string },
+  input: { name: string; reason: string },
 ) {
   requireAdmin(actor);
   const reason = adminReason(input.reason);
-  const allowedEmailDomain = input.allowedEmailDomain.trim().toLowerCase();
   const name = input.name.trim();
-  if (
-    !domainPattern.test(allowedEmailDomain) ||
-    name.length < 2 ||
-    name.length > 200
-  ) {
+  if (name.length < 2 || name.length > 200) {
     throw new AdminValidationError('Invalid campus configuration');
   }
-  try {
-    return await adapter.$transaction(async (tx) => {
-      const campus = await tx.campus.findFirst({
-        select: { allowedEmailDomain: true, id: true, name: true },
-        where: { id: actor.campusId },
-      });
-      if (!campus) throw new AdminConflictError();
-      const changed = await tx.campus.updateMany({
-        data: { allowedEmailDomain, name },
-        where: { id: actor.campusId },
-      });
-      if (changed.count !== 1) throw new AdminConflictError();
-      await tx.auditLog.create({
-        data: {
-          action: 'CAMPUS_CONFIG_CHANGED',
-          actorId: actor.id,
-          campusId: actor.campusId,
-          details: {
-            allowedEmailDomain: {
-              from: campus.allowedEmailDomain,
-              to: allowedEmailDomain,
-            },
-            name: { from: campus.name, to: name },
-            reason,
-          },
-          subjectId: actor.campusId,
-          subjectType: 'CAMPUS',
-        },
-      });
-      return { allowedEmailDomain, id: actor.campusId, name };
+  return adapter.$transaction(async (tx) => {
+    const campus = await tx.campus.findFirst({
+      select: { id: true, name: true },
+      where: { id: actor.campusId },
     });
-  } catch (error) {
-    if (isUniqueConflict(error)) {
-      throw new AdminConflictError('Campus domain already exists');
-    }
-    throw error;
-  }
+    if (!campus) throw new AdminConflictError();
+    const changed = await tx.campus.updateMany({
+      data: { name },
+      where: { id: actor.campusId },
+    });
+    if (changed.count !== 1) throw new AdminConflictError();
+    await tx.auditLog.create({
+      data: {
+        action: 'CAMPUS_CONFIG_CHANGED',
+        actorId: actor.id,
+        campusId: actor.campusId,
+        details: {
+          name: { from: campus.name, to: name },
+          reason,
+        },
+        subjectId: actor.campusId,
+        subjectType: 'CAMPUS',
+      },
+    });
+    return { id: actor.campusId, name };
+  });
 }

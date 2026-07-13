@@ -188,61 +188,36 @@ describe('administrator user controls', () => {
 });
 
 describe('campus settings and audit privacy', () => {
-  it('validates a strict email domain and audits only safe old/new values', async () => {
+  it('updates the campus name and audits only the changed identity value', async () => {
     const db = adapter();
     await updateCampusConfig(db, admin, {
-      allowedEmailDomain: 'students.example.edu',
       name: 'Example University',
       reason: 'University domain migration completed.',
     });
     expect(db.campus.updateMany).toHaveBeenCalledWith({
-      data: {
-        allowedEmailDomain: 'students.example.edu',
-        name: 'Example University',
-      },
+      data: { name: 'Example University' },
       where: { id: admin.campusId },
     });
     expect(db.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         action: 'CAMPUS_CONFIG_CHANGED',
         campusId: admin.campusId,
-        details: expect.objectContaining({
-          allowedEmailDomain: {
-            from: 'old.example.edu',
-            to: 'students.example.edu',
-          },
-        }),
+        details: {
+          name: { from: 'Old Campus', to: 'Example University' },
+          reason: 'University domain migration completed.',
+        },
       }),
     });
   });
 
-  it.each(['https://example.edu', 'admin@example.edu', 'localhost', '.edu'])(
-    'rejects unsafe campus domain %s',
-    async (allowedEmailDomain) => {
-      await expect(
-        updateCampusConfig(adapter(), admin, {
-          allowedEmailDomain,
-          name: 'Example University',
-          reason: 'University domain migration completed.',
-        }),
-      ).rejects.toBeInstanceOf(AdminValidationError);
-    },
-  );
-
-  it.each([{ code: 'P2002' }, { code: '23505' }])(
-    'maps duplicate campus domain conflict %j to a safe administration conflict',
-    async (error) => {
-      const db = adapter();
-      vi.mocked(db.$transaction).mockRejectedValue(error);
-      await expect(
-        updateCampusConfig(db, admin, {
-          allowedEmailDomain: 'students.example.edu',
-          name: 'Example University',
-          reason: 'University domain migration completed.',
-        }),
-      ).rejects.toBeInstanceOf(AdminConflictError);
-    },
-  );
+  it('rejects an invalid campus name', async () => {
+    await expect(
+      updateCampusConfig(adapter(), admin, {
+        name: ' ',
+        reason: 'University name correction requested.',
+      }),
+    ).rejects.toBeInstanceOf(AdminValidationError);
+  });
 
   it('recursively removes passwords, tokens, contact data, and email from audit metadata', () => {
     expect(

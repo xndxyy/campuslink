@@ -491,12 +491,10 @@ describeWithDatabase('audited administration persistence', () => {
   });
 
   it('updates campus configuration and keeps reporter outcomes neutral', async () => {
-    const allowedEmailDomain = `${randomUUID()}.updated-campus.test`;
     await updateCampusConfig(
       db as unknown as AdministrationAdapter,
       { campusId, id: adminId, role: 'ADMIN' },
       {
-        allowedEmailDomain,
         name: 'Updated Moderation Test Campus',
         reason: 'Integration test verifies audited campus configuration.',
       },
@@ -504,7 +502,6 @@ describeWithDatabase('audited administration persistence', () => {
     await expect(
       db.campus.findUniqueOrThrow({ where: { id: campusId } }),
     ).resolves.toMatchObject({
-      allowedEmailDomain,
       name: 'Updated Moderation Test Campus',
     });
     const reporterView = await listReporterReports(

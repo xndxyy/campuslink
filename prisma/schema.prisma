@@ -111,7 +111,7 @@ model Campus {
   id                 String            @id @default(cuid())
   slug               String            @unique @db.VarChar(64)
   name               String            @db.VarChar(200)
-  allowedEmailDomain String            @unique @db.VarChar(255)
+  allowedEmailDomain String?           @unique @db.VarChar(255)
   isActive           Boolean           @default(true)
   users              User[]
   resources          Resource[]

@@ -3,13 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export function CampusSettingsForm({
-  allowedEmailDomain,
-  name,
-}: {
-  allowedEmailDomain: string;
-  name: string;
-}) {
+export function CampusSettingsForm({ name }: { name: string }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
@@ -20,7 +14,6 @@ export function CampusSettingsForm({
     try {
       const response = await fetch('/api/admin/settings', {
         body: JSON.stringify({
-          allowedEmailDomain: formData.get('allowedEmailDomain'),
           name: formData.get('name'),
           reason: formData.get('reason'),
         }),
@@ -50,16 +43,6 @@ export function CampusSettingsForm({
           maxLength={200}
           minLength={2}
           name="name"
-          required
-        />
-      </label>
-      <label>
-        Allowed email domain
-        <input
-          defaultValue={allowedEmailDomain}
-          maxLength={253}
-          minLength={3}
-          name="allowedEmailDomain"
           required
         />
       </label>

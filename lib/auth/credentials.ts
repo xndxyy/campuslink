@@ -14,17 +14,8 @@ const normalizedEmailSchema = z.string().trim().toLowerCase().email();
 
 const nameSchema = z.string().trim().min(1).max(200);
 
-export function getCampusEmailDomain(): string {
-  return (process.env.CAMPUS_EMAIL_DOMAIN ?? 'campuslink.edu')
-    .trim()
-    .toLowerCase();
-}
-
 export const signUpSchema = z.object({
-  email: normalizedEmailSchema.refine(
-    (email) => email.endsWith(`@${getCampusEmailDomain()}`),
-    { message: 'Use your campus e-mail address.' },
-  ),
+  email: normalizedEmailSchema,
   name: nameSchema,
 });
 
@@ -40,10 +31,7 @@ export const verificationCompletionSchema = z
   });
 
 export const resendVerificationSchema = z.object({
-  email: normalizedEmailSchema.refine(
-    (email) => email.endsWith(`@${getCampusEmailDomain()}`),
-    { message: 'Use your campus e-mail address.' },
-  ),
+  email: normalizedEmailSchema,
 });
 
 export const signInSchema = z.object({

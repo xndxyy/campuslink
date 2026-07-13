@@ -3,10 +3,10 @@ import 'server-only';
 import { cookies } from 'next/headers';
 
 import { getDb } from '@/lib/db';
+import { getDefaultCampusSlug } from '@/lib/config';
 
 import {
   createOpaqueToken,
-  getCampusEmailDomain,
   hashOpaqueToken,
   hashPassword,
   verifyPassword,
@@ -80,12 +80,12 @@ export async function signUpWithPassword(
 ): Promise<void> {
   const db = dependencies.db ?? getDb();
   const now = dependencies.now ?? (() => new Date());
-  const campus = await db.campus.findUnique({
-    where: { allowedEmailDomain: getCampusEmailDomain() },
+  const campus = await db.campus.findFirst({
+    where: { isActive: true, slug: getDefaultCampusSlug() },
   });
 
   // The endpoint intentionally returns the same acknowledgement for each path.
-  if (!campus?.isActive) {
+  if (!campus) {
     return;
   }
 

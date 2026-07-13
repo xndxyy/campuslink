@@ -29,6 +29,7 @@ export default async function AdminLayout({
           <Link href="/admin/reports">Reports</Link>
           {user.role === 'ADMIN' ? (
             <>
+              <Link href="/admin/announcements">公告管理</Link>
               <Link href="/admin/users">Users</Link>
               <Link href="/admin/audit-log">Audit log</Link>
               <Link href="/admin/settings">Campus settings</Link>

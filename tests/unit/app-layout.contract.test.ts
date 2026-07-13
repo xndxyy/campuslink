@@ -145,12 +145,13 @@ describe('application layout contract', () => {
     );
   });
 
-  it('keeps the home shell static and removes the old recent-content area', () => {
+  it('loads the home announcement at request time and keeps the old recent-content area removed', () => {
     expect(home).toContain('<CategoryStrip />');
+    expect(home).toContain("export const dynamic = 'force-dynamic'");
+    expect(home).toContain('getHomeAnnouncement');
+    expect(home).toContain('catch');
     for (const retiredSource of [
-      'getDb',
       'mergeRecentContent',
-      "dynamic = 'force-dynamic'",
       'recentContent',
       'recent-section',
       '刚刚贴上公告板',

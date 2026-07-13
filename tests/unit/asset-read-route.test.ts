@@ -63,6 +63,27 @@ describe('asset read route', () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
+  it('signs an authorized announcement image inline with nosniff', async () => {
+    const sign = vi.fn(async () => 'https://storage.example/announcement');
+    const response = await handleAssetRead('announcement_cover', {
+      authorize: vi.fn(async () => ({
+        contentType: 'image/webp',
+        kind: 'ANNOUNCEMENT_IMAGE',
+        storageKey: 'announcements/opaque.webp',
+      })),
+      resolveUser: async () => null,
+      sign,
+    });
+
+    expect(response.status).toBe(307);
+    expect(sign).toHaveBeenCalledWith(
+      'announcements/opaque.webp',
+      'image/webp',
+      'inline',
+    );
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
   it('forces resource documents to download as attachments', async () => {
     const sign = vi.fn(async () => 'https://storage.example/signed-document');
     const response = await handleAssetRead('asset_document', {

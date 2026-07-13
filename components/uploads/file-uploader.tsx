@@ -42,7 +42,7 @@ const acceptsByKind: Record<UploadKind, string> = {
 };
 
 const labelsByKind: Record<UploadKind, string> = {
-  ANNOUNCEMENT_IMAGE: 'Announcement image',
+  ANNOUNCEMENT_IMAGE: '公告封面图',
   MARKETPLACE_IMAGE: 'Marketplace image',
   RESOURCE_DOCUMENT: 'Resource document',
   RESOURCE_IMAGE: 'Resource image',

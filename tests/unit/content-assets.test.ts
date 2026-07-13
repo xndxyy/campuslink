@@ -20,6 +20,7 @@ function db(asset: Record<string, unknown> | null) {
 }
 
 const readyAsset = {
+  announcement: null,
   contentType: 'application/pdf',
   id: 'asset_1',
   kind: 'RESOURCE_DOCUMENT',
@@ -32,6 +33,66 @@ const readyAsset = {
 };
 
 describe('asset read authorization', () => {
+  it('allows an anonymous READY announcement cover only in the active default campus', async () => {
+    const cover = {
+      ...readyAsset,
+      announcement: {
+        campus: { isActive: true, slug: 'campuslink' },
+        campusId: 'campus_default',
+        id: 'announcement_1',
+      },
+      contentType: 'image/png',
+      kind: 'ANNOUNCEMENT_IMAGE',
+      resource: null,
+    };
+
+    await expect(
+      authorizeAssetRead(db(cover), null, 'asset_1'),
+    ).resolves.toMatchObject({ kind: 'ANNOUNCEMENT_IMAGE' });
+
+    await expect(
+      authorizeAssetRead(
+        db({
+          ...cover,
+          announcement: {
+            ...cover.announcement,
+            slug: undefined,
+            campus: { isActive: true, slug: 'other-campus' },
+          },
+        }),
+        null,
+        'asset_1',
+      ),
+    ).rejects.toBeInstanceOf(ContentForbiddenError);
+  });
+
+  it('denies unattached, pending, and cross-campus announcement covers', async () => {
+    const cover = {
+      ...readyAsset,
+      announcement: {
+        campus: { isActive: true, slug: 'campuslink' },
+        campusId: 'campus_1',
+        id: 'announcement_1',
+      },
+      contentType: 'image/png',
+      kind: 'ANNOUNCEMENT_IMAGE',
+      resource: null,
+    };
+
+    await expect(
+      authorizeAssetRead(db({ ...cover, announcement: null }), null, 'asset_1'),
+    ).rejects.toBeInstanceOf(ContentForbiddenError);
+    await expect(
+      authorizeAssetRead(db({ ...cover, status: 'PENDING' }), null, 'asset_1'),
+    ).rejects.toBeInstanceOf(ContentForbiddenError);
+    await expect(
+      authorizeAssetRead(
+        db(cover),
+        { campusId: 'campus_2', id: 'admin_2', role: 'ADMIN' },
+        'asset_1',
+      ),
+    ).rejects.toBeInstanceOf(ContentForbiddenError);
+  });
   it('requires a verified actor for published resource documents', async () => {
     await expect(
       authorizeAssetRead(db(readyAsset), null, 'asset_1'),

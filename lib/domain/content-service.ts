@@ -1,4 +1,5 @@
 import { ContentStatus } from './content-status';
+import { getDefaultCampusSlug } from '@/lib/config';
 import type {
   ContentListQuery,
   CreateJobInput,
@@ -21,8 +22,17 @@ export interface ContentActor {
 }
 
 interface AssetRecord {
+  announcement?: {
+    campus: { isActive: boolean; slug: string };
+    campusId: string;
+    id: string;
+  } | null;
   id: string;
-  kind: 'RESOURCE_DOCUMENT' | 'RESOURCE_IMAGE' | 'MARKETPLACE_IMAGE';
+  kind:
+    | 'ANNOUNCEMENT_IMAGE'
+    | 'RESOURCE_DOCUMENT'
+    | 'RESOURCE_IMAGE'
+    | 'MARKETPLACE_IMAGE';
   marketplaceItemId: string | null;
   ownerId: string;
   resourceId: string | null;
@@ -592,6 +602,13 @@ export async function authorizeAssetRead(
   if (!adapter.asset.findFirst) throw new Error('Unsupported adapter');
   const asset = await adapter.asset.findFirst({
     select: {
+      announcement: {
+        select: {
+          campus: { select: { isActive: true, slug: true } },
+          campusId: true,
+          id: true,
+        },
+      },
       contentType: true,
       kind: true,
       marketplaceItem: { select: { status: true } },
@@ -610,6 +627,32 @@ export async function authorizeAssetRead(
     asset.scanStatus !== 'CLEAN'
   ) {
     throw new ContentForbiddenError();
+  }
+  const announcement = asset.announcement as
+    | {
+        campus?: { isActive?: unknown; slug?: unknown };
+        campusId?: unknown;
+        id?: unknown;
+      }
+    | null
+    | undefined;
+  if (asset.kind === 'ANNOUNCEMENT_IMAGE') {
+    if (!announcement?.id) throw new ContentForbiddenError();
+    if (actor) {
+      if (announcement.campusId !== actor.campusId) {
+        throw new ContentForbiddenError();
+      }
+    } else if (
+      announcement.campus?.isActive !== true ||
+      announcement.campus.slug !== getDefaultCampusSlug()
+    ) {
+      throw new ContentForbiddenError();
+    }
+    return {
+      contentType: String(asset.contentType),
+      kind: String(asset.kind),
+      storageKey: String(asset.storageKey),
+    };
   }
   const resource = asset.resource as { status?: unknown } | null;
   const marketplaceItem = asset.marketplaceItem as { status?: unknown } | null;

@@ -3,7 +3,7 @@ import { AnnouncementForbiddenError } from './announcements';
 import type { StaffActor } from './moderation';
 
 export interface AnnouncementSummary {
-  cover: { id: string } | null;
+  coverAssetId: string | null;
   id: string;
   isPinned: boolean;
   publishedAt: Date;
@@ -41,6 +41,24 @@ const summarySelect = {
 
 const publicSelect = { body: true, ...summarySelect } as const;
 
+function mapSummary(record: Record<string, unknown>): AnnouncementSummary {
+  const cover = record.cover as { id?: unknown } | null | undefined;
+  return {
+    coverAssetId: typeof cover?.id === 'string' ? cover.id : null,
+    id: String(record.id),
+    isPinned: record.isPinned === true,
+    publishedAt:
+      record.publishedAt instanceof Date
+        ? record.publishedAt
+        : new Date(String(record.publishedAt)),
+    title: String(record.title),
+  };
+}
+
+function mapPublic(record: Record<string, unknown>): PublicAnnouncement {
+  return { body: String(record.body), ...mapSummary(record) };
+}
+
 function activeCampus(campusSlug: string) {
   return { campus: { is: { isActive: true, slug: campusSlug } } };
 }
@@ -59,9 +77,7 @@ export async function getHomeAnnouncement(
     take: 1,
     where: activeCampus(campusSlug),
   });
-  return (
-    (announcements[0] as unknown as AnnouncementSummary | undefined) ?? null
-  );
+  return announcements[0] ? mapSummary(announcements[0]) : null;
 }
 
 export async function listAdminAnnouncements(
@@ -70,24 +86,26 @@ export async function listAdminAnnouncements(
   options: { take?: number } = {},
 ): Promise<AnnouncementSummary[]> {
   if (actor.role !== 'ADMIN') throw new AnnouncementForbiddenError();
-  return (await adapter.announcement.findMany({
+  const announcements = await adapter.announcement.findMany({
     orderBy: announcementOrder,
     select: summarySelect,
     take: boundedTake(options.take),
     where: { campusId: actor.campusId },
-  })) as unknown as AnnouncementSummary[];
+  });
+  return announcements.map(mapSummary);
 }
 
 export async function listPublicAnnouncements(
   adapter: AnnouncementQueryAdapter,
   options: { campusSlug?: string; take?: number } = {},
 ): Promise<PublicAnnouncement[]> {
-  return (await adapter.announcement.findMany({
+  const announcements = await adapter.announcement.findMany({
     orderBy: announcementOrder,
     select: publicSelect,
     take: boundedTake(options.take),
     where: activeCampus(options.campusSlug ?? getDefaultCampusSlug()),
-  })) as unknown as PublicAnnouncement[];
+  });
+  return announcements.map(mapPublic);
 }
 
 export async function getPublicAnnouncement(
@@ -97,8 +115,9 @@ export async function getPublicAnnouncement(
 ): Promise<PublicAnnouncement | null> {
   const id = selectedId?.trim();
   if (!id || id.length > 191) return null;
-  return (await adapter.announcement.findFirst({
+  const announcement = await adapter.announcement.findFirst({
     select: publicSelect,
     where: { ...activeCampus(campusSlug), id },
-  })) as PublicAnnouncement | null;
+  });
+  return announcement ? mapPublic(announcement) : null;
 }

@@ -70,7 +70,7 @@ export default async function AnnouncementsAdminPage() {
                     </p>
                     <h4>{announcement.title}</h4>
                     <small>
-                      {announcement.cover ? '含封面图' : '品牌默认封面'}
+                      {announcement.coverAssetId ? '含封面图' : '品牌默认封面'}
                     </small>
                   </div>
                   <AnnouncementActions

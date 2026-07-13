@@ -90,9 +90,12 @@ describe('public announcement UI contract', () => {
 
   it('renders protected matching covers, a brand fallback, and plain text only', () => {
     expect(drawer).toContain("from 'next/image'");
-    expect(drawer).toContain('`/api/assets/${announcement.cover.id}/read`');
+    expect(drawer).toContain('`/api/assets/${announcement.coverAssetId}/read`');
     expect(drawer).toContain("'/brand/campuslink-mark-light.png'");
-    expect(drawer).toContain('unoptimized={Boolean(announcement.cover)}');
+    expect(drawer).toContain(
+      'unoptimized={Boolean(announcement.coverAssetId)}',
+    );
+    expect(drawer).not.toContain('announcement.cover.');
     expect(drawer).toContain('announcement.body');
     expect(drawer).not.toContain('dangerouslySetInnerHTML');
     expect(center).not.toContain('dangerouslySetInnerHTML');

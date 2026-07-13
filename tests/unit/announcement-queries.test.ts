@@ -99,6 +99,40 @@ describe('announcement read queries', () => {
     });
   });
 
+  it('maps public list records to the exact six-field DTO whitelist', async () => {
+    const adapter = database();
+    const publishedAt = new Date('2026-07-14T01:02:03.000Z');
+    vi.mocked(adapter.announcement.findMany).mockResolvedValueOnce([
+      {
+        body: '纯文本公告正文',
+        campus: { slug: 'must-not-leak' },
+        cover: { id: 'asset_1', storageKey: 'must-not-leak' },
+        id: 'announcement_1',
+        isPinned: true,
+        publishedAt,
+        title: '校园公告',
+      },
+    ]);
+
+    const result = await listPublicAnnouncements(adapter, {
+      campusSlug: 'campuslink',
+    });
+
+    expect(result).toStrictEqual([
+      {
+        body: '纯文本公告正文',
+        coverAssetId: 'asset_1',
+        id: 'announcement_1',
+        isPinned: true,
+        publishedAt,
+        title: '校园公告',
+      },
+    ]);
+    expect(Object.keys(result[0]!).sort()).toStrictEqual(
+      ['body', 'coverAssetId', 'id', 'isPinned', 'publishedAt', 'title'].sort(),
+    );
+  });
+
   it('scopes a URL-selected announcement to the active default campus and rejects invalid IDs', async () => {
     const adapter = database();
 
@@ -124,5 +158,38 @@ describe('announcement read queries', () => {
       getPublicAnnouncement(adapter, ' '.repeat(200), 'campuslink'),
     ).resolves.toBeNull();
     expect(adapter.announcement.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('maps a selected record to the exact six-field DTO whitelist', async () => {
+    const adapter = database();
+    const publishedAt = new Date('2026-07-14T02:03:04.000Z');
+    vi.mocked(adapter.announcement.findFirst).mockResolvedValueOnce({
+      author: { email: 'must-not-leak@example.test' },
+      body: '详情正文',
+      cover: null,
+      id: 'announcement_2',
+      isPinned: false,
+      publishedAt,
+      storageKey: 'must-not-leak',
+      title: '详情公告',
+    });
+
+    const result = await getPublicAnnouncement(
+      adapter,
+      'announcement_2',
+      'campuslink',
+    );
+
+    expect(result).toStrictEqual({
+      body: '详情正文',
+      coverAssetId: null,
+      id: 'announcement_2',
+      isPinned: false,
+      publishedAt,
+      title: '详情公告',
+    });
+    expect(Object.keys(result!).sort()).toStrictEqual(
+      ['body', 'coverAssetId', 'id', 'isPinned', 'publishedAt', 'title'].sort(),
+    );
   });
 });

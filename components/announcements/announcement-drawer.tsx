@@ -24,8 +24,8 @@ export function AnnouncementDrawer({
     };
   }, [announcement.id]);
 
-  const imageSource = announcement.cover
-    ? `/api/assets/${announcement.cover.id}/read`
+  const imageSource = announcement.coverAssetId
+    ? `/api/assets/${announcement.coverAssetId}/read`
     : '/brand/campuslink-mark-light.png';
 
   return (
@@ -57,7 +57,7 @@ export function AnnouncementDrawer({
           height={675}
           sizes="(max-width: 760px) 100vw, 600px"
           src={imageSource}
-          unoptimized={Boolean(announcement.cover)}
+          unoptimized={Boolean(announcement.coverAssetId)}
           width={1200}
         />
       </div>

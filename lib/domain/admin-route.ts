@@ -21,6 +21,8 @@ import {
   ModerationForbiddenError,
   ModerationValidationError,
 } from './moderation';
+import { TagConflictError, TagForbiddenError } from './tags';
+import { TagValidationError } from '../validation/tags';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
 
@@ -43,14 +45,16 @@ export function adminErrorResponse(error: unknown) {
     error instanceof InsufficientPermissionsError ||
     error instanceof AnnouncementForbiddenError ||
     error instanceof ModerationForbiddenError ||
-    error instanceof AdminForbiddenError
+    error instanceof AdminForbiddenError ||
+    error instanceof TagForbiddenError
   ) {
     return adminJson({ message: 'Insufficient permissions.' }, { status: 403 });
   }
   if (
     error instanceof ModerationValidationError ||
     error instanceof AnnouncementValidationError ||
-    error instanceof AdminValidationError
+    error instanceof AdminValidationError ||
+    error instanceof TagValidationError
   ) {
     return adminJson(
       { message: 'Invalid administration request.' },
@@ -80,6 +84,9 @@ export function adminErrorResponse(error: unknown) {
       { message: 'Administration state conflict.' },
       { status: 409 },
     );
+  }
+  if (error instanceof TagConflictError) {
+    return adminJson({ message: 'Tag state conflict.' }, { status: 409 });
   }
   return adminJson(
     { message: 'Unable to complete administration request.' },

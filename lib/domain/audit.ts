@@ -19,6 +19,7 @@ const entityTypes = new Set([
   'MARKETPLACE_ITEM',
   'JOB_POST',
   'REPORT',
+  'TAG_DEFINITION',
 ]);
 const allowedSearchKeys = new Set([
   'actor',

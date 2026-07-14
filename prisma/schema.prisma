@@ -102,6 +102,7 @@ enum ModerationSubjectType {
   MARKETPLACE_ITEM
   JOB_POST
   REPORT
+  TAG_DEFINITION
 }
 
 enum ModerationActionType {

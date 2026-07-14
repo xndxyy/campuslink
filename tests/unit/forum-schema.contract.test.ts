@@ -17,6 +17,7 @@ const seedDataSource = readSource('../../prisma/seed-data.ts');
 const integrationSchemaSource = readSource(
   '../integration/schema-constraints.test.ts',
 );
+const integrationForumSource = readSource('../integration/forum.test.ts');
 
 function block(kind: 'enum' | 'model', name: string) {
   return (
@@ -77,6 +78,14 @@ describe('forum persistence schema contract', () => {
       /"kind" = 'TREE_HOLE'[\s\S]*"authorId" IS NULL[\s\S]*"anonymousCiphertext" IS NOT NULL[\s\S]*"anonymousFingerprint" IS NOT NULL[\s\S]*"anonymousKeyVersion" IS NOT NULL[\s\S]*"publicCode" IS NOT NULL/,
     );
     expect(migration).toContain('complete authenticated encryption envelope');
+    expect(migration).toMatch(
+      /char_length\("anonymousCiphertext"\) > 0[\s\S]*char_length\("anonymousCiphertext"\) <= 2048/,
+    );
+    expect(integrationForumSource).toContain(
+      "it('rejects an oversized serialized tree-hole envelope at the database boundary'",
+    );
+    expect(integrationForumSource).toContain('INSERT INTO "ForumPost"');
+    expect(integrationForumSource).toContain("code: '23514'");
   });
 
   it('keeps comments one level and rejects every tree-hole comment reference', () => {
@@ -241,6 +250,25 @@ describe('forum persistence schema contract', () => {
       "it('orders user deletion before self-comment parent locking'",
     );
     expect(integrationSchemaSource).not.toContain('setTimeout(resolve, 1_000)');
+  });
+
+  it('covers both report-lock commit orders with bounded database barriers', () => {
+    expect(integrationForumSource).toContain(
+      'const DATABASE_LOCK_WAIT_TIMEOUT_MS = 2_000',
+    );
+    expect(integrationForumSource).toContain(
+      'async function waitForForumDatabaseLock',
+    );
+    expect(integrationForumSource).toContain('FROM pg_stat_activity');
+    expect(integrationForumSource).toContain('wait_event_type');
+    expect(integrationForumSource).toContain("SET statement_timeout = '3s'");
+    expect(integrationForumSource).toContain(
+      "it('rechecks a closed report after a concurrent close commits'",
+    );
+    expect(integrationForumSource).toContain(
+      "it('holds the report row lock until a successful reveal commits'",
+    );
+    expect(integrationForumSource).not.toContain('setTimeout(resolve, 1_000)');
   });
 
   it('keeps the forum migration expand-only', () => {

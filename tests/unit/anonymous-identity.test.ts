@@ -2,14 +2,18 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
+  MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BASE64_CHARS,
+  MAX_ANONYMOUS_IDENTITY_KEY_VERSION,
+  MAX_ANONYMOUS_IDENTITY_SERIALIZED_ENVELOPE_CHARS,
   AnonymousIdentityError,
   fingerprintAnonymousUser,
   loadAnonymousIdentityKeyring,
   openAnonymousIdentity,
   parseAnonymousIdentityEnvelope,
+  parseSerializedAnonymousIdentityEnvelope,
   sealAnonymousIdentity,
   serializeAnonymousIdentityEnvelope,
   type AnonymousIdentityEnvelope,
@@ -45,6 +49,102 @@ function tamperBase64(value: string) {
 }
 
 describe('anonymous identity authenticated encryption', () => {
+  it('round trips the maximum 191-code-unit identity within exported bounds', () => {
+    const maximumIdentity = '界'.repeat(191);
+    const envelope = sealAnonymousIdentity(maximumIdentity, keyring());
+    const serialized = serializeAnonymousIdentityEnvelope(envelope);
+    expect(MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BASE64_CHARS).toBe(764);
+    expect(MAX_ANONYMOUS_IDENTITY_SERIALIZED_ENVELOPE_CHARS).toBe(2_048);
+    expect(envelope.ciphertext).toHaveLength(764);
+    expect(serialized.length).toBeLessThanOrEqual(2_048);
+    expect(openAnonymousIdentity(envelope, keyring())).toBe(maximumIdentity);
+  });
+
+  it('rejects overlong ciphertext before any Base64 decode', () => {
+    const bufferFrom = vi.spyOn(Buffer, 'from');
+    try {
+      expect(() =>
+        parseAnonymousIdentityEnvelope({
+          ciphertext: 'A'.repeat(768),
+          iv: Buffer.alloc(12).toString('base64'),
+          keyVersion: 1,
+          tag: Buffer.alloc(16).toString('base64'),
+        }),
+      ).toThrow(AnonymousIdentityError);
+      expect(bufferFrom).not.toHaveBeenCalled();
+    } finally {
+      bufferFrom.mockRestore();
+    }
+  });
+
+  it('rejects an overlong serialized envelope before JSON.parse', () => {
+    const jsonParse = vi.spyOn(JSON, 'parse');
+    try {
+      expect(() =>
+        parseSerializedAnonymousIdentityEnvelope('x'.repeat(2_049)),
+      ).toThrow(AnonymousIdentityError);
+      expect(jsonParse).not.toHaveBeenCalled();
+    } finally {
+      jsonParse.mockRestore();
+    }
+  });
+
+  it('accepts signed-int32 max keyVersion and rejects max plus one everywhere', () => {
+    const maximumVersion = 0x7fff_ffff;
+    const invalidVersion = maximumVersion + 1;
+    const maximumKey = Buffer.alloc(32, 0x71);
+    const maximumVersionKeys: AnonymousIdentityKeyring = {
+      currentVersion: maximumVersion,
+      encryptionKeys: new Map([[maximumVersion, maximumKey]]),
+      fingerprintKey,
+    };
+    const maximumEnvelope = sealAnonymousIdentity(
+      'user_123',
+      maximumVersionKeys,
+    );
+
+    expect(MAX_ANONYMOUS_IDENTITY_KEY_VERSION).toBe(maximumVersion);
+    expect(maximumEnvelope.keyVersion).toBe(maximumVersion);
+    expect(openAnonymousIdentity(maximumEnvelope, maximumVersionKeys)).toBe(
+      'user_123',
+    );
+    expect(
+      loadAnonymousIdentityKeyring(
+        {
+          ANONYMOUS_FINGERPRINT_KEY: fingerprintKey.toString('base64'),
+          [`ANONYMOUS_IDENTITY_KEY_V${maximumVersion}`]:
+            maximumKey.toString('base64'),
+        },
+        { currentVersion: maximumVersion, versions: [maximumVersion] },
+      ).currentVersion,
+    ).toBe(maximumVersion);
+
+    const invalidVersionKeys: AnonymousIdentityKeyring = {
+      currentVersion: invalidVersion,
+      encryptionKeys: new Map([[invalidVersion, maximumKey]]),
+      fingerprintKey,
+    };
+    expect(() => sealAnonymousIdentity('user_123', invalidVersionKeys)).toThrow(
+      AnonymousIdentityError,
+    );
+    expect(() =>
+      parseAnonymousIdentityEnvelope({
+        ...maximumEnvelope,
+        keyVersion: invalidVersion,
+      }),
+    ).toThrow(AnonymousIdentityError);
+    expect(() =>
+      loadAnonymousIdentityKeyring(
+        {
+          ANONYMOUS_FINGERPRINT_KEY: fingerprintKey.toString('base64'),
+          [`ANONYMOUS_IDENTITY_KEY_V${invalidVersion}`]:
+            maximumKey.toString('base64'),
+        },
+        { currentVersion: invalidVersion, versions: [invalidVersion] },
+      ),
+    ).toThrow(AnonymousIdentityError);
+  });
+
   it('round trips V1 and V2 with random 12-byte IVs and 16-byte tags', () => {
     const first = sealAnonymousIdentity('user_123', keyring(), 1);
     const second = sealAnonymousIdentity('user_123', keyring(2), 2);

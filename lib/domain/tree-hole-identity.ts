@@ -1,7 +1,7 @@
 import {
   AnonymousIdentityError,
   openAnonymousIdentity,
-  parseAnonymousIdentityEnvelope,
+  parseSerializedAnonymousIdentityEnvelope,
   type AnonymousIdentityKeyring,
 } from '@/lib/security/anonymous-identity';
 import { sanitizeAuditDetails } from './audit-details';
@@ -27,6 +27,7 @@ interface FindFirstDelegate {
 }
 
 export interface TreeHoleIdentityAdapter {
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
   $transaction<T>(
     operation: (tx: TreeHoleIdentityAdapter) => Promise<T>,
     options?: { isolationLevel: 'Serializable' },
@@ -133,16 +134,9 @@ function storedEnvelope(post: Record<string, unknown>) {
     );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(post.anonymousCiphertext);
-  } catch {
-    throw new AnonymousIdentityError(
-      'MALFORMED_ENVELOPE',
-      'Stored anonymous identity envelope is invalid.',
-    );
-  }
-  const envelope = parseAnonymousIdentityEnvelope(parsed);
+  const envelope = parseSerializedAnonymousIdentityEnvelope(
+    post.anonymousCiphertext,
+  );
   if (envelope.keyVersion !== post.anonymousKeyVersion) {
     throw new AnonymousIdentityError(
       'MALFORMED_ENVELOPE',
@@ -166,6 +160,18 @@ export async function revealTreeHoleAuthor(
   };
 
   return serializableTransaction(adapter, async (tx) => {
+    const lockedReports = await tx.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id
+       FROM "Report"
+       WHERE id = $1 AND "campusId" = $2
+       FOR UPDATE`,
+      input.reportId,
+      actor.campusId,
+    );
+    if (lockedReports.length !== 1 || lockedReports[0]?.id !== input.reportId) {
+      throw new TreeHoleIdentityForbiddenError();
+    }
+
     const report = await tx.report.findFirst({
       select: {
         campusId: true,

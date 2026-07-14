@@ -50,6 +50,7 @@ CREATE TABLE "ForumPost" (
       AND "authorId" IS NULL
       AND "anonymousCiphertext" IS NOT NULL
       AND char_length("anonymousCiphertext") > 0
+      AND char_length("anonymousCiphertext") <= 2048
       AND "anonymousFingerprint" IS NOT NULL
       AND char_length("anonymousFingerprint") = 64
       AND "anonymousKeyVersion" IS NOT NULL

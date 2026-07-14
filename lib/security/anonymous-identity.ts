@@ -10,7 +10,16 @@ import {
 const AES_KEY_BYTES = 32;
 const GCM_IV_BYTES = 12;
 const GCM_TAG_BYTES = 16;
-const MAX_KEY_VERSION = 0xffff_ffff;
+export const MAX_ANONYMOUS_IDENTITY_CODE_UNITS = 191;
+export const MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BYTES =
+  MAX_ANONYMOUS_IDENTITY_CODE_UNITS * 3;
+export const MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BASE64_CHARS =
+  4 * Math.ceil(MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BYTES / 3);
+export const MAX_ANONYMOUS_IDENTITY_SERIALIZED_ENVELOPE_CHARS = 2_048;
+export const MAX_ANONYMOUS_IDENTITY_KEY_VERSION = 0x7fff_ffff;
+export const ANONYMOUS_IDENTITY_IV_BASE64_CHARS = 16;
+export const ANONYMOUS_IDENTITY_TAG_BASE64_CHARS = 24;
+export const ANONYMOUS_IDENTITY_KEY_BASE64_CHARS = 44;
 const standardBase64 =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
@@ -51,7 +60,7 @@ function validKeyVersion(value: unknown): value is number {
     typeof value === 'number' &&
     Number.isSafeInteger(value) &&
     value > 0 &&
-    value <= MAX_KEY_VERSION
+    value <= MAX_ANONYMOUS_IDENTITY_KEY_VERSION
   );
 }
 
@@ -92,6 +101,12 @@ function decodedKey(value: string | undefined, name: string) {
       `${name} is required.`,
     );
   }
+  if (value.length !== ANONYMOUS_IDENTITY_KEY_BASE64_CHARS) {
+    throw new AnonymousIdentityError(
+      'INVALID_CONFIGURATION',
+      `${name} must decode to exactly 32 bytes.`,
+    );
+  }
   const key = decodeStandardBase64(value, 'INVALID_CONFIGURATION');
   if (key.byteLength !== AES_KEY_BYTES) {
     throw new AnonymousIdentityError(
@@ -106,7 +121,7 @@ function validIdentity(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     value.length > 0 &&
-    value.length <= 191 &&
+    value.length <= MAX_ANONYMOUS_IDENTITY_CODE_UNITS &&
     value.trim() === value
   );
 }
@@ -155,12 +170,26 @@ export function parseAnonymousIdentityEnvelope(
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AnonymousIdentityError('MALFORMED_ENVELOPE');
   }
-  const keys = Object.keys(value).sort();
-  if (keys.join(',') !== 'ciphertext,iv,keyVersion,tag') {
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.ciphertext !== 'string' ||
+    record.ciphertext.length === 0 ||
+    record.ciphertext.length > MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BASE64_CHARS ||
+    typeof record.iv !== 'string' ||
+    record.iv.length !== ANONYMOUS_IDENTITY_IV_BASE64_CHARS ||
+    typeof record.tag !== 'string' ||
+    record.tag.length !== ANONYMOUS_IDENTITY_TAG_BASE64_CHARS ||
+    !validKeyVersion(record.keyVersion)
+  ) {
     throw new AnonymousIdentityError('MALFORMED_ENVELOPE');
   }
-  const record = value as Record<string, unknown>;
-  if (!validKeyVersion(record.keyVersion)) {
+  const keys = Object.keys(value);
+  if (
+    keys.length !== 4 ||
+    !['ciphertext', 'iv', 'keyVersion', 'tag'].every((key) =>
+      Object.hasOwn(value, key),
+    )
+  ) {
     throw new AnonymousIdentityError('MALFORMED_ENVELOPE');
   }
   const ciphertext = decodeStandardBase64(
@@ -171,6 +200,7 @@ export function parseAnonymousIdentityEnvelope(
   const tag = decodeStandardBase64(record.tag, 'MALFORMED_ENVELOPE');
   if (
     ciphertext.byteLength === 0 ||
+    ciphertext.byteLength > MAX_ANONYMOUS_IDENTITY_CIPHERTEXT_BYTES ||
     iv.byteLength !== GCM_IV_BYTES ||
     tag.byteLength !== GCM_TAG_BYTES
   ) {
@@ -184,8 +214,28 @@ export function parseAnonymousIdentityEnvelope(
   };
 }
 
+export function parseSerializedAnonymousIdentityEnvelope(value: unknown) {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > MAX_ANONYMOUS_IDENTITY_SERIALIZED_ENVELOPE_CHARS
+  ) {
+    throw new AnonymousIdentityError('MALFORMED_ENVELOPE');
+  }
+  try {
+    return parseAnonymousIdentityEnvelope(JSON.parse(value));
+  } catch (error) {
+    if (error instanceof AnonymousIdentityError) throw error;
+    throw new AnonymousIdentityError('MALFORMED_ENVELOPE');
+  }
+}
+
 export function serializeAnonymousIdentityEnvelope(value: unknown) {
-  return JSON.stringify(parseAnonymousIdentityEnvelope(value));
+  const serialized = JSON.stringify(parseAnonymousIdentityEnvelope(value));
+  if (serialized.length > MAX_ANONYMOUS_IDENTITY_SERIALIZED_ENVELOPE_CHARS) {
+    throw new AnonymousIdentityError('MALFORMED_ENVELOPE');
+  }
+  return serialized;
 }
 
 export function sealAnonymousIdentity(

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDbClient } from '@/lib/db';
@@ -17,11 +18,84 @@ import {
 import { assertSafeTestDatabase } from '@/tests/helpers/database-safety';
 
 const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
+const DATABASE_LOCK_WAIT_TIMEOUT_MS = 2_000;
 const testKeys: AnonymousIdentityKeyring = {
   currentVersion: 1,
   encryptionKeys: new Map([[1, Buffer.alloc(32, 0x61)]]),
   fingerprintKey: Buffer.alloc(32, 0x62),
 };
+
+async function waitForForumDatabaseLock(
+  db: ReturnType<typeof createDbClient>,
+  applicationName: string,
+) {
+  const deadline = Date.now() + DATABASE_LOCK_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const activity = await db.$queryRawUnsafe<
+      Array<{ waitEventType: string | null }>
+    >(
+      `SELECT wait_event_type AS "waitEventType"
+       FROM pg_stat_activity
+       WHERE application_name = $1`,
+      applicationName,
+    );
+    if (activity.some(({ waitEventType }) => waitEventType === 'Lock')) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `Database client ${applicationName} did not wait on a lock within ${DATABASE_LOCK_WAIT_TIMEOUT_MS}ms`,
+  );
+}
+
+function namedDatabaseUrl(applicationName: string) {
+  const databaseUrl = new URL(process.env.DATABASE_URL ?? '');
+  databaseUrl.searchParams.set('application_name', applicationName);
+  databaseUrl.searchParams.set('options', '-c statement_timeout=3000');
+  return databaseUrl.toString();
+}
+
+function auditBarrierAdapter(
+  client: ReturnType<typeof createDbClient>,
+  afterAudit: () => Promise<void>,
+  beforeTransaction: () => void = () => undefined,
+) {
+  return {
+    $transaction: <T>(
+      operation: (tx: TreeHoleIdentityAdapter) => Promise<T>,
+      options?: { isolationLevel: 'Serializable' },
+    ) => {
+      beforeTransaction();
+      return client.$transaction(
+        async (tx) =>
+          operation({
+            $queryRawUnsafe: <Result = unknown>(
+              query: string,
+              ...values: unknown[]
+            ) => tx.$queryRawUnsafe<Result>(query, ...values),
+            auditLog: {
+              create: async (args: Record<string, unknown>) => {
+                const audit = await tx.auditLog.create(args as never);
+                await afterAudit();
+                return audit;
+              },
+            },
+            forumPost: {
+              findFirst: (args: Record<string, unknown>) =>
+                tx.forumPost.findFirst(args as never),
+            },
+            report: {
+              findFirst: (args: Record<string, unknown>) =>
+                tx.report.findFirst(args as never),
+            },
+          } as unknown as TreeHoleIdentityAdapter),
+        options,
+      );
+    },
+    auditLog: client.auditLog,
+    forumPost: client.forumPost,
+    report: client.report,
+  } as unknown as TreeHoleIdentityAdapter;
+}
 
 describeWithDatabase('forum anonymous identity persistence', () => {
   let db: ReturnType<typeof createDbClient>;
@@ -29,6 +103,7 @@ describeWithDatabase('forum anonymous identity persistence', () => {
   let adminId = '';
   let moderatorId = '';
   let anonymousUserId = '';
+  let categorySlug = '';
   let treeHoleId = '';
   let reportId = '';
 
@@ -83,6 +158,7 @@ describeWithDatabase('forum anonymous identity persistence', () => {
         slug: `tree-hole-${suffix}`.slice(0, 64),
       },
     });
+    categorySlug = category.slug;
     const envelope = sealAnonymousIdentity(anonymousUserId, testKeys);
     const treeHole = await db.forumPost.create({
       data: {
@@ -115,6 +191,20 @@ describeWithDatabase('forum anonymous identity persistence', () => {
     });
     reportId = report.id;
   });
+
+  async function createActiveReport() {
+    return db.report.create({
+      data: {
+        campusId,
+        details: 'Run-scoped report for a report-lock ordering test.',
+        reason: 'OTHER',
+        reporterId: moderatorId,
+        status: 'OPEN',
+        targetId: treeHoleId,
+        targetType: 'FORUM_POST',
+      },
+    });
+  }
 
   afterAll(async () => {
     if (campusId) {
@@ -231,4 +321,166 @@ describeWithDatabase('forum anonymous identity persistence', () => {
     expect(publicPost).not.toHaveProperty('anonymousKeyVersion');
     expect(JSON.stringify(publicPost)).not.toContain(anonymousUserId);
   });
+
+  it('rejects an oversized serialized tree-hole envelope at the database boundary', async () => {
+    const directClient = new Client({
+      connectionString: process.env.DATABASE_URL,
+    });
+    await directClient.connect();
+    try {
+      await directClient.query("SET statement_timeout = '3s'");
+      await expect(
+        directClient.query(
+          `INSERT INTO "ForumPost"
+             (id, "campusId", kind, "anonymousCiphertext",
+              "anonymousFingerprint", "anonymousKeyVersion", "publicCode",
+              title, body, category, "updatedAt")
+           VALUES ($1, $2, 'TREE_HOLE', $3, $4, 1, $5, $6, $7, $8, now())`,
+          [
+            `oversized-envelope-${randomUUID()}`,
+            campusId,
+            'x'.repeat(2_049),
+            'a'.repeat(64),
+            randomUUID().replaceAll('-', '').slice(0, 12).toUpperCase(),
+            'Oversized envelope database boundary',
+            'The database must reject an envelope over the shared cap.',
+            categorySlug,
+          ],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+    } finally {
+      await directClient.end();
+    }
+  });
+
+  it('rechecks a closed report after a concurrent close commits', async () => {
+    const report = await createActiveReport();
+    const suffix = randomUUID().replaceAll('-', '');
+    const revealName = `rv-close-${suffix}`;
+    const closer = new Client({
+      application_name: `close-first-${suffix}`,
+      connectionString: process.env.DATABASE_URL,
+    });
+    const revealDb = createDbClient(namedDatabaseUrl(revealName));
+    let transactionAttempts = 0;
+    const revealAdapter = auditBarrierAdapter(
+      revealDb,
+      async () => undefined,
+      () => {
+        transactionAttempts += 1;
+      },
+    );
+    await closer.connect();
+    try {
+      await closer.query("SET statement_timeout = '3s'");
+      await closer.query('BEGIN');
+      await closer.query(
+        `UPDATE "Report" SET status = 'DISMISSED' WHERE id = $1`,
+        [report.id],
+      );
+
+      const revealOutcome = revealTreeHoleAuthor(
+        revealAdapter,
+        { campusId, id: adminId, role: 'ADMIN' },
+        {
+          postId: treeHoleId,
+          reason: 'The close must win before identity authorization is read.',
+          reportId: report.id,
+        },
+        testKeys,
+      ).then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (error: unknown) => ({ error, status: 'rejected' as const }),
+      );
+
+      await waitForForumDatabaseLock(db, revealName);
+      await closer.query('COMMIT');
+      const outcome = await revealOutcome;
+      expect(transactionAttempts).toBe(2);
+      expect(outcome).toMatchObject({
+        error: expect.any(TreeHoleIdentityForbiddenError),
+        status: 'rejected',
+      });
+      await expect(
+        db.auditLog.count({
+          where: {
+            action: 'TREE_HOLE_AUTHOR_REVEALED',
+            subjectId: report.id,
+          },
+        }),
+      ).resolves.toBe(0);
+      await expect(
+        db.report.findUniqueOrThrow({ where: { id: report.id } }),
+      ).resolves.toMatchObject({ status: 'DISMISSED' });
+    } finally {
+      await Promise.allSettled([closer.query('ROLLBACK')]);
+      await Promise.all([closer.end(), revealDb.$disconnect()]);
+    }
+  }, 10_000);
+
+  it('holds the report row lock until a successful reveal commits', async () => {
+    const report = await createActiveReport();
+    const suffix = randomUUID().replaceAll('-', '');
+    const revealDb = createDbClient(namedDatabaseUrl(`rv-first-${suffix}`));
+    const closerName = `close-after-${suffix}`;
+    const closer = new Client({
+      application_name: closerName,
+      connectionString: process.env.DATABASE_URL,
+    });
+    let signalAuditReached!: () => void;
+    const auditReached = new Promise<void>((resolve) => {
+      signalAuditReached = resolve;
+    });
+    let releaseReveal!: () => void;
+    const revealMayCommit = new Promise<void>((resolve) => {
+      releaseReveal = resolve;
+    });
+    const revealAdapter = auditBarrierAdapter(revealDb, async () => {
+      signalAuditReached();
+      await revealMayCommit;
+    });
+
+    await closer.connect();
+    try {
+      await closer.query("SET statement_timeout = '3s'");
+      const reveal = revealTreeHoleAuthor(
+        revealAdapter,
+        { campusId, id: adminId, role: 'ADMIN' },
+        {
+          postId: treeHoleId,
+          reason: 'The audited reveal must commit before report closure.',
+          reportId: report.id,
+        },
+        testKeys,
+      );
+      await auditReached;
+
+      await closer.query('BEGIN');
+      const closeUpdate = closer.query(
+        `UPDATE "Report" SET status = 'DISMISSED' WHERE id = $1`,
+        [report.id],
+      );
+      await waitForForumDatabaseLock(db, closerName);
+      releaseReveal();
+
+      await expect(reveal).resolves.toStrictEqual({ userId: anonymousUserId });
+      await expect(closeUpdate).resolves.toMatchObject({ rowCount: 1 });
+      await closer.query('COMMIT');
+      await expect(
+        db.auditLog.count({
+          where: {
+            action: 'TREE_HOLE_AUTHOR_REVEALED',
+            subjectId: report.id,
+          },
+        }),
+      ).resolves.toBe(1);
+      await expect(
+        db.report.findUniqueOrThrow({ where: { id: report.id } }),
+      ).resolves.toMatchObject({ status: 'DISMISSED' });
+    } finally {
+      releaseReveal?.();
+      await Promise.allSettled([closer.query('ROLLBACK')]);
+      await Promise.all([closer.end(), revealDb.$disconnect()]);
+    }
+  }, 10_000);
 });

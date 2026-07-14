@@ -35,6 +35,7 @@ const input = {
 
 function adapter(
   options: {
+    lockedReport?: Record<string, unknown> | null;
     post?: Record<string, unknown> | null;
     report?: Record<string, unknown> | null;
   } = {},
@@ -42,6 +43,14 @@ function adapter(
   const order: string[] = [];
   const envelope = sealAnonymousIdentity('private_user_1', keys);
   const value = {
+    $queryRawUnsafe: vi.fn(async () => {
+      order.push('lock');
+      return options.lockedReport === undefined
+        ? [{ id: input.reportId }]
+        : options.lockedReport
+          ? [options.lockedReport]
+          : [];
+    }),
     $transaction: vi.fn(
       async (operation: (tx: TreeHoleIdentityAdapter) => Promise<unknown>) => {
         order.push('transaction');
@@ -96,6 +105,7 @@ function retryingAdapter(
   let attempt = -1;
   let pendingAudits: unknown[] | undefined;
   const value = {
+    $queryRawUnsafe: vi.fn(async () => [{ id: input.reportId }]),
     $transaction: vi.fn(
       async (operation: (tx: TreeHoleIdentityAdapter) => Promise<unknown>) => {
         attempt += 1;
@@ -174,7 +184,7 @@ describe('audited tree-hole identity reveal', () => {
       await expect(
         revealTreeHoleAuthor(db, actor, input, keys),
       ).rejects.toBeInstanceOf(TreeHoleIdentityForbiddenError);
-      expect(db.order).toEqual(['transaction', 'report']);
+      expect(db.order).toEqual(['transaction', 'lock', 'report']);
       expect(db.forumPost.findFirst).not.toHaveBeenCalled();
       expect(db.auditLog.create).not.toHaveBeenCalled();
     },
@@ -265,6 +275,7 @@ describe('audited tree-hole identity reveal', () => {
     expect(result).toStrictEqual({ userId: 'private_user_1' });
     expect(db.order).toEqual([
       'transaction',
+      'lock',
       'report',
       'post',
       'audit',
@@ -273,6 +284,14 @@ describe('audited tree-hole identity reveal', () => {
     expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'Serializable',
     });
+    expect(db.$queryRawUnsafe).toHaveBeenCalledWith(
+      `SELECT id
+       FROM "Report"
+       WHERE id = $1 AND "campusId" = $2
+       FOR UPDATE`,
+      input.reportId,
+      actor.campusId,
+    );
     expect(db.forumPost.findFirst).toHaveBeenCalledWith({
       select: {
         anonymousCiphertext: true,
@@ -316,6 +335,18 @@ describe('audited tree-hole identity reveal', () => {
     ]) {
       expect(auditCall).not.toContain(secret);
     }
+  });
+
+  it('forbids when the report row lock finds no same-campus report', async () => {
+    const db = adapter({ lockedReport: null });
+
+    await expect(
+      revealTreeHoleAuthor(db, actor, input, keys),
+    ).rejects.toBeInstanceOf(TreeHoleIdentityForbiddenError);
+    expect(db.order).toEqual(['transaction', 'lock']);
+    expect(db.report.findFirst).not.toHaveBeenCalled();
+    expect(db.forumPost.findFirst).not.toHaveBeenCalled();
+    expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 
   it.each(['OPEN', 'TRIAGED'] as const)(
@@ -409,6 +440,28 @@ describe('audited tree-hole identity reveal', () => {
     },
   );
 
+  it('rejects an oversized stored envelope before JSON.parse and never audits', async () => {
+    const db = adapter({
+      post: {
+        anonymousCiphertext: `${' '.repeat(2_048)}{}`,
+        anonymousKeyVersion: 1,
+        campusId: actor.campusId,
+        id: input.postId,
+        kind: 'TREE_HOLE',
+      },
+    });
+    const jsonParse = vi.spyOn(JSON, 'parse');
+    try {
+      await expect(
+        revealTreeHoleAuthor(db, actor, input, keys),
+      ).rejects.toMatchObject({ code: 'MALFORMED_ENVELOPE' });
+      expect(jsonParse).not.toHaveBeenCalled();
+      expect(db.auditLog.create).not.toHaveBeenCalled();
+    } finally {
+      jsonParse.mockRestore();
+    }
+  });
+
   it('retries the complete transaction after P2034 and commits one audit', async () => {
     const db = retryingAdapter([{ code: 'P2034' }, undefined]);
 
@@ -416,6 +469,7 @@ describe('audited tree-hole identity reveal', () => {
       revealTreeHoleAuthor(db, actor, input, keys),
     ).resolves.toStrictEqual({ userId: 'private_user_1' });
     expect(db.$transaction).toHaveBeenCalledTimes(2);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(2);
     expect(db.report.findFirst).toHaveBeenCalledTimes(2);
     expect(db.forumPost.findFirst).toHaveBeenCalledTimes(2);
     expect(db.auditLog.create).toHaveBeenCalledTimes(2);
@@ -431,6 +485,7 @@ describe('audited tree-hole identity reveal', () => {
         revealTreeHoleAuthor(db, actor, input, keys),
       ).resolves.toStrictEqual({ userId: 'private_user_1' });
       expect(db.$transaction).toHaveBeenCalledTimes(2);
+      expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(2);
       expect(db.report.findFirst).toHaveBeenCalledTimes(2);
       expect(db.forumPost.findFirst).toHaveBeenCalledTimes(2);
       expect(db.committedAudits).toHaveLength(1);
@@ -449,6 +504,7 @@ describe('audited tree-hole identity reveal', () => {
       finalError,
     );
     expect(db.$transaction).toHaveBeenCalledTimes(3);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(3);
     expect(db.report.findFirst).toHaveBeenCalledTimes(3);
     expect(db.forumPost.findFirst).toHaveBeenCalledTimes(3);
     expect(db.auditLog.create).toHaveBeenCalledTimes(3);
@@ -465,6 +521,7 @@ describe('audited tree-hole identity reveal', () => {
       revealTreeHoleAuthor(db, actor, input, keys),
     ).rejects.toBeInstanceOf(TreeHoleIdentityForbiddenError);
     expect(db.$transaction).toHaveBeenCalledTimes(2);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(2);
     expect(db.report.findFirst).toHaveBeenCalledTimes(2);
     expect(db.forumPost.findFirst).toHaveBeenCalledTimes(1);
     expect(db.auditLog.create).toHaveBeenCalledTimes(1);

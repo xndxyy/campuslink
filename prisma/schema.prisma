@@ -58,6 +58,12 @@ enum MarketplaceCondition {
   POOR
 }
 
+enum TagScope {
+  RESOURCE
+  MARKETPLACE
+  CAMPUS_WORK
+}
+
 enum FavouriteTargetType {
   RESOURCE
   MARKETPLACE_ITEM
@@ -119,6 +125,8 @@ model Campus {
   resources          Resource[]
   marketplaceItems   MarketplaceItem[]
   jobPosts           JobPost[]
+  campusWorkPosts    CampusWorkPost[]
+  tagDefinitions     TagDefinition[]
   announcements      Announcement[]    @relation("AnnouncementCampus")
   reports            Report[]
   auditLogs          AuditLog[]
@@ -141,6 +149,7 @@ model User {
   resources        Resource[]         @relation("ResourceAuthor")
   marketplaceItems MarketplaceItem[]  @relation("MarketplaceSeller")
   jobPosts         JobPost[]          @relation("JobAuthor")
+  campusWorkPosts  CampusWorkPost[]   @relation("CampusWorkAuthor")
   announcements    Announcement[]     @relation("AnnouncementAuthor")
   favourites       Favourite[]
   reports          Report[]           @relation("ReportReporter")
@@ -244,41 +253,61 @@ model StorageDeletionJob {
   @@index([nextAttempt, id])
 }
 
+model TagDefinition {
+  id              String           @id @default(cuid())
+  campusId        String
+  scope           TagScope
+  label           String           @db.VarChar(32)
+  slug            String           @db.VarChar(40)
+  isPreset        Boolean          @default(false)
+  isActive        Boolean          @default(true)
+  campus          Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  resourceTags    ResourceTag[]
+  marketplaceTags MarketplaceTag[]
+  campusWorkTags  CampusWorkTag[]
+  createdAt       DateTime         @default(now())
+
+  @@unique([campusId, scope, slug])
+  @@index([campusId, scope, isActive, label])
+}
+
 model Resource {
-  id         String        @id @default(cuid())
-  authorId   String
-  campusId   String
-  title      String        @db.VarChar(200)
-  summary    String        @db.Text
-  courseCode String?       @db.VarChar(64)
-  tags       String[]      @default([])
-  status     ContentStatus @default(DRAFT)
-  author     User          @relation("ResourceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  campus     Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  assets     Asset[]       @relation("ResourceAssets")
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  authorId       String
+  campusId       String
+  title          String        @db.VarChar(200)
+  summary        String        @db.Text
+  courseCode     String?       @db.VarChar(64)
+  tags           String[]      @default([])
+  status         ContentStatus @default(DRAFT)
+  author         User          @relation("ResourceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  campus         Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assets         Asset[]       @relation("ResourceAssets")
+  tagAssignments ResourceTag[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([campusId, status, createdAt])
   @@index([authorId, status])
 }
 
 model MarketplaceItem {
-  id          String        @id @default(cuid())
-  sellerId    String
-  campusId    String
-  title       String        @db.VarChar(200)
-  description String        @db.Text
-  priceCents  Int
-  condition   MarketplaceCondition
-  pickupArea  String        @db.VarChar(200)
-  contact     String        @db.Text
-  status      ContentStatus @default(DRAFT)
-  seller      User          @relation("MarketplaceSeller", fields: [sellerId], references: [id], onDelete: Cascade)
-  campus      Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  assets      Asset[]       @relation("MarketplaceItemAssets")
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id             String               @id @default(cuid())
+  sellerId       String
+  campusId       String
+  title          String               @db.VarChar(200)
+  description    String               @db.Text
+  priceCents     Int
+  condition      MarketplaceCondition
+  pickupArea     String               @db.VarChar(200)
+  contact        String               @db.Text
+  status         ContentStatus        @default(DRAFT)
+  seller         User                 @relation("MarketplaceSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  campus         Campus               @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assets         Asset[]              @relation("MarketplaceItemAssets")
+  tagAssignments MarketplaceTag[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@index([campusId, status, createdAt])
   @@index([sellerId, status])
@@ -301,6 +330,57 @@ model JobPost {
 
   @@index([campusId, status, createdAt])
   @@index([authorId, status])
+}
+
+model CampusWorkPost {
+  id             String          @id @default(cuid())
+  authorId       String
+  campusId       String
+  company        String?         @db.VarChar(200)
+  title          String          @db.VarChar(200)
+  description    String          @db.Text
+  location       String          @db.VarChar(200)
+  payText        String          @db.VarChar(200)
+  contact        String?         @db.Text
+  status         ContentStatus   @default(DRAFT)
+  author         User            @relation("CampusWorkAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  campus         Campus          @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  tagAssignments CampusWorkTag[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([campusId, status, createdAt, id])
+  @@index([authorId, status])
+}
+
+model ResourceTag {
+  resourceId String
+  tagId      String
+  resource   Resource      @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  tag        TagDefinition @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([resourceId, tagId])
+  @@index([tagId, resourceId])
+}
+
+model MarketplaceTag {
+  marketplaceItemId String
+  tagId             String
+  marketplaceItem   MarketplaceItem @relation(fields: [marketplaceItemId], references: [id], onDelete: Cascade)
+  tag               TagDefinition   @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([marketplaceItemId, tagId])
+  @@index([tagId, marketplaceItemId])
+}
+
+model CampusWorkTag {
+  campusWorkPostId String
+  tagId            String
+  campusWorkPost   CampusWorkPost @relation(fields: [campusWorkPostId], references: [id], onDelete: Cascade)
+  tag              TagDefinition  @relation(fields: [tagId], references: [id], onDelete: Restrict)
+
+  @@id([campusWorkPostId, tagId])
+  @@index([tagId, campusWorkPostId])
 }
 
 model Favourite {

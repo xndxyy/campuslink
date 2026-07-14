@@ -13,7 +13,7 @@
 ### Task 1: Add Blocked Words And AI Assessment Persistence
 
 **Files:**
-- Create: `prisma/migrations/20260713200000_add_content_assessment/migration.sql`
+- Create: `prisma/migrations/20260713210000_add_content_assessment/migration.sql`
 - Modify: `prisma/schema.prisma`
 - Test: `tests/unit/moderation-schema.contract.test.ts`
 - Test: `tests/integration/schema-constraints.test.ts`
@@ -298,7 +298,7 @@ git push
 ### Task 6: Contract Migration, Documentation, And Release Verification
 
 **Files:**
-- Create: `prisma/migrations/20260713210000_contract_legacy_content/migration.sql`
+- Create: `prisma/migrations/20260713220000_contract_legacy_content/migration.sql`
 - Modify: `prisma/schema.prisma`
 - Modify: `tests/unit/content-migrations.contract.test.ts`
 - Modify: `scripts/provision-e2e.ts`

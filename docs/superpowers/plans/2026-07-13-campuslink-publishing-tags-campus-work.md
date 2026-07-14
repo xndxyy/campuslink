@@ -13,7 +13,7 @@
 ### Task 1: Add Scoped Tags And Campus Work Expand Migration
 
 **Files:**
-- Create: `prisma/migrations/20260713180000_add_tags_and_campus_work/migration.sql`
+- Create: `prisma/migrations/20260713190000_add_tags_and_campus_work/migration.sql`
 - Modify: `prisma/schema.prisma`
 - Modify: `prisma/seed.ts`
 - Test: `tests/unit/content-migrations.contract.test.ts`

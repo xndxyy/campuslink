@@ -4,6 +4,7 @@ import {
   AssetKind,
   AssetStatus,
   ContentStatus,
+  TagScope,
   UserRole,
   UserStatus,
 } from '../generated/prisma/client';
@@ -11,6 +12,14 @@ import { createDbClient } from '../lib/db';
 
 const passwordHash =
   '$2b$12$3PhfWpsS2TCwMa.ASaQKOeM.A7RZOc4xS5b07a0PWAZDvQkQ9t6Mi';
+
+const campusWorkPresetTags = [
+  { label: 'COS委托', slug: 'cos-commission' },
+  { label: '校园跑腿', slug: 'campus-errand' },
+  { label: '临时兼职', slug: 'temporary-job' },
+  { label: '技能服务', slug: 'skills-service' },
+  { label: '其他', slug: 'other' },
+] as const;
 
 async function main() {
   const db = createDbClient();
@@ -30,6 +39,31 @@ async function main() {
         isActive: true,
       },
     });
+
+    for (const preset of campusWorkPresetTags) {
+      await db.tagDefinition.upsert({
+        where: {
+          campusId_scope_slug: {
+            campusId: campus.id,
+            scope: TagScope.CAMPUS_WORK,
+            slug: preset.slug,
+          },
+        },
+        update: {
+          isActive: true,
+          isPreset: true,
+          label: preset.label,
+        },
+        create: {
+          campusId: campus.id,
+          isActive: true,
+          isPreset: true,
+          label: preset.label,
+          scope: TagScope.CAMPUS_WORK,
+          slug: preset.slug,
+        },
+      });
+    }
 
     const student = await db.user.upsert({
       where: { email: 'student@campuslink.edu' },

@@ -67,6 +67,30 @@ describeWithDatabase('database schema constraints', () => {
       await db.announcement.deleteMany({
         where: { campusId: { in: cleanupCampusIds } },
       });
+      await db.resourceTag.deleteMany({
+        where: { resource: { campusId: { in: cleanupCampusIds } } },
+      });
+      await db.marketplaceTag.deleteMany({
+        where: { marketplaceItem: { campusId: { in: cleanupCampusIds } } },
+      });
+      await db.campusWorkTag.deleteMany({
+        where: { campusWorkPost: { campusId: { in: cleanupCampusIds } } },
+      });
+      await db.resource.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.marketplaceItem.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.campusWorkPost.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.jobPost.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.tagDefinition.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
     }
     if (reporterId) {
       await db.user.deleteMany({ where: { id: reporterId } });
@@ -312,5 +336,281 @@ describeWithDatabase('database schema constraints', () => {
     await expect(
       db.storageDeletionJob.create({ data: { storageKey } }),
     ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('scopes tag slug uniqueness by campus and content kind', async () => {
+    if (!campusId) {
+      throw new Error('Test campus setup failed');
+    }
+
+    const suffix = randomUUID();
+    const otherCampus = await db.campus.create({
+      data: {
+        slug: `tag-scope-campus-${suffix}`,
+        name: 'Second Tag Scope Campus',
+      },
+    });
+    cleanupCampusIds.push(otherCampus.id);
+
+    await db.tagDefinition.create({
+      data: {
+        campusId,
+        label: 'Campus help',
+        scope: 'CAMPUS_WORK',
+        slug: 'campus-help',
+      },
+    });
+
+    await expect(
+      db.tagDefinition.create({
+        data: {
+          campusId,
+          label: 'Duplicate campus help',
+          scope: 'CAMPUS_WORK',
+          slug: 'campus-help',
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+
+    await expect(
+      Promise.all([
+        db.tagDefinition.create({
+          data: {
+            campusId,
+            label: 'Marketplace help',
+            scope: 'MARKETPLACE',
+            slug: 'campus-help',
+          },
+        }),
+        db.tagDefinition.create({
+          data: {
+            campusId: otherCampus.id,
+            label: 'Other campus help',
+            scope: 'CAMPUS_WORK',
+            slug: 'campus-help',
+          },
+        }),
+      ]),
+    ).resolves.toHaveLength(2);
+  });
+
+  it('enforces composite uniqueness and real foreign keys for every tag join', async () => {
+    if (!campusId || !reporterId) {
+      throw new Error('Test content setup failed');
+    }
+
+    const [resource, marketplaceItem, campusWorkPost] = await Promise.all([
+      db.resource.create({
+        data: {
+          authorId: reporterId,
+          campusId,
+          summary: 'Resource join constraint fixture',
+          title: 'Tagged resource',
+        },
+      }),
+      db.marketplaceItem.create({
+        data: {
+          campusId,
+          condition: 'GOOD',
+          contact: 'schema-test@example.test',
+          description: 'Marketplace join constraint fixture',
+          pickupArea: 'Library',
+          priceCents: 100,
+          sellerId: reporterId,
+          title: 'Tagged marketplace item',
+        },
+      }),
+      db.campusWorkPost.create({
+        data: {
+          authorId: reporterId,
+          campusId,
+          description: 'Campus-work join constraint fixture',
+          location: 'Campus',
+          payText: 'Negotiable',
+          title: 'Tagged campus work',
+        },
+      }),
+    ]);
+    const [resourceTag, marketplaceTag, campusWorkTag] = await Promise.all([
+      db.tagDefinition.create({
+        data: {
+          campusId,
+          label: 'Notes',
+          scope: 'RESOURCE',
+          slug: 'notes',
+        },
+      }),
+      db.tagDefinition.create({
+        data: {
+          campusId,
+          label: 'Electronics',
+          scope: 'MARKETPLACE',
+          slug: 'electronics',
+        },
+      }),
+      db.tagDefinition.create({
+        data: {
+          campusId,
+          label: 'Campus errand',
+          scope: 'CAMPUS_WORK',
+          slug: 'campus-errand',
+        },
+      }),
+    ]);
+
+    await Promise.all([
+      db.resourceTag.create({
+        data: { resourceId: resource.id, tagId: resourceTag.id },
+      }),
+      db.marketplaceTag.create({
+        data: {
+          marketplaceItemId: marketplaceItem.id,
+          tagId: marketplaceTag.id,
+        },
+      }),
+      db.campusWorkTag.create({
+        data: { campusWorkPostId: campusWorkPost.id, tagId: campusWorkTag.id },
+      }),
+    ]);
+
+    await expect(
+      db.resourceTag.create({
+        data: { resourceId: resource.id, tagId: resourceTag.id },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      db.marketplaceTag.create({
+        data: {
+          marketplaceItemId: marketplaceItem.id,
+          tagId: marketplaceTag.id,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      db.campusWorkTag.create({
+        data: { campusWorkPostId: campusWorkPost.id, tagId: campusWorkTag.id },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+
+    for (const operation of [
+      () =>
+        db.resourceTag.create({
+          data: { resourceId: resource.id, tagId: `missing-${randomUUID()}` },
+        }),
+      () =>
+        db.resourceTag.create({
+          data: {
+            resourceId: `missing-${randomUUID()}`,
+            tagId: resourceTag.id,
+          },
+        }),
+      () =>
+        db.marketplaceTag.create({
+          data: {
+            marketplaceItemId: marketplaceItem.id,
+            tagId: `missing-${randomUUID()}`,
+          },
+        }),
+      () =>
+        db.marketplaceTag.create({
+          data: {
+            marketplaceItemId: `missing-${randomUUID()}`,
+            tagId: marketplaceTag.id,
+          },
+        }),
+      () =>
+        db.campusWorkTag.create({
+          data: {
+            campusWorkPostId: campusWorkPost.id,
+            tagId: `missing-${randomUUID()}`,
+          },
+        }),
+      () =>
+        db.campusWorkTag.create({
+          data: {
+            campusWorkPostId: `missing-${randomUUID()}`,
+            tagId: campusWorkTag.id,
+          },
+        }),
+    ]) {
+      await expect(operation()).rejects.toMatchObject({ code: 'P2003' });
+    }
+
+    await expect(
+      db.tagDefinition.delete({ where: { id: resourceTag.id } }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+
+    await Promise.all([
+      db.resource.delete({ where: { id: resource.id } }),
+      db.marketplaceItem.delete({ where: { id: marketplaceItem.id } }),
+      db.campusWorkPost.delete({ where: { id: campusWorkPost.id } }),
+    ]);
+    await expect(
+      Promise.all([
+        db.resourceTag.findUnique({
+          where: {
+            resourceId_tagId: {
+              resourceId: resource.id,
+              tagId: resourceTag.id,
+            },
+          },
+        }),
+        db.marketplaceTag.findUnique({
+          where: {
+            marketplaceItemId_tagId: {
+              marketplaceItemId: marketplaceItem.id,
+              tagId: marketplaceTag.id,
+            },
+          },
+        }),
+        db.campusWorkTag.findUnique({
+          where: {
+            campusWorkPostId_tagId: {
+              campusWorkPostId: campusWorkPost.id,
+              tagId: campusWorkTag.id,
+            },
+          },
+        }),
+      ]),
+    ).resolves.toEqual([null, null, null]);
+  });
+
+  it('preserves every pre-migration JobPost field in CampusWorkPost', async () => {
+    const migrations = await db.$queryRaw<Array<{ finishedAt: Date | null }>>`
+      SELECT "finished_at" AS "finishedAt"
+      FROM "_prisma_migrations"
+      WHERE "migration_name" = '20260713190000_add_tags_and_campus_work'
+        AND "rolled_back_at" IS NULL
+      ORDER BY "finished_at" DESC
+      LIMIT 1
+    `;
+    const finishedAt = migrations[0]?.finishedAt;
+    expect(finishedAt).toBeInstanceOf(Date);
+    if (!finishedAt) {
+      throw new Error('Campus-work migration history is missing');
+    }
+
+    const mismatches = await db.$queryRaw<Array<{ id: string }>>`
+      SELECT source."id"
+      FROM "JobPost" AS source
+      LEFT JOIN "CampusWorkPost" AS target ON target."id" = source."id"
+      WHERE source."createdAt" <= ${finishedAt}
+        AND (
+          target."id" IS NULL
+          OR target."authorId" IS DISTINCT FROM source."authorId"
+          OR target."campusId" IS DISTINCT FROM source."campusId"
+          OR target."company" IS DISTINCT FROM source."company"
+          OR target."title" IS DISTINCT FROM source."title"
+          OR target."description" IS DISTINCT FROM source."description"
+          OR target."location" IS DISTINCT FROM source."location"
+          OR target."payText" IS DISTINCT FROM source."payText"
+          OR target."status" IS DISTINCT FROM source."status"
+          OR target."createdAt" IS DISTINCT FROM source."createdAt"
+          OR target."updatedAt" IS DISTINCT FROM source."updatedAt"
+          OR target."contact" IS NOT NULL
+        )
+    `;
+
+    expect(mismatches).toEqual([]);
   });
 });

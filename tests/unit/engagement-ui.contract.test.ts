@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import * as engagementActions from '@/components/content/engagement-actions';
 
 const source = readFileSync(
   fileURLToPath(
@@ -10,6 +11,37 @@ const source = readFileSync(
 );
 
 describe('published detail engagement UI', () => {
+  it('offers CampusWork contact only when a signed-in non-owner has contact available', () => {
+    const canRequestContact = (
+      engagementActions as unknown as {
+        canRequestContact?: (input: {
+          hasContact: boolean;
+          isOwner: boolean;
+          kind: 'campus-work' | 'marketplace' | 'resource';
+          signedIn: boolean;
+        }) => boolean;
+      }
+    ).canRequestContact;
+    expect(canRequestContact).toBeTypeOf('function');
+    if (!canRequestContact) return;
+
+    expect(
+      canRequestContact({
+        hasContact: true,
+        isOwner: false,
+        kind: 'campus-work',
+        signedIn: true,
+      }),
+    ).toBe(true);
+    for (const input of [
+      { hasContact: false, isOwner: false, signedIn: true },
+      { hasContact: true, isOwner: false, signedIn: false },
+      { hasContact: true, isOwner: true, signedIn: true },
+    ]) {
+      expect(canRequestContact({ ...input, kind: 'campus-work' })).toBe(false);
+    }
+  });
+
   it('provides accessible favourite, report dialog, and contact controls', () => {
     expect(source).toContain('aria-pressed');
     expect(source).toContain('<dialog');

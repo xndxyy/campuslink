@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -6,13 +6,38 @@ const source = readFileSync(
   fileURLToPath(new URL('../e2e/publish-content.spec.ts', import.meta.url)),
   'utf8',
 );
+const cleanupHelperPath = fileURLToPath(
+  new URL('../helpers/publish-content-cleanup.ts', import.meta.url),
+);
+const cleanupHelperSource = existsSync(cleanupHelperPath)
+  ? readFileSync(cleanupHelperPath, 'utf8')
+  : '';
+const cleanupSource = `${source}\n${cleanupHelperSource}`;
 
 describe('publish content live E2E navigation contract', () => {
+  it('extracts publisher cleanup behind an injectable orchestrator', () => {
+    expect(cleanupHelperSource).toContain(
+      'export async function cleanupRunScopedPublisher',
+    );
+    expect(source).toContain("from '../helpers/publish-content-cleanup'");
+    expect(source).toContain('cleanupRunScopedPublisher(publisher, {');
+  });
+
+  it('queues storage deletion before DB cleanup and deletes objects only after commit', () => {
+    expect(
+      cleanupHelperSource.indexOf('INSERT INTO "StorageDeletionJob"'),
+    ).toBeLessThan(cleanupHelperSource.indexOf('DELETE FROM "User"'));
+    expect(cleanupHelperSource.indexOf("client.query('COMMIT')")).toBeLessThan(
+      cleanupHelperSource.indexOf('storage.deleteObject(job.storageKey)'),
+    );
+    expect(cleanupHelperSource).toContain('throw new AggregateError(errors');
+  });
+
   it('uses a run-scoped publisher and removes its database and storage fixtures', () => {
     expect(source).toContain('randomUUID()');
     expect(source).toContain('INSERT INTO "User"');
     expect(source).toContain('DeleteObjectCommand');
-    expect(source).toContain('DELETE FROM "User" WHERE id = $1');
+    expect(cleanupSource).toContain('DELETE FROM "User" WHERE id = $1');
     expect(source).toContain('finally');
   });
 
@@ -22,16 +47,16 @@ describe('publish content live E2E navigation contract', () => {
     expect(source).toContain('publisher.customTags.resource.label');
     expect(source).toContain('publisher.customTags.marketplace.label');
     expect(source).toContain('publisher.customTags.campusWork.label');
-    expect(source.indexOf('DELETE FROM "User" WHERE id = $1')).toBeLessThan(
-      source.indexOf('DELETE FROM "TagDefinition"'),
-    );
-    expect(source).toContain('"campusId" = $1');
-    expect(source).toContain('"isPreset" = false');
-    expect(source).toContain('scope = $2::"TagScope"');
-    expect(source).toContain('label = $3');
-    expect(source).toContain('slug = $4');
-    expect(source).toContain('assertRunScopedTagJoinsRemoved');
-    expect(source).not.toMatch(/TagDefinition[\s\S]{0,300}\bLIKE\b/i);
+    expect(
+      cleanupSource.indexOf('DELETE FROM "User" WHERE id = $1'),
+    ).toBeLessThan(cleanupSource.indexOf('DELETE FROM "TagDefinition"'));
+    expect(cleanupSource).toContain('"campusId" = $1');
+    expect(cleanupSource).toContain('"isPreset" = false');
+    expect(cleanupSource).toContain('scope = $2::"TagScope"');
+    expect(cleanupSource).toContain('label = $3');
+    expect(cleanupSource).toContain('slug = $4');
+    expect(cleanupSource).toContain('assertRunScopedTagJoinsRemoved');
+    expect(cleanupSource).not.toMatch(/TagDefinition[\s\S]{0,300}\bLIKE\b/i);
   });
 
   it('deletes only the exact browser session identified by its cookie hash', () => {

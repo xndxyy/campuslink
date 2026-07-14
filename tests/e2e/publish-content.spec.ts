@@ -3,13 +3,10 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { expect, test } from '@playwright/test';
 import { hash } from 'bcryptjs';
-import { Pool, type PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
-import {
-  createPublishContentRunTags,
-  type PublishContentRunTags,
-  type RunScopedPublishTag,
-} from '../helpers/publish-content-run-tags';
+import { cleanupRunScopedPublisher } from '../helpers/publish-content-cleanup';
+import { createPublishContentRunTags } from '../helpers/publish-content-run-tags';
 
 const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
 
@@ -79,115 +76,46 @@ async function createRunScopedPublisher() {
   }
 }
 
-const runScopedTags = (tags: PublishContentRunTags) => [
-  tags.resource,
-  tags.marketplace,
-  tags.campusWork,
-];
-
-async function assertRunScopedTagJoinsRemoved(
-  client: PoolClient,
-  campusId: string,
-  tag: RunScopedPublishTag,
+async function cleanupPublisher(
+  publisher: Awaited<ReturnType<typeof createRunScopedPublisher>>,
 ) {
-  const joined = await client.query<{ count: number }>(
-    `SELECT COUNT(*)::int AS count
-     FROM (
-       SELECT resource_join."tagId"
-       FROM "ResourceTag" AS resource_join
-       INNER JOIN "TagDefinition" AS tag ON tag.id = resource_join."tagId"
-       WHERE tag."campusId" = $1
-         AND tag.scope = $2::"TagScope"
-         AND tag.label = $3
-         AND tag.slug = $4
-       UNION ALL
-       SELECT marketplace_join."tagId"
-       FROM "MarketplaceTag" AS marketplace_join
-       INNER JOIN "TagDefinition" AS tag ON tag.id = marketplace_join."tagId"
-       WHERE tag."campusId" = $1
-         AND tag.scope = $2::"TagScope"
-         AND tag.label = $3
-         AND tag.slug = $4
-       UNION ALL
-       SELECT work_join."tagId"
-       FROM "CampusWorkTag" AS work_join
-       INNER JOIN "TagDefinition" AS tag ON tag.id = work_join."tagId"
-       WHERE tag."campusId" = $1
-         AND tag.scope = $2::"TagScope"
-         AND tag.label = $3
-         AND tag.slug = $4
-     ) AS scoped_joins`,
-    [campusId, tag.scope, tag.label, tag.slug],
-  );
-  if (joined.rows[0]?.count !== 0) {
-    throw new Error('Run-scoped tag joins remain after publisher cleanup.');
-  }
-}
-
-async function cleanupRunScopedPublisher(publisher: {
-  campusId: string;
-  customTags: PublishContentRunTags;
-  db: Pool;
-  id: string;
-}) {
-  const { campusId, customTags, db, id: userId } = publisher;
-  const assets = await db.query<{ storageKey: string }>(
-    `SELECT "storageKey" FROM "Asset" WHERE "ownerId" = $1`,
-    [userId],
-  );
   const storage = storageClient();
-  const storageResults = await Promise.allSettled(
-    assets.rows.map(({ storageKey }) =>
-      storage.send(
-        new DeleteObjectCommand({
-          Bucket: required('S3_BUCKET'),
-          Key: storageKey,
-        }),
-      ),
-    ),
-  );
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(`DELETE FROM "User" WHERE id = $1`, [userId]);
-    for (const tag of runScopedTags(customTags)) {
-      await assertRunScopedTagJoinsRemoved(client, campusId, tag);
-      const deleted = await client.query<RunScopedPublishTag>(
-        `DELETE FROM "TagDefinition"
-         WHERE "campusId" = $1
-           AND "isPreset" = false
-           AND scope = $2::"TagScope"
-           AND label = $3
-           AND slug = $4
-         RETURNING scope::text AS scope, label, slug`,
-        [campusId, tag.scope, tag.label, tag.slug],
-      );
-      if (deleted.rowCount !== null && deleted.rowCount > 1) {
-        throw new Error('Run-scoped tag cleanup exceeded its exact target.');
-      }
-      if (
-        deleted.rows[0] &&
-        (deleted.rows[0].scope !== tag.scope ||
-          deleted.rows[0].label !== tag.label ||
-          deleted.rows[0].slug !== tag.slug)
-      ) {
-        throw new Error('Run-scoped tag cleanup returned an unexpected row.');
-      }
-      await assertRunScopedTagJoinsRemoved(client, campusId, tag);
-    }
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-    await db.end();
-    storage.destroy();
-  }
-  const failedDelete = storageResults.find(
-    (result): result is PromiseRejectedResult => result.status === 'rejected',
-  );
-  if (failedDelete) throw failedDelete.reason;
+  await cleanupRunScopedPublisher(publisher, {
+    db: {
+      connect: async () => {
+        const client = await publisher.db.connect();
+        return {
+          query: async (sql: string, values?: unknown[]) => {
+            const query = await client.query(sql, values);
+            return {
+              rowCount: query.rowCount,
+              rows: query.rows as Array<Record<string, unknown>>,
+            };
+          },
+          release: () => client.release(),
+        };
+      },
+      end: () => publisher.db.end(),
+      query: async (sql: string, values?: unknown[]) => {
+        const query = await publisher.db.query(sql, values);
+        return {
+          rowCount: query.rowCount,
+          rows: query.rows as Array<Record<string, unknown>>,
+        };
+      },
+    },
+    storage: {
+      deleteObject: async (storageKey: string) => {
+        await storage.send(
+          new DeleteObjectCommand({
+            Bucket: required('S3_BUCKET'),
+            Key: storageKey,
+          }),
+        );
+      },
+      destroy: () => storage.destroy(),
+    },
+  });
 }
 
 test.afterEach(async ({ page }) => {
@@ -291,7 +219,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
       await expect(row).toContainText('PENDING');
     }
   } finally {
-    await cleanupRunScopedPublisher(publisher);
+    await cleanupPublisher(publisher);
   }
 });
 

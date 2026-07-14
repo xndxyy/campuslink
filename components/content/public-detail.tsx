@@ -101,7 +101,12 @@ export function PublicDetail({
           <p>{description}</p>
         </div>
         {engagement ? (
-          <EngagementActions id={item.id} kind={kind} {...engagement} />
+          <EngagementActions
+            hasContact={kind !== 'campus-work' || item.hasContact === true}
+            id={item.id}
+            kind={kind}
+            {...engagement}
+          />
         ) : null}
         {assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT') ? (
           <section className="asset-downloads" aria-label="资源附件">

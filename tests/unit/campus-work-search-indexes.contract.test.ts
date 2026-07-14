@@ -1,0 +1,48 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+const migrationPath = fileURLToPath(
+  new URL(
+    '../../prisma/migrations/20260713193000_add_campus_work_search_indexes/migration.sql',
+    import.meta.url,
+  ),
+);
+const migration = existsSync(migrationPath)
+  ? readFileSync(migrationPath, 'utf8')
+  : '';
+const priorSearchMigration = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../prisma/migrations/20260712183000_add_content_search_indexes/migration.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
+
+describe('CampusWork public search indexes', () => {
+  it('uses the next phase-three migration without a transaction wrapper', () => {
+    expect(existsSync(migrationPath)).toBe(true);
+    expect(migration).not.toMatch(/\bBEGIN\s*;/i);
+    expect(migration).not.toMatch(/\bCOMMIT\s*;/i);
+    expect(migration).not.toMatch(/CREATE EXTENSION/i);
+    expect(priorSearchMigration).toMatch(
+      /CREATE EXTENSION IF NOT EXISTS pg_trgm/i,
+    );
+  });
+
+  it('creates one concurrent idempotent GIN trigram index per search field', () => {
+    for (const field of ['title', 'description', 'location', 'payText']) {
+      expect(migration).toContain(
+        `CREATE INDEX CONCURRENTLY IF NOT EXISTS "CampusWorkPost_${field}_trgm_idx"`,
+      );
+      expect(migration).toContain(
+        `ON "CampusWorkPost" USING GIN ("${field}" gin_trgm_ops);`,
+      );
+    }
+    expect(
+      migration.match(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/g),
+    ).toHaveLength(4);
+  });
+});

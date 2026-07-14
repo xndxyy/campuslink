@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { ContentStatus } from './content-status';
 import { getDefaultCampusSlug } from '@/lib/config';
 import {
@@ -441,30 +443,29 @@ export async function createCampusWorkPost(
     presetTagIds: input.presetTagIds,
   });
   return serializableContentTransaction(adapter, async (tx) => {
-    const created = await tx.campusWorkPost.create({
-      data: {
-        authorId: actor.id,
-        campusId: actor.campusId,
-        ...sharedCampusWorkData(input),
-        contact: input.contact,
-        status: ContentStatus.DRAFT,
-      },
-    });
+    const id = randomUUID();
+    const createdAt = new Date();
     await tx.jobPost.create({
       data: {
         authorId: actor.id,
         campusId: actor.campusId,
         ...sharedCampusWorkData(input),
-        ...(created.createdAt instanceof Date
-          ? { createdAt: created.createdAt }
-          : {}),
-        id: created.id,
+        createdAt,
+        id,
         status: ContentStatus.DRAFT,
-        ...(created.updatedAt instanceof Date
-          ? { updatedAt: created.updatedAt }
-          : {}),
+        updatedAt: createdAt,
       },
     });
+    if (!tx.campusWorkPost.updateMany) throw new Error('Unsupported adapter');
+    const contactUpdated = await tx.campusWorkPost.updateMany({
+      data: { contact: input.contact, updatedAt: createdAt },
+      where: {
+        authorId: actor.id,
+        id,
+        status: ContentStatus.DRAFT,
+      },
+    });
+    if (contactUpdated.count !== 1) throw new ContentConflictError();
     const resolvedTagIds = await resolveContentTagsInTransaction(
       tx,
       preparedTags,
@@ -473,17 +474,13 @@ export async function createCampusWorkPost(
       tx,
       actor,
       'campus-work',
-      created.id,
+      id,
       resolvedTagIds,
       false,
     );
-    const updated = await tx.campusWorkPost.update({
-      data: { status: ContentStatus.PENDING },
-      where: { id: created.id },
-    });
-    await tx.jobPost.update({
-      data: { status: ContentStatus.PENDING },
-      where: { id: created.id },
+    const updated = await tx.jobPost.update({
+      data: { status: ContentStatus.PENDING, updatedAt: new Date() },
+      where: { id },
     });
     return updated;
   });
@@ -709,8 +706,27 @@ export async function listPublicContent(
     }),
     delegate.count({ where }),
   ]);
+  const campusWorkWithContact =
+    kind === 'campus-work' && items.length > 0
+      ? await delegate.findMany({
+          select: { id: true },
+          take: Math.min(items.length, 50),
+          where: {
+            contact: { not: null },
+            id: { in: items.map((item) => String(item.id)) },
+          },
+        })
+      : [];
+  const contactIds = new Set(
+    campusWorkWithContact.map((item) => String(item.id)),
+  );
   return {
-    items: items.map(presentPublicContentRecord),
+    items: items.map((item) => ({
+      ...presentPublicContentRecord(item),
+      ...(kind === 'campus-work'
+        ? { hasContact: contactIds.has(String(item.id)) }
+        : {}),
+    })),
     page,
     pageSize,
     total,
@@ -734,7 +750,20 @@ export async function getPublicContent(
       status: ContentStatus.PUBLISHED,
     },
   });
-  return item ? presentPublicContentRecord(item) : null;
+  if (!item) return null;
+  const contactAvailable =
+    kind === 'campus-work'
+      ? await delegate.findFirst({
+          select: { id: true },
+          where: { contact: { not: null }, id },
+        })
+      : null;
+  return {
+    ...presentPublicContentRecord(item),
+    ...(kind === 'campus-work'
+      ? { hasContact: contactAvailable !== null }
+      : {}),
+  };
 }
 
 export async function listOwnedContent(
@@ -820,6 +849,32 @@ export async function listOwnedContent(
   >;
 }
 
+async function updateCampusWorkStatus(
+  adapter: ContentAdapter,
+  actor: ContentActor,
+  id: string,
+  currentStatus: ContentStatus | { in: ContentStatus[] },
+  nextStatus: ContentStatus,
+) {
+  return serializableContentTransaction(adapter, async (tx) => {
+    if (!tx.jobPost.updateMany || !tx.campusWorkPost.updateMany) {
+      throw new Error('Unsupported adapter');
+    }
+    const updatedAt = new Date();
+    const legacy = await tx.jobPost.updateMany({
+      data: { status: nextStatus, updatedAt },
+      where: { authorId: actor.id, id, status: currentStatus },
+    });
+    if (legacy.count !== 1) throw new ContentConflictError();
+    const synchronized = await tx.campusWorkPost.updateMany({
+      data: { status: nextStatus, updatedAt },
+      where: { authorId: actor.id, id, status: nextStatus },
+    });
+    if (synchronized.count !== 1) throw new ContentConflictError();
+    return { id, status: nextStatus };
+  });
+}
+
 export async function archiveOwnedContent(
   adapter: ContentAdapter,
   actor: ContentActor,
@@ -827,21 +882,13 @@ export async function archiveOwnedContent(
   id: string,
 ) {
   if (kind === 'campus-work') {
-    return serializableContentTransaction(adapter, async (tx) => {
-      for (const delegate of [tx.campusWorkPost, tx.jobPost]) {
-        if (!delegate.updateMany) throw new Error('Unsupported adapter');
-        const changed = await delegate.updateMany({
-          data: { status: ContentStatus.ARCHIVED },
-          where: {
-            authorId: actor.id,
-            id,
-            status: { in: [ContentStatus.PENDING, ContentStatus.PUBLISHED] },
-          },
-        });
-        if (changed.count !== 1) throw new ContentConflictError();
-      }
-      return { id, status: ContentStatus.ARCHIVED };
-    });
+    return updateCampusWorkStatus(
+      adapter,
+      actor,
+      id,
+      { in: [ContentStatus.PENDING, ContentStatus.PUBLISHED] },
+      ContentStatus.ARCHIVED,
+    );
   }
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
@@ -866,21 +913,13 @@ export async function submitOwnedDraft(
   policy?: DocumentScanPolicy,
 ) {
   if (kind === 'campus-work') {
-    return serializableContentTransaction(adapter, async (tx) => {
-      for (const delegate of [tx.campusWorkPost, tx.jobPost]) {
-        if (!delegate.updateMany) throw new Error('Unsupported adapter');
-        const changed = await delegate.updateMany({
-          data: { status: ContentStatus.PENDING },
-          where: {
-            authorId: actor.id,
-            id,
-            status: ContentStatus.DRAFT,
-          },
-        });
-        if (changed.count !== 1) throw new ContentConflictError();
-      }
-      return { id, status: ContentStatus.PENDING };
-    });
+    return updateCampusWorkStatus(
+      adapter,
+      actor,
+      id,
+      ContentStatus.DRAFT,
+      ContentStatus.PENDING,
+    );
   }
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
@@ -988,21 +1027,11 @@ export async function editOwnedContent(
       presetTagIds,
     });
     return serializableContentTransaction(adapter, async (tx) => {
-      const transactionalDelegate = delegateFor(tx, kind);
-      if (!transactionalDelegate.updateMany)
-        throw new Error('Unsupported adapter');
-      const changed = await transactionalDelegate.updateMany({
-        data: updateData,
-        where: {
-          id,
-          [ownerField]: actor.id,
-          status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
-        },
-      });
-      if (changed.count !== 1) throw new ContentConflictError();
       if (kind === 'campus-work') {
-        if (!tx.jobPost.updateMany) throw new Error('Unsupported adapter');
+        if (!tx.jobPost.updateMany || !tx.campusWorkPost.updateMany)
+          throw new Error('Unsupported adapter');
         const campusWorkInput = input as UpdateCampusWorkInput;
+        const updatedAt = new Date();
         const legacy = await tx.jobPost.updateMany({
           data: {
             company: LEGACY_CAMPUS_WORK_COMPANY,
@@ -1011,6 +1040,7 @@ export async function editOwnedContent(
             payText: campusWorkInput.payText,
             status: ContentStatus.DRAFT,
             title: campusWorkInput.title,
+            updatedAt,
           },
           where: {
             authorId: actor.id,
@@ -1019,6 +1049,28 @@ export async function editOwnedContent(
           },
         });
         if (legacy.count !== 1) throw new ContentConflictError();
+        const contact = await tx.campusWorkPost.updateMany({
+          data: { contact: campusWorkInput.contact, updatedAt },
+          where: {
+            authorId: actor.id,
+            id,
+            status: ContentStatus.DRAFT,
+          },
+        });
+        if (contact.count !== 1) throw new ContentConflictError();
+      } else {
+        const transactionalDelegate = delegateFor(tx, kind);
+        if (!transactionalDelegate.updateMany)
+          throw new Error('Unsupported adapter');
+        const changed = await transactionalDelegate.updateMany({
+          data: updateData,
+          where: {
+            id,
+            [ownerField]: actor.id,
+            status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
+          },
+        });
+        if (changed.count !== 1) throw new ContentConflictError();
       }
       const resolvedTagIds = await resolveContentTagsInTransaction(
         tx,

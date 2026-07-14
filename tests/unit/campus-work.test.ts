@@ -194,16 +194,20 @@ const campusWorkInput = {
 };
 
 function campusWorkAdapter() {
+  const callOrder: string[] = [];
   const createdAt = new Date('2026-07-14T01:00:00Z');
   const updatedAt = new Date('2026-07-14T01:00:00Z');
   const campusWorkPost = {
     count: vi.fn(async () => 1),
-    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-      ...data,
-      createdAt,
-      id: 'work_1',
-      updatedAt,
-    })),
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      callOrder.push('campusWorkPost.create');
+      return {
+        ...data,
+        createdAt,
+        id: 'work_1',
+        updatedAt,
+      };
+    }),
     findFirst: vi.fn(async (args: Record<string, unknown>) => {
       void args;
       return null as Record<string, unknown> | null;
@@ -212,28 +216,48 @@ function campusWorkAdapter() {
       void args;
       return [] as Array<Record<string, unknown>>;
     }),
-    update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-      ...data,
-      id: 'work_1',
-    })),
-    updateMany: vi.fn(async (args: Record<string, unknown>) => {
-      void args;
-      return { count: 1 };
+    update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      callOrder.push('campusWorkPost.update');
+      return { ...data, id: 'work_1' };
     }),
+    updateMany: vi.fn(
+      async (args: {
+        data: Record<string, unknown>;
+        where: Record<string, unknown>;
+      }) => {
+        callOrder.push('campusWorkPost.updateMany');
+        void args;
+        return { count: 1 };
+      },
+    ),
   };
   const jobPost = {
-    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-      ...data,
-      id: 'work_1',
-    })),
-    update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-      ...data,
-      id: 'work_1',
-    })),
-    updateMany: vi.fn(async (args: Record<string, unknown>) => {
-      void args;
-      return { count: 1 };
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      callOrder.push('jobPost.create');
+      return { ...data, id: 'work_1' };
     }),
+    update: vi.fn(
+      async ({
+        data,
+        where,
+      }: {
+        data: Record<string, unknown>;
+        where: { id: string };
+      }) => {
+        callOrder.push('jobPost.update');
+        return { ...data, id: where.id };
+      },
+    ),
+    updateMany: vi.fn(
+      async (args: {
+        data: Record<string, unknown>;
+        where: Record<string, unknown>;
+      }) => {
+        callOrder.push('jobPost.updateMany');
+        void args;
+        return { count: 1 };
+      },
+    ),
   };
   const campusWorkTag = {
     createMany: vi.fn(
@@ -270,7 +294,7 @@ function campusWorkAdapter() {
       upsert: vi.fn(),
     },
   };
-  return { adapter, campusWorkPost, campusWorkTag, jobPost };
+  return { adapter, callOrder, campusWorkPost, campusWorkTag, jobPost };
 }
 
 type CampusWorkCreate = (
@@ -288,6 +312,59 @@ function campusWorkCreateFunction() {
 }
 
 describe('campus work atomic compatibility writes', () => {
+  it('acquires JobPost before CampusWorkPost for every shared-field write path', async () => {
+    const create = campusWorkCreateFunction();
+    expect(create).toBeTypeOf('function');
+    if (!create) return;
+    const created = campusWorkAdapter();
+    await create(created.adapter, verifiedActor, campusWorkInput);
+    expect(created.callOrder).toEqual([
+      'jobPost.create',
+      'campusWorkPost.updateMany',
+      'jobPost.update',
+    ]);
+
+    const edited = campusWorkAdapter();
+    const edit = contentService.editOwnedContent as unknown as (
+      adapter: unknown,
+      actor: typeof verifiedActor,
+      kind: 'campus-work',
+      id: string,
+      input: typeof campusWorkInput,
+    ) => Promise<unknown>;
+    await edit(
+      edited.adapter,
+      verifiedActor,
+      'campus-work',
+      'work_1',
+      campusWorkInput,
+    );
+    expect(edited.callOrder).toEqual([
+      'jobPost.updateMany',
+      'campusWorkPost.updateMany',
+    ]);
+
+    const statusOperations = [
+      contentService.archiveOwnedContent,
+      contentService.submitOwnedDraft,
+    ] as unknown as Array<
+      (
+        adapter: unknown,
+        actor: typeof verifiedActor,
+        kind: 'campus-work',
+        id: string,
+      ) => Promise<unknown>
+    >;
+    for (const operation of statusOperations) {
+      const changed = campusWorkAdapter();
+      await operation(changed.adapter, verifiedActor, 'campus-work', 'work_1');
+      expect(changed.callOrder).toEqual([
+        'jobPost.updateMany',
+        'campusWorkPost.updateMany',
+      ]);
+    }
+  });
+
   it('creates both records, tags, and pending status in one Serializable transaction', async () => {
     const create = campusWorkCreateFunction();
     expect(create).toBeTypeOf('function');
@@ -300,49 +377,47 @@ describe('campus work atomic compatibility writes', () => {
     expect(adapter.$transaction).toHaveBeenCalledWith(expect.any(Function), {
       isolationLevel: 'Serializable',
     });
-    expect(campusWorkPost.create).toHaveBeenCalledWith({
+    expect(campusWorkPost.create).not.toHaveBeenCalled();
+    expect(jobPost.create).toHaveBeenCalledWith({
       data: {
         authorId: verifiedActor.id,
         campusId: verifiedActor.campusId,
         company: 'CampusLink 校园工作',
-        contact: campusWorkInput.contact,
+        createdAt: expect.any(Date),
         description: campusWorkInput.description,
+        id: expect.any(String),
         location: campusWorkInput.location,
         payText: campusWorkInput.payText,
         status: 'DRAFT',
         title: campusWorkInput.title,
+        updatedAt: expect.any(Date),
       },
     });
-    expect(jobPost.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        authorId: verifiedActor.id,
-        campusId: verifiedActor.campusId,
-        company: 'CampusLink 校园工作',
-        createdAt: expect.any(Date),
-        id: 'work_1',
-        status: 'DRAFT',
-        updatedAt: expect.any(Date),
-      }),
-    });
+    const createdId = String(jobPost.create.mock.calls[0]?.[0].data.id);
     expect(campusWorkTag.createMany).toHaveBeenCalledWith({
       data: [
         {
           campusId: verifiedActor.campusId,
-          campusWorkPostId: 'work_1',
+          campusWorkPostId: createdId,
           scope: 'CAMPUS_WORK',
           tagId: 'preset_work',
         },
       ],
     });
-    expect(campusWorkPost.update).toHaveBeenCalledWith({
-      data: { status: 'PENDING' },
-      where: { id: 'work_1' },
+    expect(campusWorkPost.update).not.toHaveBeenCalled();
+    expect(campusWorkPost.updateMany).toHaveBeenCalledWith({
+      data: { contact: campusWorkInput.contact, updatedAt: expect.any(Date) },
+      where: {
+        authorId: verifiedActor.id,
+        id: createdId,
+        status: 'DRAFT',
+      },
     });
     expect(jobPost.update).toHaveBeenCalledWith({
-      data: { status: 'PENDING' },
-      where: { id: 'work_1' },
+      data: { status: 'PENDING', updatedAt: expect.any(Date) },
+      where: { id: createdId },
     });
-    expect(result).toMatchObject({ id: 'work_1', status: 'PENDING' });
+    expect(result).toMatchObject({ id: createdId, status: 'PENDING' });
   });
 
   it.each(['P2002', 'P2034'])(
@@ -359,7 +434,7 @@ describe('campus work atomic compatibility writes', () => {
       await create(adapter, verifiedActor, campusWorkInput);
 
       expect(adapter.$transaction).toHaveBeenCalledTimes(3);
-      expect(campusWorkPost.create).toHaveBeenCalledTimes(3);
+      expect(campusWorkPost.create).not.toHaveBeenCalled();
       expect(jobPost.create).toHaveBeenCalledTimes(3);
     },
   );
@@ -387,23 +462,23 @@ describe('campus work atomic compatibility writes', () => {
       isolationLevel: 'Serializable',
     });
     expect(campusWorkPost.updateMany).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        contact: campusWorkInput.contact,
-        status: 'DRAFT',
-        title: campusWorkInput.title,
-      }),
+      data: { contact: campusWorkInput.contact, updatedAt: expect.any(Date) },
       where: {
         authorId: verifiedActor.id,
         id: 'work_1',
-        status: { in: ['DRAFT', 'REJECTED'] },
+        status: 'DRAFT',
       },
     });
     expect(jobPost.updateMany).toHaveBeenCalledWith({
-      data: expect.objectContaining({
+      data: {
         company: 'CampusLink 校园工作',
+        description: campusWorkInput.description,
+        location: campusWorkInput.location,
+        payText: campusWorkInput.payText,
         status: 'DRAFT',
         title: campusWorkInput.title,
-      }),
+        updatedAt: expect.any(Date),
+      },
       where: {
         authorId: verifiedActor.id,
         id: 'work_1',
@@ -435,18 +510,25 @@ describe('campus work atomic compatibility writes', () => {
 
       await operation(adapter, verifiedActor, 'campus-work', 'work_1');
 
-      for (const delegate of [campusWorkPost, jobPost]) {
-        expect(delegate.updateMany).toHaveBeenCalledWith({
-          data: { status: nextStatus },
-          where: {
-            authorId: verifiedActor.id,
-            id: 'work_1',
-            status: Array.isArray(currentStatus)
-              ? { in: currentStatus }
-              : currentStatus,
-          },
-        });
-      }
+      expect(jobPost.updateMany).toHaveBeenCalledWith({
+        data: { status: nextStatus, updatedAt: expect.any(Date) },
+        where: {
+          authorId: verifiedActor.id,
+          id: 'work_1',
+          status: Array.isArray(currentStatus)
+            ? { in: currentStatus }
+            : currentStatus,
+        },
+      });
+      const updatedAt = jobPost.updateMany.mock.calls[0]?.[0].data.updatedAt;
+      expect(campusWorkPost.updateMany).toHaveBeenCalledWith({
+        data: { status: nextStatus, updatedAt },
+        where: {
+          authorId: verifiedActor.id,
+          id: 'work_1',
+          status: nextStatus,
+        },
+      });
       expect(adapter.$transaction).toHaveBeenCalledWith(expect.any(Function), {
         isolationLevel: 'Serializable',
       });
@@ -457,25 +539,33 @@ describe('campus work atomic compatibility writes', () => {
 describe('campus work public presentation', () => {
   it('is campus-scoped, bounded, stable, tag-aware, and strips contact defensively', async () => {
     const { adapter, campusWorkPost } = campusWorkAdapter();
-    campusWorkPost.findMany.mockResolvedValue([
-      {
-        contact: 'must-not-leak@example.edu',
-        createdAt: new Date('2026-07-14T00:00:00Z'),
-        id: 'work_1',
-        status: 'PUBLISHED',
-        tagAssignments: [
-          {
-            tag: {
-              id: 'old_tag',
-              isActive: false,
-              isPreset: true,
-              label: '历史标签',
+    campusWorkPost.findMany
+      .mockResolvedValueOnce([
+        {
+          createdAt: new Date('2026-07-14T00:00:00Z'),
+          id: 'work_1',
+          status: 'PUBLISHED',
+          tagAssignments: [
+            {
+              tag: {
+                id: 'old_tag',
+                isActive: false,
+                isPreset: true,
+                label: '历史标签',
+              },
             },
-          },
-        ],
-        title: '校园活动现场协助',
-      },
-    ]);
+          ],
+          title: '校园活动现场协助',
+        },
+        {
+          createdAt: new Date('2026-07-13T00:00:00Z'),
+          id: 'work_2',
+          status: 'PUBLISHED',
+          tagAssignments: [],
+          title: '无联系方式的历史岗位',
+        },
+      ])
+      .mockResolvedValueOnce([{ id: 'work_1' }]);
     const list = contentService.listPublicContent as unknown as (
       adapter: unknown,
       kind: string,
@@ -504,22 +594,34 @@ describe('campus work public presentation', () => {
         }),
       }),
     );
-    const select = campusWorkPost.findMany.mock.calls[0]?.[0].select;
-    expect(select).not.toHaveProperty('contact');
+    const publicQuery = campusWorkPost.findMany.mock.calls[0]?.[0];
+    expect(publicQuery.select).not.toHaveProperty('contact');
+    expect(campusWorkPost.findMany.mock.calls[1]?.[0]).toEqual({
+      select: { id: true },
+      take: 2,
+      where: {
+        contact: { not: null },
+        id: { in: ['work_1', 'work_2'] },
+      },
+    });
+    expect(result.items).toHaveLength(2);
     expect(result.items[0]).not.toHaveProperty('contact');
     expect(result.items[0]).toMatchObject({
+      hasContact: true,
       tags: [expect.objectContaining({ isActive: false, label: '历史标签' })],
     });
+    expect(result.items[1]).toMatchObject({ hasContact: false, id: 'work_2' });
   });
 
   it('scopes public detail to the default active campus and strips contact', async () => {
     const { adapter, campusWorkPost } = campusWorkAdapter();
-    campusWorkPost.findFirst.mockResolvedValue({
-      contact: 'must-not-leak@example.edu',
-      id: 'work_1',
-      status: 'PUBLISHED',
-      title: '校园活动现场协助',
-    });
+    campusWorkPost.findFirst
+      .mockResolvedValueOnce({
+        id: 'work_1',
+        status: 'PUBLISHED',
+        title: '校园活动现场协助',
+      })
+      .mockResolvedValueOnce({ id: 'work_1' });
     const get = contentService.getPublicContent as unknown as (
       adapter: unknown,
       kind: string,
@@ -537,7 +639,15 @@ describe('campus work public presentation', () => {
         },
       }),
     );
+    expect(
+      campusWorkPost.findFirst.mock.calls[0]?.[0].select,
+    ).not.toHaveProperty('contact');
+    expect(campusWorkPost.findFirst.mock.calls[1]?.[0]).toEqual({
+      select: { id: true },
+      where: { contact: { not: null }, id: 'work_1' },
+    });
     expect(result).not.toHaveProperty('contact');
+    expect(result).toMatchObject({ hasContact: true });
   });
 });
 

@@ -16,6 +16,7 @@ import {
   type CampusWorkContactAdapter,
 } from '@/lib/domain/campus-work-contact';
 import {
+  archiveOwnedContent,
   type ContentAdapter,
   ContentConflictError,
   createCampusWorkPost,
@@ -26,6 +27,7 @@ import {
   getOwnedContent,
   getPublicContent,
   listPublicContent,
+  submitOwnedDraft,
 } from '@/lib/domain/content-service';
 
 const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
@@ -37,6 +39,7 @@ describeWithDatabase('content publishing actions', () => {
   let otherId = '';
   let previousDefaultCampusSlug: string | undefined;
   let hasCampusWorkCapabilities = false;
+  const campusWorkProbeRollback = new Error('Rollback CampusWork probe');
 
   function requireCampusWorkCapabilities(context: TestContext) {
     if (hasCampusWorkCapabilities) return true;
@@ -44,58 +47,193 @@ describeWithDatabase('content publishing actions', () => {
     return false;
   }
 
+  async function expectCampusWorkPairSynchronized(id: string) {
+    const [legacy, campusWork] = await Promise.all([
+      db.jobPost.findUniqueOrThrow({ where: { id } }),
+      db.campusWorkPost.findUniqueOrThrow({ where: { id } }),
+    ]);
+    expect(campusWork).toMatchObject({
+      authorId: legacy.authorId,
+      campusId: legacy.campusId,
+      company: legacy.company,
+      createdAt: legacy.createdAt,
+      description: legacy.description,
+      location: legacy.location,
+      payText: legacy.payText,
+      status: legacy.status,
+      title: legacy.title,
+      updatedAt: legacy.updatedAt,
+    });
+  }
+
+  async function runCampusWorkSyncProbe() {
+    const id = `campus-work-probe-${randomUUID()}`;
+    const createdAt = new Date();
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.jobPost.create({
+          data: {
+            authorId: studentId,
+            campusId,
+            company: 'CampusWork probe',
+            createdAt,
+            description: 'Probe INSERT synchronization.',
+            id,
+            location: 'Probe location',
+            payText: 'Probe pay',
+            status: 'DRAFT',
+            title: 'CampusWork synchronization probe',
+            updatedAt: createdAt,
+          },
+        });
+        const inserted = await tx.campusWorkPost.findUniqueOrThrow({
+          where: { id },
+        });
+        expect(inserted).toMatchObject({
+          authorId: studentId,
+          campusId,
+          company: 'CampusWork probe',
+          createdAt,
+          description: 'Probe INSERT synchronization.',
+          location: 'Probe location',
+          payText: 'Probe pay',
+          status: 'DRAFT',
+          title: 'CampusWork synchronization probe',
+          updatedAt: createdAt,
+        });
+
+        const updatedAt = new Date(createdAt.getTime() + 1_000);
+        const updated = await tx.jobPost.update({
+          data: {
+            company: 'CampusWork probe updated',
+            description: 'Probe UPDATE synchronization.',
+            location: 'Updated probe location',
+            payText: 'Updated probe pay',
+            status: 'PUBLISHED',
+            title: 'Updated CampusWork synchronization probe',
+            updatedAt,
+          },
+          where: { id },
+        });
+        const synchronized = await tx.campusWorkPost.findUniqueOrThrow({
+          where: { id },
+        });
+        expect(synchronized).toMatchObject({
+          authorId: updated.authorId,
+          campusId: updated.campusId,
+          company: updated.company,
+          createdAt: updated.createdAt,
+          description: updated.description,
+          location: updated.location,
+          payText: updated.payText,
+          status: updated.status,
+          title: updated.title,
+          updatedAt: updated.updatedAt,
+        });
+
+        await tx.jobPost.delete({ where: { id } });
+        await expect(
+          tx.campusWorkPost.findUnique({ where: { id } }),
+        ).resolves.toBeNull();
+        throw campusWorkProbeRollback;
+      });
+    } catch (error) {
+      if (error !== campusWorkProbeRollback) throw error;
+    }
+  }
+
   beforeAll(async () => {
     db = createDbClient();
     previousDefaultCampusSlug = process.env.DEFAULT_CAMPUS_SLUG;
     const capabilities = await db.$queryRaw<
-      Array<{ hasCampusWorkCapabilities: boolean }>
+      Array<{
+        functionDefinition: string | null;
+        functionName: string | null;
+        functionSchema: string | null;
+        hasCampusWorkPost: boolean;
+        hasCampusWorkTag: boolean;
+        hasSyncTrigger: boolean;
+        triggerDefinition: string | null;
+        triggerEnabled: string | null;
+        triggerType: number | null;
+      }>
     >`
       SELECT
-        to_regclass('public."CampusWorkPost"') IS NOT NULL
-        AND to_regclass('public."CampusWorkTag"') IS NOT NULL
-        AND EXISTS (
-          SELECT 1
+        to_regclass('public."CampusWorkPost"') IS NOT NULL AS "hasCampusWorkPost",
+        to_regclass('public."CampusWorkTag"') IS NOT NULL AS "hasCampusWorkTag",
+        synchronization.trigger_oid IS NOT NULL AS "hasSyncTrigger",
+        synchronization.tgenabled AS "triggerEnabled",
+        synchronization.tgtype AS "triggerType",
+        synchronization.function_schema AS "functionSchema",
+        synchronization.function_name AS "functionName",
+        synchronization.trigger_definition AS "triggerDefinition",
+        synchronization.function_definition AS "functionDefinition"
+      FROM (SELECT 1) AS singleton
+      LEFT JOIN LATERAL (
+          SELECT
+            trigger.oid AS trigger_oid,
+            trigger.tgenabled::text AS tgenabled,
+            trigger.tgtype::int AS tgtype,
+            function_namespace.nspname AS function_schema,
+            function.proname AS function_name,
+            pg_catalog.pg_get_triggerdef(trigger.oid, true) AS trigger_definition,
+            pg_catalog.pg_get_functiondef(trigger.tgfoid) AS function_definition
           FROM pg_catalog.pg_trigger AS trigger
           JOIN pg_catalog.pg_proc AS function
             ON function.oid = trigger.tgfoid
           JOIN pg_catalog.pg_namespace AS function_namespace
             ON function_namespace.oid = function.pronamespace
-          CROSS JOIN LATERAL (
-            SELECT
-              pg_catalog.pg_get_triggerdef(trigger.oid, true) AS trigger_definition,
-              pg_catalog.pg_get_functiondef(trigger.tgfoid) AS function_definition
-          ) AS definitions
           WHERE trigger.tgname = 'JobPost_campus_work_sync'
             AND trigger.tgrelid = to_regclass('public."JobPost"')
             AND NOT trigger.tgisinternal
-            AND trigger.tgenabled = 'O'
-            AND trigger.tgtype = 29
-            AND function_namespace.nspname = 'public'
-            AND function.proname = '_sync_job_post_to_campus_work'
-            AND definitions.trigger_definition
-              LIKE '%FOR EACH ROW EXECUTE FUNCTION%'
-            AND definitions.trigger_definition
-              LIKE '%_sync_job_post_to_campus_work()%'
-            AND definitions.function_definition LIKE '%TG_OP = ''DELETE''%'
-            AND definitions.function_definition LIKE '%''CampusWorkPost''%'
-            AND definitions.function_definition
-              LIKE '%ON CONFLICT ("id") DO UPDATE SET%'
-            AND definitions.function_definition LIKE ALL (ARRAY[
-              '%"authorId" = EXCLUDED."authorId"%',
-              '%"campusId" = EXCLUDED."campusId"%',
-              '%"company" = EXCLUDED."company"%',
-              '%"title" = EXCLUDED."title"%',
-              '%"description" = EXCLUDED."description"%',
-              '%"location" = EXCLUDED."location"%',
-              '%"payText" = EXCLUDED."payText"%',
-              '%"status" = EXCLUDED."status"%',
-              '%"createdAt" = EXCLUDED."createdAt"%',
-              '%"updatedAt" = EXCLUDED."updatedAt"%'
-            ])
-        ) AS "hasCampusWorkCapabilities"
+          ORDER BY trigger.oid
+          LIMIT 1
+      ) AS synchronization ON true
     `;
-    hasCampusWorkCapabilities =
-      capabilities[0]?.hasCampusWorkCapabilities === true;
+    const capability = capabilities[0];
+    if (!capability) throw new Error('CampusWork capability query failed.');
+    const campusWorkSchemaAbsent =
+      !capability.hasCampusWorkPost &&
+      !capability.hasCampusWorkTag &&
+      !capability.hasSyncTrigger;
+    if (campusWorkSchemaAbsent) {
+      hasCampusWorkCapabilities = false;
+    } else {
+      const triggerDefinition = capability.triggerDefinition ?? '';
+      const functionDefinition = capability.functionDefinition ?? '';
+      const requiredFunctionFragments = [
+        "TG_OP = 'DELETE'",
+        "'CampusWorkPost'",
+        'ON CONFLICT ("id") DO UPDATE SET',
+        '"authorId" = EXCLUDED."authorId"',
+        '"campusId" = EXCLUDED."campusId"',
+        '"company" = EXCLUDED."company"',
+        '"title" = EXCLUDED."title"',
+        '"description" = EXCLUDED."description"',
+        '"location" = EXCLUDED."location"',
+        '"payText" = EXCLUDED."payText"',
+        '"status" = EXCLUDED."status"',
+        '"createdAt" = EXCLUDED."createdAt"',
+        '"updatedAt" = EXCLUDED."updatedAt"',
+      ];
+      const capabilityDrift =
+        !capability.hasCampusWorkPost ||
+        !capability.hasCampusWorkTag ||
+        !capability.hasSyncTrigger ||
+        capability.triggerEnabled !== 'O' ||
+        capability.triggerType !== 29 ||
+        capability.functionSchema !== 'public' ||
+        capability.functionName !== '_sync_job_post_to_campus_work' ||
+        !triggerDefinition.includes('FOR EACH ROW') ||
+        !triggerDefinition.includes('_sync_job_post_to_campus_work()') ||
+        requiredFunctionFragments.some(
+          (fragment) => !functionDefinition.includes(fragment),
+        );
+      if (capabilityDrift) {
+        throw new Error('CampusWork capability drift detected.');
+      }
+      hasCampusWorkCapabilities = true;
+    }
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
@@ -126,6 +264,7 @@ describeWithDatabase('content publishing actions', () => {
     ]);
     studentId = student.id;
     otherId = other.id;
+    if (hasCampusWorkCapabilities) await runCampusWorkSyncProbe();
   });
 
   afterAll(async () => {
@@ -693,6 +832,203 @@ describeWithDatabase('content publishing actions', () => {
     });
     expect(!Object.hasOwn(publicListItem, 'contact')).toBe(true);
     expect(!Object.hasOwn(publicDetail, 'contact')).toBe(true);
+  });
+
+  it('keeps owner and legacy CampusWork writes deadlock-safe and synchronized', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: studentId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+
+    for (const scenario of ['edit', 'archive', 'submit'] as const) {
+      const created = await createCampusWorkPost(
+        db as unknown as ContentAdapter,
+        actor,
+        {
+          contact: `concurrent-${scenario}-${randomUUID()}@example.test`,
+          customTags: [],
+          description: `Concurrent ${scenario} synchronization coverage.`,
+          location: 'Student centre',
+          payText: '30 CNY per hour',
+          presetTagIds: [],
+          title: `Concurrent ${scenario} ${randomUUID()}`,
+        },
+      );
+      if (scenario !== 'archive') {
+        await db.jobPost.update({
+          data: { status: scenario === 'edit' ? 'REJECTED' : 'DRAFT' },
+          where: { id: created.id },
+        });
+      }
+
+      let signalOwnerReached!: () => void;
+      const ownerReached = new Promise<void>((resolve) => {
+        signalOwnerReached = resolve;
+      });
+      let releaseOwner!: () => void;
+      const ownerMayWrite = new Promise<void>((resolve) => {
+        releaseOwner = resolve;
+      });
+      const ownerAdapter = {
+        $transaction: <T>(
+          operation: (tx: ContentAdapter) => Promise<T>,
+          options?: { isolationLevel: 'Serializable' },
+        ) =>
+          db.$transaction(async (tx) => {
+            const transactionalAdapter = {
+              asset: tx.asset,
+              campusWorkPost: tx.campusWorkPost,
+              campusWorkTag: tx.campusWorkTag,
+              jobPost: {
+                updateMany: async (args: Record<string, unknown>) => {
+                  signalOwnerReached();
+                  await ownerMayWrite;
+                  return tx.jobPost.updateMany(args as never);
+                },
+              },
+              marketplaceItem: tx.marketplaceItem,
+              marketplaceTag: tx.marketplaceTag,
+              resource: tx.resource,
+              resourceTag: tx.resourceTag,
+              tagDefinition: tx.tagDefinition,
+            } as unknown as ContentAdapter;
+            return operation(transactionalAdapter);
+          }, options),
+        asset: db.asset,
+        campusWorkPost: db.campusWorkPost,
+        campusWorkTag: db.campusWorkTag,
+        jobPost: db.jobPost,
+        marketplaceItem: db.marketplaceItem,
+        marketplaceTag: db.marketplaceTag,
+        resource: db.resource,
+        resourceTag: db.resourceTag,
+        tagDefinition: db.tagDefinition,
+      } as unknown as ContentAdapter;
+
+      const ownerWrite =
+        scenario === 'edit'
+          ? editOwnedContent(ownerAdapter, actor, 'campus-work', created.id, {
+              contact: `revised-${randomUUID()}@example.test`,
+              customTags: [],
+              description: 'Owner edit won without reversing row lock order.',
+              location: 'Campus library',
+              payText: '35 CNY per hour',
+              presetTagIds: [],
+              title: `Owner revised ${randomUUID()}`,
+            })
+          : scenario === 'archive'
+            ? archiveOwnedContent(
+                ownerAdapter,
+                actor,
+                'campus-work',
+                created.id,
+              )
+            : submitOwnedDraft(ownerAdapter, actor, 'campus-work', created.id);
+      await ownerReached;
+
+      let signalLegacyLocked!: () => void;
+      const legacyLocked = new Promise<void>((resolve) => {
+        signalLegacyLocked = resolve;
+      });
+      let releaseLegacy!: () => void;
+      const legacyMayWrite = new Promise<void>((resolve) => {
+        releaseLegacy = resolve;
+      });
+      const legacyWrite = db.$transaction(async (tx) => {
+        await tx.$queryRaw`
+          SELECT id FROM "JobPost" WHERE id = ${created.id} FOR UPDATE
+        `;
+        signalLegacyLocked();
+        await legacyMayWrite;
+        return tx.jobPost.update({
+          data: { title: `Legacy concurrent ${scenario} ${randomUUID()}` },
+          where: { id: created.id },
+        });
+      });
+      await legacyLocked;
+      releaseLegacy();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releaseOwner();
+
+      const outcomes = await Promise.allSettled([ownerWrite, legacyWrite]);
+      expect(outcomes).toEqual([
+        expect.objectContaining({ status: 'fulfilled' }),
+        expect.objectContaining({ status: 'fulfilled' }),
+      ]);
+      await expectCampusWorkPairSynchronized(created.id);
+    }
+  }, 30_000);
+
+  it('uses every CampusWork trigram index for public search', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const searchIndexes = [
+      ['title', 'CampusWorkPost_title_trgm_idx'],
+      ['description', 'CampusWorkPost_description_trgm_idx'],
+      ['location', 'CampusWorkPost_location_trgm_idx'],
+      ['payText', 'CampusWorkPost_payText_trgm_idx'],
+    ] as const;
+    const metadata = await db.$queryRaw<
+      Array<{
+        column: string;
+        indexName: string;
+        method: string;
+        operatorClass: string;
+      }>
+    >`
+      SELECT
+        index_relation.relname AS "indexName",
+        attribute.attname AS "column",
+        access_method.amname AS method,
+        operator_class.opcname AS "operatorClass"
+      FROM pg_catalog.pg_index AS index_metadata
+      JOIN pg_catalog.pg_class AS table_relation
+        ON table_relation.oid = index_metadata.indrelid
+      JOIN pg_catalog.pg_class AS index_relation
+        ON index_relation.oid = index_metadata.indexrelid
+      JOIN pg_catalog.pg_am AS access_method
+        ON access_method.oid = index_relation.relam
+      JOIN pg_catalog.pg_attribute AS attribute
+        ON attribute.attrelid = table_relation.oid
+       AND attribute.attnum = index_metadata.indkey[0]
+      JOIN pg_catalog.pg_opclass AS operator_class
+        ON operator_class.oid = index_metadata.indclass[0]
+      WHERE table_relation.oid = to_regclass('public."CampusWorkPost"')
+        AND index_relation.relname IN (
+          'CampusWorkPost_title_trgm_idx',
+          'CampusWorkPost_description_trgm_idx',
+          'CampusWorkPost_location_trgm_idx',
+          'CampusWorkPost_payText_trgm_idx'
+        )
+      ORDER BY index_relation.relname
+    `;
+    expect(metadata).toEqual(
+      searchIndexes
+        .map(([column, indexName]) => ({
+          column,
+          indexName,
+          method: 'gin',
+          operatorClass: 'gin_trgm_ops',
+        }))
+        .sort((left, right) => left.indexName.localeCompare(right.indexName)),
+    );
+
+    for (const [field, indexName] of searchIndexes) {
+      const plan = await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+        return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+          `EXPLAIN (COSTS OFF)
+           SELECT id FROM "CampusWorkPost" WHERE "${field}" ILIKE $1`,
+          '%probe%',
+        );
+      });
+      expect(plan.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+        indexName,
+      );
+    }
   });
 
   it('returns only approved public records and excludes marketplace contact', async () => {

@@ -123,13 +123,31 @@ async function responseMessage(response: Response, fallback: string) {
   return typeof body?.message === 'string' ? body.message : fallback;
 }
 
+export function canRequestContact({
+  hasContact,
+  isOwner,
+  kind,
+  signedIn,
+}: {
+  hasContact: boolean;
+  isOwner: boolean;
+  kind: Kind;
+  signedIn: boolean;
+}) {
+  if (isOwner) return false;
+  if (kind === 'marketplace') return true;
+  return kind === 'campus-work' && hasContact && signedIn;
+}
+
 export function EngagementActions({
+  hasContact = false,
   id,
   initialFavourited,
   isOwner,
   kind,
   signedIn,
 }: {
+  hasContact?: boolean;
   id: string;
   initialFavourited: boolean;
   isOwner: boolean;
@@ -275,7 +293,12 @@ export function EngagementActions({
               {copy.contactLabel}
               <strong>{contact}</strong>
             </p>
-          ) : kind === 'marketplace' || signedIn ? (
+          ) : canRequestContact({
+              hasContact,
+              isOwner,
+              kind,
+              signedIn,
+            }) ? (
             <button
               disabled={pending !== null}
               onClick={revealContact}

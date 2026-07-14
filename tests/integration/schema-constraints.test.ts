@@ -208,6 +208,18 @@ describeWithDatabase('database schema constraints', () => {
       await db.announcement.deleteMany({ where: { authorId: reporterId } });
     }
     if (cleanupCampusIds.length > 0) {
+      await db.forumLike.deleteMany({
+        where: { post: { campusId: { in: cleanupCampusIds } } },
+      });
+      await db.forumComment.deleteMany({
+        where: { post: { campusId: { in: cleanupCampusIds } } },
+      });
+      await db.forumPost.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.forumCategory.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
       await db.announcement.deleteMany({
         where: { campusId: { in: cleanupCampusIds } },
       });
@@ -321,6 +333,239 @@ describeWithDatabase('database schema constraints', () => {
     });
 
     expect(reopenedReport.status).toBe('OPEN');
+  });
+
+  it('enforces campus-scoped forum categories while allowing an inactive existing category', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const suffix = randomUUID();
+    const inactiveCategory = await db.forumCategory.create({
+      data: {
+        campusId,
+        isActive: false,
+        label: '已停用分类',
+        slug: `inactive-${suffix}`,
+      },
+    });
+    const otherCampus = await db.campus.create({
+      data: {
+        name: 'Other Forum Campus',
+        slug: `other-forum-${suffix}`,
+      },
+    });
+    cleanupCampusIds.push(otherCampus.id);
+    const otherCategory = await db.forumCategory.create({
+      data: {
+        campusId: otherCampus.id,
+        label: '其他校园分类',
+        slug: `other-only-${suffix}`,
+      },
+    });
+
+    await expect(
+      db.forumPost.create({
+        data: {
+          authorId: reporterId,
+          body: '数据库仅验证分类存在；停用状态由后续服务层拒绝。',
+          campusId,
+          category: inactiveCategory.slug,
+          kind: 'DISCUSSION',
+          title: '停用分类数据库边界',
+        },
+      }),
+    ).resolves.toMatchObject({ category: inactiveCategory.slug });
+
+    const directClient = new Client({
+      connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
+    });
+    await directClient.connect();
+    try {
+      const insertDiscussion = `
+        INSERT INTO "ForumPost"
+          (id, "campusId", kind, "authorId", title, body, category, "updatedAt")
+        VALUES ($1, $2, 'DISCUSSION', $3, $4, $5, $6, now())
+      `;
+      await expect(
+        directClient.query(insertDiscussion, [
+          `missing-category-${suffix}`,
+          campusId,
+          reporterId,
+          '缺失分类',
+          '分类不存在时数据库必须拒绝。',
+          `missing-${suffix}`,
+        ]),
+      ).rejects.toMatchObject({ code: '23503' });
+      await expect(
+        directClient.query(insertDiscussion, [
+          `cross-campus-category-${suffix}`,
+          campusId,
+          reporterId,
+          '跨校园分类',
+          '不能引用其他校园的话题分类。',
+          otherCategory.slug,
+        ]),
+      ).rejects.toMatchObject({ code: '23503' });
+    } finally {
+      await directClient.end();
+    }
+  });
+
+  it('enforces forum identity shape and rejects direct tree-hole comments', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const suffix = randomUUID().replaceAll('-', '');
+    const category = await db.forumCategory.create({
+      data: {
+        campusId,
+        label: '约束测试',
+        slug: `constraints-${suffix}`,
+      },
+    });
+    const treeHole = await db.forumPost.create({
+      data: {
+        anonymousCiphertext: 'v1:authenticated-envelope',
+        anonymousFingerprint: 'a'.repeat(64),
+        anonymousKeyVersion: 1,
+        body: '这是一条用于验证数据库边界的匿名树洞。',
+        campusId,
+        category: category.slug,
+        kind: 'TREE_HOLE',
+        publicCode: suffix.slice(0, 12).toUpperCase(),
+        title: '匿名树洞约束',
+      },
+    });
+
+    const directClient = new Client({
+      connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
+    });
+    await directClient.connect();
+    try {
+      await expect(
+        directClient.query(
+          `INSERT INTO "ForumPost"
+             (id, "campusId", kind, title, body, category, "updatedAt")
+           VALUES ($1, $2, 'DISCUSSION', $3, $4, $5, now())`,
+          [
+            `authorless-discussion-${suffix}`,
+            campusId,
+            '缺少作者',
+            '普通讨论没有作者时必须被数据库拒绝。',
+            category.slug,
+          ],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      await expect(
+        directClient.query(
+          `INSERT INTO "ForumPost"
+             (id, "campusId", kind, "publicCode", title, body, category, "updatedAt")
+           VALUES ($1, $2, 'TREE_HOLE', $3, $4, $5, $6, now())`,
+          [
+            `incomplete-tree-hole-${suffix}`,
+            campusId,
+            suffix.slice(12, 24).toUpperCase(),
+            '缺少匿名信封',
+            '树洞缺少完整匿名身份字段时必须被数据库拒绝。',
+            category.slug,
+          ],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      await expect(
+        directClient.query(
+          `INSERT INTO "ForumComment"
+             (id, "postId", "authorId", body, "updatedAt")
+           VALUES ($1, $2, $3, $4, now())`,
+          [
+            `tree-comment-${suffix}`,
+            treeHole.id,
+            reporterId,
+            '不应允许的树洞评论',
+          ],
+        ),
+      ).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringContaining(
+          'Tree-hole posts do not accept comments',
+        ),
+      });
+    } finally {
+      await directClient.end();
+    }
+  });
+
+  it('enforces one like and prevents a commented discussion becoming a tree hole', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const suffix = randomUUID().replaceAll('-', '');
+    const category = await db.forumCategory.create({
+      data: {
+        campusId,
+        label: '互动约束',
+        slug: `interaction-${suffix}`,
+      },
+    });
+    const post = await db.forumPost.create({
+      data: {
+        authorId: reporterId,
+        body: '这是一条用于验证评论和点赞约束的普通讨论。',
+        campusId,
+        category: category.slug,
+        kind: 'DISCUSSION',
+        title: '互动约束',
+      },
+    });
+    await db.forumComment.create({
+      data: {
+        authorId: reporterId,
+        body: '一级评论',
+        postId: post.id,
+      },
+    });
+    await db.forumLike.create({
+      data: { postId: post.id, userId: reporterId },
+    });
+    await expect(
+      db.forumLike.create({
+        data: { postId: post.id, userId: reporterId },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+
+    const directClient = new Client({
+      connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
+    });
+    await directClient.connect();
+    try {
+      await expect(
+        directClient.query(
+          `UPDATE "ForumPost"
+           SET kind = 'TREE_HOLE',
+               "authorId" = NULL,
+               "anonymousCiphertext" = $2,
+               "anonymousFingerprint" = $3,
+               "anonymousKeyVersion" = 1,
+               "publicCode" = $4
+           WHERE id = $1`,
+          [
+            post.id,
+            'v1:authenticated-envelope',
+            'b'.repeat(64),
+            suffix.slice(0, 12).toUpperCase(),
+          ],
+        ),
+      ).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringContaining(
+          'Commented forum posts cannot become tree holes',
+        ),
+      });
+    } finally {
+      await directClient.end();
+    }
   });
 
   it('allows one cover per announcement and rejects a duplicate cover', async () => {

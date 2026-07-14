@@ -13,6 +13,14 @@ import { campusWorkPresetTags } from './seed-data';
 const passwordHash =
   '$2b$12$3PhfWpsS2TCwMa.ASaQKOeM.A7RZOc4xS5b07a0PWAZDvQkQ9t6Mi';
 
+const forumCategories = [
+  { label: '校园生活', slug: 'campus-life' },
+  { label: '学习互助', slug: 'study-help' },
+  { label: '失物招领', slug: 'lost-and-found' },
+  { label: '兴趣交流', slug: 'interests' },
+  { label: '其他', slug: 'other' },
+] as const;
+
 async function main() {
   const db = createDbClient();
 
@@ -31,6 +39,27 @@ async function main() {
         isActive: true,
       },
     });
+
+    for (const category of forumCategories) {
+      await db.forumCategory.upsert({
+        where: {
+          campusId_slug: {
+            campusId: campus.id,
+            slug: category.slug,
+          },
+        },
+        update: {
+          isActive: true,
+          label: category.label,
+        },
+        create: {
+          campusId: campus.id,
+          isActive: true,
+          label: category.label,
+          slug: category.slug,
+        },
+      });
+    }
 
     for (const preset of campusWorkPresetTags) {
       await db.tagDefinition.upsert({

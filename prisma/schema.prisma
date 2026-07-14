@@ -50,6 +50,11 @@ enum ContentStatus {
   ARCHIVED
 }
 
+enum ForumPostKind {
+  DISCUSSION
+  TREE_HOLE
+}
+
 enum MarketplaceCondition {
   NEW
   LIKE_NEW
@@ -76,6 +81,8 @@ enum ReportTargetType {
   RESOURCE
   MARKETPLACE_ITEM
   JOB_POST
+  FORUM_POST
+  FORUM_COMMENT
 }
 
 enum ReportStatus {
@@ -127,6 +134,7 @@ model Campus {
   marketplaceItems   MarketplaceItem[]
   jobPosts           JobPost[]
   campusWorkPosts    CampusWorkPost[]
+  forumCategories    ForumCategory[]
   tagDefinitions     TagDefinition[]
   announcements      Announcement[]    @relation("AnnouncementCampus")
   reports            Report[]
@@ -151,6 +159,9 @@ model User {
   marketplaceItems MarketplaceItem[]  @relation("MarketplaceSeller")
   jobPosts         JobPost[]          @relation("JobAuthor")
   campusWorkPosts  CampusWorkPost[]   @relation("CampusWorkAuthor")
+  forumPosts       ForumPost[]        @relation("ForumPostAuthor")
+  forumComments    ForumComment[]     @relation("ForumCommentAuthor")
+  forumLikes       ForumLike[]
   announcements    Announcement[]     @relation("AnnouncementAuthor")
   favourites       Favourite[]
   reports          Report[]           @relation("ReportReporter")
@@ -354,6 +365,73 @@ model CampusWorkPost {
 
   @@index([campusId, status, createdAt, id])
   @@index([authorId, status])
+}
+
+model ForumCategory {
+  id        String      @id @default(cuid())
+  campusId  String
+  slug      String      @db.VarChar(64)
+  label     String      @db.VarChar(100)
+  isActive  Boolean     @default(true)
+  campus    Campus      @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  posts     ForumPost[] @relation("ForumPostCategory")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([campusId, slug])
+  @@index([campusId, isActive, label, id])
+}
+
+model ForumPost {
+  id                   String         @id @default(cuid())
+  campusId             String
+  kind                 ForumPostKind
+  authorId             String?
+  /// Complete authenticated encryption envelope; IV and tag are serialized inside.
+  anonymousCiphertext  String?        @db.Text
+  anonymousFingerprint String?        @db.VarChar(64)
+  anonymousKeyVersion  Int?
+  publicCode           String?        @unique @db.VarChar(12)
+  title                String         @db.VarChar(200)
+  body                 String         @db.Text
+  category             String         @db.VarChar(64)
+  status               ContentStatus  @default(DRAFT)
+  author               User?          @relation("ForumPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  categoryDefinition   ForumCategory  @relation("ForumPostCategory", fields: [campusId, category], references: [campusId, slug], onDelete: Restrict)
+  comments             ForumComment[]
+  likes                ForumLike[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([campusId, kind, status, createdAt, id])
+  @@index([authorId, status, createdAt, id])
+}
+
+model ForumComment {
+  id        String        @id @default(cuid())
+  postId    String
+  authorId  String
+  body      String        @db.Text
+  status    ContentStatus @default(PUBLISHED)
+  post      ForumPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User          @relation("ForumCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([postId, status, createdAt, id])
+  @@index([authorId, createdAt, id])
+}
+
+model ForumLike {
+  id        String    @id @default(cuid())
+  userId    String
+  postId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post      ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, postId])
+  @@index([postId, createdAt, id])
 }
 
 model ResourceTag {

@@ -3,8 +3,13 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { expect, test } from '@playwright/test';
 import { hash } from 'bcryptjs';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
+import {
+  createPublishContentRunTags,
+  type PublishContentRunTags,
+  type RunScopedPublishTag,
+} from '../helpers/publish-content-run-tags';
 
 const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
 
@@ -33,6 +38,7 @@ function storageClient() {
 
 async function createRunScopedPublisher() {
   const runId = randomUUID();
+  const customTags = createPublishContentRunTags(runId);
   const id = `e2e-publisher-${runId}`;
   const email = `publisher-${runId}@campuslink.test`;
   const password = randomBytes(32).toString('base64url');
@@ -58,14 +64,73 @@ async function createRunScopedPublisher() {
         passwordHash,
       ],
     );
-    return { db, email, id, password, runId };
+    return {
+      campusId: campus.rows[0].campusId,
+      customTags,
+      db,
+      email,
+      id,
+      password,
+      runId,
+    };
   } catch (error) {
     await db.end();
     throw error;
   }
 }
 
-async function cleanupRunScopedPublisher(db: Pool, userId: string) {
+const runScopedTags = (tags: PublishContentRunTags) => [
+  tags.resource,
+  tags.marketplace,
+  tags.campusWork,
+];
+
+async function assertRunScopedTagJoinsRemoved(
+  client: PoolClient,
+  campusId: string,
+  tag: RunScopedPublishTag,
+) {
+  const joined = await client.query<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+     FROM (
+       SELECT resource_join."tagId"
+       FROM "ResourceTag" AS resource_join
+       INNER JOIN "TagDefinition" AS tag ON tag.id = resource_join."tagId"
+       WHERE tag."campusId" = $1
+         AND tag.scope = $2::"TagScope"
+         AND tag.label = $3
+         AND tag.slug = $4
+       UNION ALL
+       SELECT marketplace_join."tagId"
+       FROM "MarketplaceTag" AS marketplace_join
+       INNER JOIN "TagDefinition" AS tag ON tag.id = marketplace_join."tagId"
+       WHERE tag."campusId" = $1
+         AND tag.scope = $2::"TagScope"
+         AND tag.label = $3
+         AND tag.slug = $4
+       UNION ALL
+       SELECT work_join."tagId"
+       FROM "CampusWorkTag" AS work_join
+       INNER JOIN "TagDefinition" AS tag ON tag.id = work_join."tagId"
+       WHERE tag."campusId" = $1
+         AND tag.scope = $2::"TagScope"
+         AND tag.label = $3
+         AND tag.slug = $4
+     ) AS scoped_joins`,
+    [campusId, tag.scope, tag.label, tag.slug],
+  );
+  if (joined.rows[0]?.count !== 0) {
+    throw new Error('Run-scoped tag joins remain after publisher cleanup.');
+  }
+}
+
+async function cleanupRunScopedPublisher(publisher: {
+  campusId: string;
+  customTags: PublishContentRunTags;
+  db: Pool;
+  id: string;
+}) {
+  const { campusId, customTags, db, id: userId } = publisher;
   const assets = await db.query<{ storageKey: string }>(
     `SELECT "storageKey" FROM "Asset" WHERE "ownerId" = $1`,
     [userId],
@@ -81,9 +146,41 @@ async function cleanupRunScopedPublisher(db: Pool, userId: string) {
       ),
     ),
   );
+  const client = await db.connect();
   try {
-    await db.query(`DELETE FROM "User" WHERE id = $1`, [userId]);
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM "User" WHERE id = $1`, [userId]);
+    for (const tag of runScopedTags(customTags)) {
+      await assertRunScopedTagJoinsRemoved(client, campusId, tag);
+      const deleted = await client.query<RunScopedPublishTag>(
+        `DELETE FROM "TagDefinition"
+         WHERE "campusId" = $1
+           AND "isPreset" = false
+           AND scope = $2::"TagScope"
+           AND label = $3
+           AND slug = $4
+         RETURNING scope::text AS scope, label, slug`,
+        [campusId, tag.scope, tag.label, tag.slug],
+      );
+      if (deleted.rowCount !== null && deleted.rowCount > 1) {
+        throw new Error('Run-scoped tag cleanup exceeded its exact target.');
+      }
+      if (
+        deleted.rows[0] &&
+        (deleted.rows[0].scope !== tag.scope ||
+          deleted.rows[0].label !== tag.label ||
+          deleted.rows[0].slug !== tag.slug)
+      ) {
+        throw new Error('Run-scoped tag cleanup returned an unexpected row.');
+      }
+      await assertRunScopedTagJoinsRemoved(client, campusId, tag);
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
   } finally {
+    client.release();
     await db.end();
     storage.destroy();
   }
@@ -140,7 +237,9 @@ test('verified student publishes resource, marketplace item, and campus work thr
     await page
       .locator('textarea[name="summary"]')
       .fill('Complete E2E lecture notes with worked examples and exercises.');
-    await page.getByLabel('自定义标签 1').fill('E2E algorithms');
+    await page
+      .getByLabel('自定义标签 1')
+      .fill(publisher.customTags.resource.label);
     await page
       .locator('input[type="file"]')
       .first()
@@ -159,7 +258,9 @@ test('verified student publishes resource, marketplace item, and campus work thr
     await page.locator('input[name="price"]').fill('19.99');
     await page.locator('input[name="pickupArea"]').fill('North library');
     await page.locator('textarea[name="contact"]').fill('Private campus inbox');
-    await page.getByLabel('自定义标签 1').fill('E2E marketplace');
+    await page
+      .getByLabel('自定义标签 1')
+      .fill(publisher.customTags.marketplace.label);
     await page
       .locator('input[type="file"]')
       .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
@@ -177,7 +278,9 @@ test('verified student publishes resource, marketplace item, and campus work thr
     await page.locator('input[name="location"]').fill('Student centre');
     await page.locator('input[name="payText"]').fill('$20/hour');
     await page.locator('textarea[name="contact"]').fill('Campus inbox only');
-    await page.getByLabel('自定义标签 1').fill('E2E event help');
+    await page
+      .getByLabel('自定义标签 1')
+      .fill(publisher.customTags.campusWork.label);
     await page.locator('button[type="submit"]').click();
     await expect(page.locator('[aria-live="polite"]')).toContainText('审核');
 
@@ -188,7 +291,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
       await expect(row).toContainText('PENDING');
     }
   } finally {
-    await cleanupRunScopedPublisher(publisher.db, publisher.id);
+    await cleanupRunScopedPublisher(publisher);
   }
 });
 

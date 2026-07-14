@@ -9,6 +9,113 @@ const targetTypes = {
   resource: 'RESOURCE',
 } as const;
 
+const englishReportReasons = [
+  ['SPAM', 'Spam'],
+  ['MISLEADING', 'Misleading information'],
+  ['HARASSMENT', 'Harassment'],
+  ['PROHIBITED', 'Prohibited content'],
+  ['OTHER', 'Other'],
+] as const;
+
+const campusWorkReportReasons = [
+  ['SPAM', '垃圾信息'],
+  ['MISLEADING', '虚假或误导信息'],
+  ['HARASSMENT', '骚扰行为'],
+  ['PROHIBITED', '违规内容'],
+  ['OTHER', '其他'],
+] as const;
+
+const engagementCopy = {
+  resource: {
+    addFavourite: 'Add favourite',
+    ariaLabel: 'Community actions',
+    cancel: 'Cancel',
+    contactError: 'Unable to request contact.',
+    contactLabel: 'Contact: ',
+    contactSuccess: 'Contact access was recorded for community safety.',
+    favouriteAdded: 'Saved to favourites.',
+    favouriteError: 'Unable to update favourite.',
+    favouriteRemoved: 'Removed from favourites.',
+    optionalDetails: 'Optional details',
+    ownerMarker: 'Owner listing',
+    reasonLabel: 'Reason',
+    reasonPlaceholder: 'Select a reason',
+    removeFavourite: 'Remove favourite',
+    reportBody: 'Reports are reviewed privately by the campus moderation team.',
+    reportContent: 'Report content',
+    reportError: 'Unable to submit report.',
+    reportReasons: englishReportReasons,
+    reportSuccess:
+      'Report received. Thank you for helping the campus community.',
+    reportTitle: 'Report this content',
+    requestContact: 'Request contact',
+    requestingContact: 'Requesting...',
+    savingFavourite: 'Saving...',
+    signedOutHint:
+      'Sign in with a verified campus account to use these actions.',
+    submitReport: 'Submit report',
+    submittingReport: 'Submitting...',
+  },
+  marketplace: {
+    addFavourite: 'Add favourite',
+    ariaLabel: 'Community actions',
+    cancel: 'Cancel',
+    contactError: 'Unable to request contact.',
+    contactLabel: 'Seller contact: ',
+    contactSuccess: 'Contact access was recorded for community safety.',
+    favouriteAdded: 'Saved to favourites.',
+    favouriteError: 'Unable to update favourite.',
+    favouriteRemoved: 'Removed from favourites.',
+    optionalDetails: 'Optional details',
+    ownerMarker: 'Owner listing',
+    reasonLabel: 'Reason',
+    reasonPlaceholder: 'Select a reason',
+    removeFavourite: 'Remove favourite',
+    reportBody: 'Reports are reviewed privately by the campus moderation team.',
+    reportContent: 'Report content',
+    reportError: 'Unable to submit report.',
+    reportReasons: englishReportReasons,
+    reportSuccess:
+      'Report received. Thank you for helping the campus community.',
+    reportTitle: 'Report this content',
+    requestContact: 'Request contact',
+    requestingContact: 'Requesting...',
+    savingFavourite: 'Saving...',
+    signedOutHint:
+      'Sign in with a verified campus account to use these actions.',
+    submitReport: 'Submit report',
+    submittingReport: 'Submitting...',
+  },
+  'campus-work': {
+    addFavourite: '收藏',
+    ariaLabel: '校园工作互动操作',
+    cancel: '取消',
+    contactError: '无法获取联系方式，请稍后重试。',
+    contactLabel: '联系方式：',
+    contactSuccess: '联系方式访问已记录，请注意线下见面与付款安全。',
+    favouriteAdded: '已收藏。',
+    favouriteError: '收藏操作失败，请稍后重试。',
+    favouriteRemoved: '已取消收藏。',
+    optionalDetails: '补充说明（可选）',
+    ownerMarker: '发布者本人',
+    reasonLabel: '举报原因',
+    reasonPlaceholder: '请选择原因',
+    removeFavourite: '取消收藏',
+    reportBody: '举报将由校园审核团队私下处理。',
+    reportContent: '举报内容',
+    reportError: '举报提交失败，请稍后重试。',
+    reportReasons: campusWorkReportReasons,
+    reportSuccess: '举报已提交，感谢你帮助维护校园社区。',
+    reportTitle: '举报此内容',
+    requestContact: '查看联系方式',
+    requestingContact: '正在获取...',
+    savingFavourite: '保存中...',
+    signedOutHint: '请使用已验证的校园账号登录后使用这些操作。',
+    submitReport: '提交举报',
+    submittingReport: '提交中...',
+  },
+} as const;
+
 async function responseMessage(response: Response, fallback: string) {
   const body = (await response.json().catch(() => null)) as {
     message?: unknown;
@@ -36,7 +143,14 @@ export function EngagementActions({
     'contact' | 'favourite' | 'report' | null
   >(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const copy = engagementCopy[kind];
   const targetType = targetTypes[kind];
+
+  async function requestErrorMessage(response: Response, fallback: string) {
+    return kind === 'campus-work'
+      ? fallback
+      : responseMessage(response, fallback);
+  }
 
   async function changeFavourite() {
     setPending('favourite');
@@ -49,15 +163,15 @@ export function EngagementActions({
       });
       if (!response.ok)
         throw new Error(
-          await responseMessage(response, 'Unable to update favourite.'),
+          await requestErrorMessage(response, copy.favouriteError),
         );
       setFavourited(!favourited);
-      setMessage(
-        favourited ? 'Removed from favourites.' : 'Saved to favourites.',
-      );
+      setMessage(favourited ? copy.favouriteRemoved : copy.favouriteAdded);
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : 'Unable to update favourite.',
+        kind !== 'campus-work' && error instanceof Error
+          ? error.message
+          : copy.favouriteError,
       );
     } finally {
       setPending(null);
@@ -82,17 +196,15 @@ export function EngagementActions({
         method: 'POST',
       });
       if (!response.ok)
-        throw new Error(
-          await responseMessage(response, 'Unable to submit report.'),
-        );
+        throw new Error(await requestErrorMessage(response, copy.reportError));
       dialogRef.current?.close();
       formElement.reset();
-      setMessage(
-        'Report received. Thank you for helping the campus community.',
-      );
+      setMessage(copy.reportSuccess);
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : 'Unable to submit report.',
+        kind !== 'campus-work' && error instanceof Error
+          ? error.message
+          : copy.reportError,
       );
     } finally {
       setPending(null);
@@ -115,20 +227,18 @@ export function EngagementActions({
       } | null;
       if (!response.ok || typeof body?.contact !== 'string') {
         throw new Error(
-          typeof body?.message === 'string'
+          kind !== 'campus-work' && typeof body?.message === 'string'
             ? body.message
-            : 'Unable to request contact.',
+            : copy.contactError,
         );
       }
       setContact(body.contact);
-      setMessage(
-        kind === 'campus-work'
-          ? '联系方式访问已记录，请注意线下见面与付款安全。'
-          : 'Contact access was recorded for community safety.',
-      );
+      setMessage(copy.contactSuccess);
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : 'Unable to request contact.',
+        kind !== 'campus-work' && error instanceof Error
+          ? error.message
+          : copy.contactError,
       );
     } finally {
       setPending(null);
@@ -136,7 +246,7 @@ export function EngagementActions({
   }
 
   return (
-    <section className="engagement-panel" aria-label="Community actions">
+    <section className="engagement-panel" aria-label={copy.ariaLabel}>
       <div className="engagement-buttons">
         <button
           aria-pressed={favourited}
@@ -145,24 +255,25 @@ export function EngagementActions({
           type="button"
         >
           {pending === 'favourite'
-            ? 'Saving…'
+            ? copy.savingFavourite
             : favourited
-              ? 'Remove favourite'
-              : 'Add favourite'}
+              ? copy.removeFavourite
+              : copy.addFavourite}
         </button>
         <button
           disabled={pending !== null}
           onClick={() => dialogRef.current?.showModal()}
           type="button"
         >
-          Report content
+          {copy.reportContent}
         </button>
         {kind === 'marketplace' || kind === 'campus-work' ? (
           isOwner ? (
-            <span className="owner-marker">Owner listing</span>
+            <span className="owner-marker">{copy.ownerMarker}</span>
           ) : contact ? (
             <p className="revealed-contact" role="status">
-              Seller contact: <strong>{contact}</strong>
+              {copy.contactLabel}
+              <strong>{contact}</strong>
             </p>
           ) : kind === 'marketplace' || signedIn ? (
             <button
@@ -171,21 +282,13 @@ export function EngagementActions({
               type="button"
             >
               {pending === 'contact'
-                ? kind === 'campus-work'
-                  ? '正在获取…'
-                  : 'Requesting…'
-                : kind === 'campus-work'
-                  ? '查看联系方式'
-                  : 'Request contact'}
+                ? copy.requestingContact
+                : copy.requestContact}
             </button>
           ) : null
         ) : null}
       </div>
-      {!signedIn ? (
-        <p className="action-hint">
-          Sign in with a verified campus account to use these actions.
-        </p>
-      ) : null}
+      {!signedIn ? <p className="action-hint">{copy.signedOutHint}</p> : null}
       {message ? (
         <p className="action-message" role="status">
           {message}
@@ -193,31 +296,31 @@ export function EngagementActions({
       ) : null}
       <dialog aria-labelledby="report-dialog-title" ref={dialogRef}>
         <form className="report-form" onSubmit={submitReport}>
-          <h2 id="report-dialog-title">Report this content</h2>
-          <p>Reports are reviewed privately by the campus moderation team.</p>
+          <h2 id="report-dialog-title">{copy.reportTitle}</h2>
+          <p>{copy.reportBody}</p>
           <label>
-            Reason
+            {copy.reasonLabel}
             <select defaultValue="" name="reason" required>
               <option disabled value="">
-                Select a reason
+                {copy.reasonPlaceholder}
               </option>
-              <option value="SPAM">Spam</option>
-              <option value="MISLEADING">Misleading information</option>
-              <option value="HARASSMENT">Harassment</option>
-              <option value="PROHIBITED">Prohibited content</option>
-              <option value="OTHER">Other</option>
+              {copy.reportReasons.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
-            Optional details
+            {copy.optionalDetails}
             <textarea maxLength={1000} name="details" rows={5} />
           </label>
           <div className="dialog-actions">
             <button disabled={pending === 'report'} type="submit">
-              {pending === 'report' ? 'Submitting…' : 'Submit report'}
+              {pending === 'report' ? copy.submittingReport : copy.submitReport}
             </button>
             <button onClick={() => dialogRef.current?.close()} type="button">
-              Cancel
+              {copy.cancel}
             </button>
           </div>
         </form>

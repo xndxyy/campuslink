@@ -24,6 +24,7 @@ import {
   createResource,
   editOwnedContent,
   getOwnedContent,
+  getPublicContent,
   listPublicContent,
 } from '@/lib/domain/content-service';
 
@@ -34,6 +35,7 @@ describeWithDatabase('content publishing actions', () => {
   let campusId = '';
   let studentId = '';
   let otherId = '';
+  let previousDefaultCampusSlug: string | undefined;
   let hasCampusWorkCapabilities = false;
 
   function requireCampusWorkCapabilities(context: TestContext) {
@@ -44,6 +46,7 @@ describeWithDatabase('content publishing actions', () => {
 
   beforeAll(async () => {
     db = createDbClient();
+    previousDefaultCampusSlug = process.env.DEFAULT_CAMPUS_SLUG;
     const capabilities = await db.$queryRaw<
       Array<{ hasCampusWorkCapabilities: boolean }>
     >`
@@ -52,10 +55,43 @@ describeWithDatabase('content publishing actions', () => {
         AND to_regclass('public."CampusWorkTag"') IS NOT NULL
         AND EXISTS (
           SELECT 1
-          FROM pg_catalog.pg_trigger
-          WHERE tgname = 'JobPost_campus_work_sync'
-            AND tgrelid = to_regclass('public."JobPost"')
-            AND NOT tgisinternal
+          FROM pg_catalog.pg_trigger AS trigger
+          JOIN pg_catalog.pg_proc AS function
+            ON function.oid = trigger.tgfoid
+          JOIN pg_catalog.pg_namespace AS function_namespace
+            ON function_namespace.oid = function.pronamespace
+          CROSS JOIN LATERAL (
+            SELECT
+              pg_catalog.pg_get_triggerdef(trigger.oid, true) AS trigger_definition,
+              pg_catalog.pg_get_functiondef(trigger.tgfoid) AS function_definition
+          ) AS definitions
+          WHERE trigger.tgname = 'JobPost_campus_work_sync'
+            AND trigger.tgrelid = to_regclass('public."JobPost"')
+            AND NOT trigger.tgisinternal
+            AND trigger.tgenabled = 'O'
+            AND trigger.tgtype = 29
+            AND function_namespace.nspname = 'public'
+            AND function.proname = '_sync_job_post_to_campus_work'
+            AND definitions.trigger_definition
+              LIKE '%FOR EACH ROW EXECUTE FUNCTION%'
+            AND definitions.trigger_definition
+              LIKE '%_sync_job_post_to_campus_work()%'
+            AND definitions.function_definition LIKE '%TG_OP = ''DELETE''%'
+            AND definitions.function_definition LIKE '%''CampusWorkPost''%'
+            AND definitions.function_definition
+              LIKE '%ON CONFLICT ("id") DO UPDATE SET%'
+            AND definitions.function_definition LIKE ALL (ARRAY[
+              '%"authorId" = EXCLUDED."authorId"%',
+              '%"campusId" = EXCLUDED."campusId"%',
+              '%"company" = EXCLUDED."company"%',
+              '%"title" = EXCLUDED."title"%',
+              '%"description" = EXCLUDED."description"%',
+              '%"location" = EXCLUDED."location"%',
+              '%"payText" = EXCLUDED."payText"%',
+              '%"status" = EXCLUDED."status"%',
+              '%"createdAt" = EXCLUDED."createdAt"%',
+              '%"updatedAt" = EXCLUDED."updatedAt"%'
+            ])
         ) AS "hasCampusWorkCapabilities"
     `;
     hasCampusWorkCapabilities =
@@ -69,6 +105,7 @@ describeWithDatabase('content publishing actions', () => {
       },
     });
     campusId = campus.id;
+    process.env.DEFAULT_CAMPUS_SLUG = campus.slug;
     const [student, other] = await Promise.all([
       db.user.create({
         data: {
@@ -92,13 +129,21 @@ describeWithDatabase('content publishing actions', () => {
   });
 
   afterAll(async () => {
-    if (campusId) {
-      await db.auditLog.deleteMany({ where: { campusId } });
-      await db.user.deleteMany({ where: { campusId } });
-      await db.tagDefinition.deleteMany({ where: { campusId } });
-      await db.campus.delete({ where: { id: campusId } });
+    try {
+      if (campusId) {
+        await db.auditLog.deleteMany({ where: { campusId } });
+        await db.user.deleteMany({ where: { campusId } });
+        await db.tagDefinition.deleteMany({ where: { campusId } });
+        await db.campus.delete({ where: { id: campusId } });
+      }
+    } finally {
+      if (previousDefaultCampusSlug === undefined) {
+        delete process.env.DEFAULT_CAMPUS_SLUG;
+      } else {
+        process.env.DEFAULT_CAMPUS_SLUG = previousDefaultCampusSlug;
+      }
+      await db.$disconnect();
     }
-    await db.$disconnect();
   });
 
   it('moves verified student resource, market, and job submissions to PENDING atomically', async () => {
@@ -573,6 +618,81 @@ describeWithDatabase('content publishing actions', () => {
     ).resolves.toMatchObject({
       tags: [expect.objectContaining({ id: secondTag.id, isActive: false })],
     });
+  });
+
+  it('presents an inactive historical CampusWork tag without leaking public contact', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const customTag = `Inactive work ${randomUUID().slice(0, 6)}`;
+    const contact = `inactive-${randomUUID()}@example.test`;
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: studentId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const created = await createCampusWorkPost(
+      db as unknown as ContentAdapter,
+      actor,
+      {
+        contact,
+        customTags: [customTag],
+        description:
+          'This published work verifies inactive historical tag presentation.',
+        location: 'Campus library',
+        payText: '25 CNY per hour',
+        presetTagIds: [],
+        title: `Inactive tag work ${randomUUID()}`,
+      },
+    );
+    const tag = await db.tagDefinition.findFirstOrThrow({
+      where: { campusId, label: customTag, scope: 'CAMPUS_WORK' },
+    });
+
+    await db.jobPost.update({
+      data: { status: 'PUBLISHED' },
+      where: { id: created.id },
+    });
+    await db.tagDefinition.update({
+      data: { isActive: false },
+      where: { id: tag.id },
+    });
+
+    const [publicList, publicDetail, ownerDetail] = await Promise.all([
+      listPublicContent(db as unknown as ContentAdapter, 'campus-work', {
+        page: 1,
+        pageSize: 50,
+      }),
+      getPublicContent(
+        db as unknown as ContentAdapter,
+        'campus-work',
+        created.id,
+      ),
+      getOwnedContent(
+        db as unknown as ContentAdapter,
+        actor,
+        'campus-work',
+        created.id,
+      ),
+    ]);
+    const publicListItem = publicList.items.find(
+      (item) => item.id === created.id,
+    );
+    if (!publicListItem) throw new Error('CampusWork list item not found');
+    if (!publicDetail) throw new Error('CampusWork public detail not found');
+
+    expect(publicListItem).toMatchObject({
+      tags: [expect.objectContaining({ id: tag.id, isActive: false })],
+    });
+    expect(publicDetail).toMatchObject({
+      tags: [expect.objectContaining({ id: tag.id, isActive: false })],
+    });
+    expect(ownerDetail).toMatchObject({
+      contact,
+      tags: [expect.objectContaining({ id: tag.id, isActive: false })],
+    });
+    expect(!Object.hasOwn(publicListItem, 'contact')).toBe(true);
+    expect(!Object.hasOwn(publicDetail, 'contact')).toBe(true);
   });
 
   it('returns only approved public records and excludes marketplace contact', async () => {

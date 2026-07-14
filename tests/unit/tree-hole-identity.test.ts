@@ -87,6 +87,64 @@ function adapter(
   return value as unknown as TreeHoleIdentityAdapter & { order: string[] };
 }
 
+function retryingAdapter(
+  outcomes: readonly (unknown | undefined)[],
+  reportStatuses: readonly string[] = [],
+) {
+  const envelope = sealAnonymousIdentity('private_user_1', keys);
+  const committedAudits: unknown[] = [];
+  let attempt = -1;
+  let pendingAudits: unknown[] | undefined;
+  const value = {
+    $transaction: vi.fn(
+      async (operation: (tx: TreeHoleIdentityAdapter) => Promise<unknown>) => {
+        attempt += 1;
+        const currentPendingAudits: unknown[] = [];
+        pendingAudits = currentPendingAudits;
+        try {
+          const result = await operation(
+            value as unknown as TreeHoleIdentityAdapter,
+          );
+          const outcome = outcomes[attempt];
+          if (outcome !== undefined) throw outcome;
+          committedAudits.push(...currentPendingAudits);
+          return result;
+        } finally {
+          pendingAudits = undefined;
+        }
+      },
+    ),
+    auditLog: {
+      create: vi.fn(async ({ data }) => {
+        pendingAudits?.push(data);
+        return { id: `audit_${attempt}`, ...data };
+      }),
+    },
+    committedAudits,
+    forumPost: {
+      findFirst: vi.fn(async () => ({
+        anonymousCiphertext: serializeAnonymousIdentityEnvelope(envelope),
+        anonymousKeyVersion: 1,
+        campusId: actor.campusId,
+        id: input.postId,
+        kind: 'TREE_HOLE',
+      })),
+    },
+    report: {
+      findFirst: vi.fn(async () => ({
+        campusId: actor.campusId,
+        id: input.reportId,
+        status: reportStatuses[attempt] ?? 'OPEN',
+        targetId: input.postId,
+        targetType: 'FORUM_POST',
+      })),
+    },
+  };
+  return value as unknown as TreeHoleIdentityAdapter & {
+    committedAudits: unknown[];
+  };
+}
+
 describe('audited tree-hole identity reveal', () => {
   it('denies moderators in the domain before opening a transaction', async () => {
     const db = adapter();
@@ -323,6 +381,7 @@ describe('audited tree-hole identity reveal', () => {
     await expect(
       revealTreeHoleAuthor(db, actor, input, keys),
     ).rejects.toBeInstanceOf(AnonymousIdentityError);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
     expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 
@@ -345,9 +404,83 @@ describe('audited tree-hole identity reveal', () => {
       await expect(
         revealTreeHoleAuthor(db, actor, input, keys),
       ).rejects.toBeInstanceOf(AnonymousIdentityError);
+      expect(db.$transaction).toHaveBeenCalledTimes(1);
       expect(db.auditLog.create).not.toHaveBeenCalled();
     },
   );
+
+  it('retries the complete transaction after P2034 and commits one audit', async () => {
+    const db = retryingAdapter([{ code: 'P2034' }, undefined]);
+
+    await expect(
+      revealTreeHoleAuthor(db, actor, input, keys),
+    ).resolves.toStrictEqual({ userId: 'private_user_1' });
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
+    expect(db.report.findFirst).toHaveBeenCalledTimes(2);
+    expect(db.forumPost.findFirst).toHaveBeenCalledTimes(2);
+    expect(db.auditLog.create).toHaveBeenCalledTimes(2);
+    expect(db.committedAudits).toHaveLength(1);
+  });
+
+  it.each([{ code: '40001' }, { meta: { code: '40001' } }])(
+    'retries the complete transaction after serialization failure %j',
+    async (serializationFailure) => {
+      const db = retryingAdapter([serializationFailure, undefined]);
+
+      await expect(
+        revealTreeHoleAuthor(db, actor, input, keys),
+      ).resolves.toStrictEqual({ userId: 'private_user_1' });
+      expect(db.$transaction).toHaveBeenCalledTimes(2);
+      expect(db.report.findFirst).toHaveBeenCalledTimes(2);
+      expect(db.forumPost.findFirst).toHaveBeenCalledTimes(2);
+      expect(db.committedAudits).toHaveLength(1);
+    },
+  );
+
+  it('returns the original final serialization error after three attempts', async () => {
+    const finalError = { code: 'P2034', marker: 'final-attempt' };
+    const db = retryingAdapter([
+      { code: 'P2034' },
+      { meta: { code: '40001' } },
+      finalError,
+    ]);
+
+    await expect(revealTreeHoleAuthor(db, actor, input, keys)).rejects.toBe(
+      finalError,
+    );
+    expect(db.$transaction).toHaveBeenCalledTimes(3);
+    expect(db.report.findFirst).toHaveBeenCalledTimes(3);
+    expect(db.forumPost.findFirst).toHaveBeenCalledTimes(3);
+    expect(db.auditLog.create).toHaveBeenCalledTimes(3);
+    expect(db.committedAudits).toHaveLength(0);
+  });
+
+  it('rechecks authorization after rollback and never commits a stale audit', async () => {
+    const db = retryingAdapter(
+      [{ code: 'P2034' }, undefined],
+      ['OPEN', 'DISMISSED'],
+    );
+
+    await expect(
+      revealTreeHoleAuthor(db, actor, input, keys),
+    ).rejects.toBeInstanceOf(TreeHoleIdentityForbiddenError);
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
+    expect(db.report.findFirst).toHaveBeenCalledTimes(2);
+    expect(db.forumPost.findFirst).toHaveBeenCalledTimes(1);
+    expect(db.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(db.committedAudits).toHaveLength(0);
+  });
+
+  it('does not retry an unknown transaction error', async () => {
+    const databaseError = { code: 'P2002', detail: 'must stay internal' };
+    const db = adapter();
+    vi.mocked(db.$transaction).mockRejectedValue(databaseError);
+
+    await expect(revealTreeHoleAuthor(db, actor, input, keys)).rejects.toBe(
+      databaseError,
+    );
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
 });
 
 const sessionAdmin = {

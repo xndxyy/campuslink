@@ -14,6 +14,7 @@ import {
   serializeAnonymousIdentityEnvelope,
   type AnonymousIdentityKeyring,
 } from '@/lib/security/anonymous-identity';
+import { assertSafeTestDatabase } from '@/tests/helpers/database-safety';
 
 const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
 const testKeys: AnonymousIdentityKeyring = {
@@ -32,6 +33,7 @@ describeWithDatabase('forum anonymous identity persistence', () => {
   let reportId = '';
 
   beforeAll(async () => {
+    assertSafeTestDatabase(process.env);
     db = createDbClient();
     const suffix = randomUUID();
     const campus = await db.campus.create({

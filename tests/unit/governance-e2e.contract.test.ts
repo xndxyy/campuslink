@@ -13,6 +13,7 @@ const safetyPath = fileURLToPath(
   new URL('../helpers/e2e-database-safety.ts', import.meta.url),
 );
 const safety = existsSync(safetyPath) ? readFileSync(safetyPath, 'utf8') : '';
+const commonSafety = source('../helpers/database-safety.ts');
 
 describe('fully parallel governance E2E isolation contract', () => {
   it('creates only run-scoped campus and accounts with a secret random credential', () => {
@@ -33,8 +34,9 @@ describe('fully parallel governance E2E isolation contract', () => {
 
   it('fails closed before opening the database unless destructive E2E is explicitly safe', () => {
     expect(safety).toContain('ALLOW_DESTRUCTIVE_E2E');
-    expect(safety).toContain("NODE_ENV === 'production'");
-    expect(safety).toMatch(/_e2e\|_test/);
+    expect(safety).toContain('assertSafeTestDatabase(environment)');
+    expect(commonSafety).toContain("NODE_ENV === 'production'");
+    expect(commonSafety).toMatch(/_e2e\|_test/);
     const guard = moderation.indexOf(
       'assertSafeDestructiveE2eEnvironment(process.env)',
     );

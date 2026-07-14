@@ -70,6 +70,32 @@ function boundedReason(value: unknown) {
   return trimmed;
 }
 
+function isSerializationFailure(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
+  return (
+    candidate.code === 'P2034' ||
+    candidate.code === '40001' ||
+    candidate.meta?.code === '40001'
+  );
+}
+
+async function serializableTransaction<T>(
+  adapter: TreeHoleIdentityAdapter,
+  operation: (tx: TreeHoleIdentityAdapter) => Promise<T>,
+) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await adapter.$transaction(operation, {
+        isolationLevel: 'Serializable',
+      });
+    } catch (error) {
+      if (!isSerializationFailure(error) || attempt === 2) throw error;
+    }
+  }
+  throw new Error('Unreachable tree-hole identity transaction state.');
+}
+
 function activeMatchingReport(
   report: Record<string, unknown> | null,
   actor: TreeHoleIdentityActor,
@@ -139,65 +165,62 @@ export async function revealTreeHoleAuthor(
     reportId: boundedId(rawInput.reportId),
   };
 
-  return adapter.$transaction(
-    async (tx) => {
-      const report = await tx.report.findFirst({
-        select: {
-          campusId: true,
-          id: true,
-          status: true,
-          targetId: true,
-          targetType: true,
-        },
-        where: {
-          campusId: actor.campusId,
-          id: input.reportId,
-          status: { in: ['OPEN', 'TRIAGED'] },
-          targetId: input.postId,
-          targetType: 'FORUM_POST',
-        },
-      });
-      if (!activeMatchingReport(report, actor, input)) {
-        throw new TreeHoleIdentityForbiddenError();
-      }
+  return serializableTransaction(adapter, async (tx) => {
+    const report = await tx.report.findFirst({
+      select: {
+        campusId: true,
+        id: true,
+        status: true,
+        targetId: true,
+        targetType: true,
+      },
+      where: {
+        campusId: actor.campusId,
+        id: input.reportId,
+        status: { in: ['OPEN', 'TRIAGED'] },
+        targetId: input.postId,
+        targetType: 'FORUM_POST',
+      },
+    });
+    if (!activeMatchingReport(report, actor, input)) {
+      throw new TreeHoleIdentityForbiddenError();
+    }
 
-      const post = await tx.forumPost.findFirst({
-        select: {
-          anonymousCiphertext: true,
-          anonymousKeyVersion: true,
-          campusId: true,
-          id: true,
-          kind: true,
-        },
-        where: {
-          campusId: actor.campusId,
-          id: input.postId,
-          kind: 'TREE_HOLE',
-        },
-      });
-      if (!post || !matchingTreeHole(post, actor, input.postId)) {
-        throw new TreeHoleIdentityForbiddenError();
-      }
+    const post = await tx.forumPost.findFirst({
+      select: {
+        anonymousCiphertext: true,
+        anonymousKeyVersion: true,
+        campusId: true,
+        id: true,
+        kind: true,
+      },
+      where: {
+        campusId: actor.campusId,
+        id: input.postId,
+        kind: 'TREE_HOLE',
+      },
+    });
+    if (!post || !matchingTreeHole(post, actor, input.postId)) {
+      throw new TreeHoleIdentityForbiddenError();
+    }
 
-      const userId = openAnonymousIdentity(storedEnvelope(post), keys);
-      const details = sanitizeAuditDetails({
-        postId: input.postId,
-        reason: input.reason,
-        reportId: input.reportId,
-      });
-      await tx.auditLog.create({
-        data: {
-          action: 'TREE_HOLE_AUTHOR_REVEALED',
-          actorId: actor.id,
-          campusId: actor.campusId,
-          details,
-          subjectId: input.reportId,
-          subjectType: 'REPORT',
-        },
-        select: { id: true },
-      });
-      return { userId };
-    },
-    { isolationLevel: 'Serializable' },
-  );
+    const userId = openAnonymousIdentity(storedEnvelope(post), keys);
+    const details = sanitizeAuditDetails({
+      postId: input.postId,
+      reason: input.reason,
+      reportId: input.reportId,
+    });
+    await tx.auditLog.create({
+      data: {
+        action: 'TREE_HOLE_AUTHOR_REVEALED',
+        actorId: actor.id,
+        campusId: actor.campusId,
+        details,
+        subjectId: input.reportId,
+        subjectType: 'REPORT',
+      },
+      select: { id: true },
+    });
+    return { userId };
+  });
 }

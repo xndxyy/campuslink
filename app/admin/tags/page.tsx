@@ -1,31 +1,56 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import {
-  TagManagement,
-  type ManagedTagItem,
-} from '@/components/admin/tag-management';
+import { TagManagement } from '@/components/admin/tag-management';
 import { requireRole } from '@/lib/auth/guards';
 import { getDb } from '@/lib/db';
-import { listManagedTags, type TagAdapter } from '@/lib/domain/tags';
+import {
+  listManagedTags,
+  parseManagedTagQuery,
+  type ManagedTagPage,
+  type TagAdapter,
+} from '@/lib/domain/tags';
 import type { TagScope } from '@/lib/validation/tags';
 
-function requestedScope(value: string | string[] | undefined): TagScope {
-  if (value === undefined) return 'RESOURCE';
-  if (
-    value === 'RESOURCE' ||
-    value === 'MARKETPLACE' ||
-    value === 'CAMPUS_WORK'
-  ) {
-    return value;
+type TagPageSearchParams = Record<string, string | string[] | undefined> & {
+  cursor?: string | string[];
+  pageSize?: string | string[];
+  scope?: string | string[];
+};
+
+function appendQueryValue(
+  search: URLSearchParams,
+  key: string,
+  value: string | string[] | undefined,
+) {
+  if (Array.isArray(value)) {
+    for (const item of value) search.append(key, item);
+  } else if (value !== undefined) {
+    search.append(key, value);
   }
-  notFound();
+}
+
+function pageQuery(params: TagPageSearchParams) {
+  const search = new URLSearchParams();
+  appendQueryValue(search, 'scope', params.scope ?? 'RESOURCE');
+  appendQueryValue(search, 'pageSize', params.pageSize);
+  appendQueryValue(search, 'cursor', params.cursor);
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== 'scope' && key !== 'pageSize' && key !== 'cursor') {
+      appendQueryValue(search, key, value);
+    }
+  }
+  return parseManagedTagQuery(search);
+}
+
+function scopeHref(scope: TagScope, pageSize: number) {
+  return `/admin/tags?scope=${scope}&pageSize=${pageSize}`;
 }
 
 export default async function TagsAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ scope?: string | string[] }>;
+  searchParams: Promise<TagPageSearchParams>;
 }) {
   let actor;
   try {
@@ -36,14 +61,26 @@ export default async function TagsAdminPage({
   }
 
   const params = await searchParams;
-  const scope = requestedScope(params.scope);
-  let items: ManagedTagItem[] = [];
+  let parsed;
+  try {
+    parsed = pageQuery(params);
+  } catch {
+    notFound();
+  }
+  const { query, scope } = parsed;
+  const pageSize = query.pageSize ?? 50;
+  let page: ManagedTagPage = {
+    hasNextPage: false,
+    items: [],
+    nextCursor: null,
+  };
   let unavailable = false;
   try {
-    items = await listManagedTags(
+    page = await listManagedTags(
       getDb() as unknown as TagAdapter,
       actor,
       scope,
+      query,
     );
   } catch {
     unavailable = true;
@@ -60,19 +97,19 @@ export default async function TagsAdminPage({
       <nav aria-label="标签范围" className="tag-scope-tabs">
         <Link
           aria-current={scope === 'RESOURCE' ? 'page' : undefined}
-          href="/admin/tags?scope=RESOURCE"
+          href={scopeHref('RESOURCE', pageSize)}
         >
           学习资源
         </Link>
         <Link
           aria-current={scope === 'MARKETPLACE' ? 'page' : undefined}
-          href="/admin/tags?scope=MARKETPLACE"
+          href={scopeHref('MARKETPLACE', pageSize)}
         >
           二手交易
         </Link>
         <Link
           aria-current={scope === 'CAMPUS_WORK' ? 'page' : undefined}
-          href="/admin/tags?scope=CAMPUS_WORK"
+          href={scopeHref('CAMPUS_WORK', pageSize)}
         >
           校园工作
         </Link>
@@ -84,7 +121,18 @@ export default async function TagsAdminPage({
           <p>请检查数据库连接后重试。</p>
         </div>
       ) : (
-        <TagManagement items={items} scope={scope} />
+        <>
+          <TagManagement items={page.items} scope={scope} />
+          {page.hasNextPage && page.nextCursor ? (
+            <nav aria-label="标签分页" className="tag-pagination">
+              <Link
+                href={`/admin/tags?scope=${scope}&pageSize=${pageSize}&cursor=${encodeURIComponent(page.nextCursor)}`}
+              >
+                下一页
+              </Link>
+            </nav>
+          ) : null}
+        </>
       )}
     </section>
   );

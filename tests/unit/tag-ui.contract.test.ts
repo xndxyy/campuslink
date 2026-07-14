@@ -20,22 +20,46 @@ const migration = source(
 const originalTagMigration = source(
   '../../prisma/migrations/20260713190000_add_tags_and_campus_work/migration.sql',
 );
+const manifest = JSON.parse(source('../../package.json')) as {
+  dependencies: Record<string, string>;
+};
+const lockfile = JSON.parse(source('../../package-lock.json')) as {
+  packages: Record<string, { license?: string; version?: string }>;
+};
 
 describe('Chinese tag governance UI contract', () => {
   it('renders an ADMIN-only page whose scope comes from the URL', () => {
     expect(page).toContain("requireRole(['ADMIN'])");
     expect(page).toContain('searchParams: Promise<');
     expect(page).toContain('params.scope');
+    expect(page).toContain('params.pageSize');
+    expect(page).toContain('params.cursor');
+    expect(page).toContain('parseManagedTagQuery');
     expect(page).toContain('listManagedTags');
     expect(page).toContain('<TagManagement');
     expect(page).toContain('标签管理');
     expect(page).toContain('学习资源');
     expect(page).toContain('二手交易');
     expect(page).toContain('校园工作');
-    expect(page).toContain('href="/admin/tags?scope=RESOURCE"');
-    expect(page).toContain('href="/admin/tags?scope=MARKETPLACE"');
-    expect(page).toContain('href="/admin/tags?scope=CAMPUS_WORK"');
+    expect(page).toContain("scopeHref('RESOURCE', pageSize)");
+    expect(page).toContain("scopeHref('MARKETPLACE', pageSize)");
+    expect(page).toContain("scopeHref('CAMPUS_WORK', pageSize)");
     expect(page).toContain("aria-current={scope === 'RESOURCE'");
+  });
+
+  it('clears cursor on scope changes and preserves scope/page size on next page', () => {
+    expect(page).toContain(
+      'return `/admin/tags?scope=${scope}&pageSize=${pageSize}`',
+    );
+    expect(page).toContain('page.nextCursor');
+    expect(page).toContain('page.hasNextPage');
+    expect(page).toContain(
+      '`/admin/tags?scope=${scope}&pageSize=${pageSize}&cursor=${encodeURIComponent(page.nextCursor)}`',
+    );
+    expect(page).toContain('下一页');
+    expect(component).toContain('router.refresh()');
+    expect(component).not.toContain('router.push(');
+    expect(component).not.toContain('router.replace(');
   });
 
   it('exposes tag navigation only inside the existing ADMIN branch', () => {
@@ -82,6 +106,13 @@ describe('Chinese tag governance UI contract', () => {
 });
 
 describe('tag audit subject expansion contract', () => {
+  it('pins the MIT Unicode database case-folding implementation', () => {
+    expect(manifest.dependencies['unicode-case-folding']).toBe('1.1.1');
+    expect(
+      lockfile.packages['node_modules/unicode-case-folding'],
+    ).toMatchObject({ license: 'MIT', version: '1.1.1' });
+  });
+
   it('keeps the pushed 190000 migration immutable', () => {
     expect(
       createHash('sha256').update(originalTagMigration).digest('hex'),

@@ -55,6 +55,18 @@ describe('tag validation API', () => {
     );
   });
 
+  it('uses full Unicode case folding without conflating Turkic dotless i', () => {
+    expect(createTagSlug('Straße')).toBe(createTagSlug('STRASSE'));
+    expect(createTagSlug('Σ')).toBe(createTagSlug('σ'));
+    expect(createTagSlug('Σ')).toBe(createTagSlug('ς'));
+    expect(createTagSlug('I')).not.toBe(createTagSlug('ı'));
+    expect(createTagSlug('İ')).toBe('i̇');
+    expect(createTagSlug('İ')).toBe(createTagSlug('i̇'));
+    expect(createTagSlug('  ＳＴＲＡＳＳＥ\u3000 委托  ')).toBe(
+      createTagSlug('strasse 委托'),
+    );
+  });
+
   it('strictly parses bounded arrays and normalized custom labels', () => {
     expect(
       parseTagSelectionInput({

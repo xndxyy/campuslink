@@ -1548,6 +1548,16 @@ select {
 .tag-action-dialog p {
   margin: 0;
 }
+.tag-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+.tag-pagination a {
+  border-bottom: 3px solid var(--green);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
 @media (max-width: 1180px) {
   .hero h1 {
     font-size: 4.6rem;

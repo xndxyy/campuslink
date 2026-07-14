@@ -7,17 +7,16 @@ import { adminErrorResponse, adminJson } from '@/lib/domain/admin-route';
 import {
   createPresetTag,
   listManagedTags,
+  parseManagedTagQuery,
   promoteCustomTag,
   setTagActive,
+  type ManagedTagPage,
+  type ManagedTagQuery,
   type TagActor,
   type TagAdapter,
 } from '@/lib/domain/tags';
 import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
-import {
-  TagValidationError,
-  normalizeTagLabel,
-  type TagScope,
-} from '@/lib/validation/tags';
+import { normalizeTagLabel, type TagScope } from '@/lib/validation/tags';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,7 +72,11 @@ type PromoteInput = Omit<z.infer<typeof promoteSchema>, 'action'>;
 
 interface TagRouteDependencies {
   create?: (actor: TagActor, input: CreateInput) => Promise<unknown>;
-  list?: (actor: TagActor, scope: TagScope) => Promise<unknown>;
+  list?: (
+    actor: TagActor,
+    scope: TagScope,
+    query: ManagedTagQuery,
+  ) => Promise<ManagedTagPage>;
   promote?: (actor: TagActor, input: PromoteInput) => Promise<unknown>;
   resolveUser?: CurrentUserResolver;
   setActive?: (actor: TagActor, input: ActiveInput) => Promise<unknown>;
@@ -87,18 +90,6 @@ function actorFrom(user: {
   return { campusId: user.campusId, id: user.id, role: user.role };
 }
 
-function parseScope(request: Request): TagScope {
-  const params = new URL(request.url).searchParams;
-  const keys = [...params.keys()];
-  if (keys.some((key) => key !== 'scope')) {
-    throw new TagValidationError('INVALID_INPUT');
-  }
-  const values = params.getAll('scope');
-  const parsed = values.length === 1 ? scopeSchema.safeParse(values[0]) : null;
-  if (!parsed?.success) throw new TagValidationError('INVALID_INPUT');
-  return parsed.data;
-}
-
 export async function handleTagGet(
   request: Request,
   dependencies: TagRouteDependencies = {},
@@ -106,11 +97,18 @@ export async function handleTagGet(
   try {
     const user = await requireRole(['ADMIN'], dependencies.resolveUser);
     const actor = actorFrom(user);
-    const scope = parseScope(request);
-    const items = dependencies.list
-      ? await dependencies.list(actor, scope)
-      : await listManagedTags(getDb() as unknown as TagAdapter, actor, scope);
-    return adminJson({ items, scope });
+    const { query, scope } = parseManagedTagQuery(
+      new URL(request.url).searchParams,
+    );
+    const result = dependencies.list
+      ? await dependencies.list(actor, scope, query)
+      : await listManagedTags(
+          getDb() as unknown as TagAdapter,
+          actor,
+          scope,
+          query,
+        );
+    return adminJson({ ...result, scope });
   } catch (error) {
     return adminErrorResponse(error);
   }

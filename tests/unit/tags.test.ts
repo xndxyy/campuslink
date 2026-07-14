@@ -4,10 +4,14 @@ import {
   TagConflictError,
   TagForbiddenError,
   createPresetTag,
+  encodeManagedTagCursor,
   listAvailableTags,
   listManagedTags,
+  parseManagedTagQuery,
+  prepareContentTagSelection,
   promoteCustomTag,
   resolveContentTags,
+  resolveContentTagsInTransaction,
   setTagActive,
   type TagAdapter,
   type TagRecord,
@@ -33,6 +37,28 @@ function tagRecord(overrides: Partial<TagRecord> = {}): TagRecord {
     scope: 'RESOURCE',
     ...overrides,
   };
+}
+
+function isolatedResolutionAdapter(afterAttemptErrors: string[] = []) {
+  const rootSpies = adapter();
+  const transaction = adapter();
+  const transactionSpy = vi.fn();
+  const errors = [...afterAttemptErrors];
+  const root: TagAdapter = {
+    auditLog: rootSpies.auditLog,
+    tagDefinition: rootSpies.tagDefinition,
+    $transaction: async <T>(
+      operation: (tx: TagAdapter) => Promise<T>,
+      options?: { isolationLevel: 'Serializable' },
+    ) => {
+      transactionSpy(operation, options);
+      const result = await operation(transaction);
+      const code = errors.shift();
+      if (code) throw { code };
+      return result;
+    },
+  };
+  return { root, rootSpies, transaction, transactionSpy };
 }
 
 function adapter() {
@@ -94,10 +120,14 @@ describe('tag domain API', () => {
 
     expect(domain).toMatchObject({
       createPresetTag: expect.any(Function),
+      encodeManagedTagCursor: expect.any(Function),
       listAvailableTags: expect.any(Function),
       listManagedTags: expect.any(Function),
+      parseManagedTagQuery: expect.any(Function),
       promoteCustomTag: expect.any(Function),
+      prepareContentTagSelection: expect.any(Function),
       resolveContentTags: expect.any(Function),
+      resolveContentTagsInTransaction: expect.any(Function),
       setTagActive: expect.any(Function),
     });
   });
@@ -133,6 +163,7 @@ describe('scoped available tags', () => {
     expect(db.tagDefinition.findMany).toHaveBeenCalledWith({
       orderBy: [{ label: 'asc' }, { id: 'asc' }],
       select: { id: true, label: true },
+      take: 100,
       where: {
         campusId: actor.campusId,
         isActive: true,
@@ -155,17 +186,106 @@ describe('scoped available tags', () => {
     expect(db.tagDefinition.findMany).not.toHaveBeenCalled();
   });
 
-  it('lets only administrators list preset/custom and active/inactive definitions', async () => {
+  it('lets only administrators list a bounded first page of all definitions', async () => {
     const db = adapter();
     await expect(
       listManagedTags(db, actor, 'MARKETPLACE'),
     ).rejects.toBeInstanceOf(TagForbiddenError);
-    await listManagedTags(db, admin, 'MARKETPLACE');
+    db.tagDefinition.findMany.mockResolvedValue([
+      tagRecord({ id: 'tag_a', label: '编程', scope: 'MARKETPLACE' }),
+      tagRecord({
+        id: 'tag_b',
+        isActive: false,
+        isPreset: false,
+        label: '编程',
+        scope: 'MARKETPLACE',
+      }),
+      tagRecord({ id: 'tag_c', label: '设计', scope: 'MARKETPLACE' }),
+    ]);
+    const page = await listManagedTags(db, admin, 'MARKETPLACE', {
+      pageSize: 2,
+    });
+    expect(page).toEqual({
+      hasNextPage: true,
+      items: [
+        { id: 'tag_a', isActive: true, isPreset: true, label: '编程' },
+        { id: 'tag_b', isActive: false, isPreset: false, label: '编程' },
+      ],
+      nextCursor: encodeManagedTagCursor({ id: 'tag_b', label: '编程' }),
+    });
     expect(db.tagDefinition.findMany).toHaveBeenCalledWith({
       orderBy: [{ label: 'asc' }, { id: 'asc' }],
       select: { id: true, isActive: true, isPreset: true, label: true },
+      take: 3,
       where: { campusId: admin.campusId, scope: 'MARKETPLACE' },
     });
+  });
+
+  it('uses an opaque label/id cursor without repeating the prior boundary', async () => {
+    const db = adapter();
+    const cursor = { id: 'tag_b', label: '编程' };
+    db.tagDefinition.findMany.mockResolvedValue([
+      tagRecord({ id: 'tag_c', label: '编程' }),
+      tagRecord({ id: 'tag_d', label: '设计' }),
+    ]);
+
+    await expect(
+      listManagedTags(db, admin, 'RESOURCE', { cursor, pageSize: 2 }),
+    ).resolves.toEqual({
+      hasNextPage: false,
+      items: [
+        { id: 'tag_c', isActive: true, isPreset: true, label: '编程' },
+        { id: 'tag_d', isActive: true, isPreset: true, label: '设计' },
+      ],
+      nextCursor: null,
+    });
+    expect(db.tagDefinition.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        take: 3,
+        where: {
+          campusId: admin.campusId,
+          OR: [
+            { label: { gt: '编程' } },
+            { id: { gt: 'tag_b' }, label: '编程' },
+          ],
+          scope: 'RESOURCE',
+        },
+      }),
+    );
+  });
+
+  it('parses only canonical bounded managed tag query fields', () => {
+    const cursor = encodeManagedTagCursor({ id: 'tag_b', label: '编程' });
+    expect(
+      parseManagedTagQuery(
+        new URLSearchParams(
+          `scope=RESOURCE&pageSize=2&cursor=${encodeURIComponent(cursor)}`,
+        ),
+      ),
+    ).toEqual({
+      query: { cursor: { id: 'tag_b', label: '编程' }, pageSize: 2 },
+      scope: 'RESOURCE',
+    });
+    expect(
+      parseManagedTagQuery(new URLSearchParams('scope=MARKETPLACE')),
+    ).toEqual({ query: { pageSize: 50 }, scope: 'MARKETPLACE' });
+
+    for (const query of [
+      '',
+      'scope=RESOURCE&scope=MARKETPLACE',
+      'scope=INVALID',
+      'scope=RESOURCE&pageSize=0',
+      'scope=RESOURCE&pageSize=101',
+      'scope=RESOURCE&pageSize=1.5',
+      'scope=RESOURCE&cursor=not-base64-json',
+      `scope=RESOURCE&cursor=${encodeURIComponent(`${cursor}=`)}`,
+      'scope=RESOURCE&unknown=1',
+      'scope=RESOURCE&pageSize=2&pageSize=3',
+    ]) {
+      expect(() => parseManagedTagQuery(new URLSearchParams(query))).toThrow(
+        TagValidationError,
+      );
+    }
   });
 });
 
@@ -322,6 +442,176 @@ describe('tag selection resolution', () => {
         presetTagIds: ['z_preset'],
       }),
     ).resolves.toEqual(['z_preset']);
+  });
+});
+
+describe('atomic tag selection resolution', () => {
+  it('prepares policy and normalization before a Serializable root transaction', async () => {
+    const db = isolatedResolutionAdapter();
+    const order: string[] = [];
+    db.transaction.tagDefinition.findUnique.mockResolvedValue(null);
+    db.transaction.tagDefinition.upsert.mockImplementation(
+      async ({ create }) => {
+        const data = create as Record<string, unknown>;
+        return tagRecord({
+          id: `tag_${String(data.slug)}`,
+          isPreset: false,
+          label: String(data.label),
+          slug: String(data.slug),
+        });
+      },
+    );
+    const assessCustomTag = vi.fn(async (label: string) => {
+      order.push(`policy:${label}`);
+      return { allowed: true };
+    });
+    db.transactionSpy.mockImplementation(() => order.push('transaction'));
+
+    await expect(
+      resolveContentTags(
+        db.root,
+        actor,
+        'RESOURCE',
+        { customTags: ['  ＣＯＳ   委托 ', '算法'], presetTagIds: [] },
+        { assessCustomTag },
+      ),
+    ).resolves.toEqual(['tag_cos-委托', 'tag_算法']);
+    expect(order).toEqual(['policy:COS 委托', 'policy:算法', 'transaction']);
+    expect(db.transactionSpy).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
+    expect(db.rootSpies.tagDefinition.findMany).not.toHaveBeenCalled();
+    expect(db.rootSpies.tagDefinition.findUnique).not.toHaveBeenCalled();
+    expect(db.rootSpies.tagDefinition.upsert).not.toHaveBeenCalled();
+  });
+
+  it('resolves a prepared selection in a caller transaction without nesting', async () => {
+    const tx = adapter();
+    tx.tagDefinition.findUnique.mockResolvedValue(null);
+    tx.tagDefinition.upsert.mockResolvedValue(
+      tagRecord({
+        id: 'custom_1',
+        isPreset: false,
+        label: 'COS 委托',
+        slug: 'cos-委托',
+      }),
+    );
+    const prepared = await prepareContentTagSelection(
+      actor,
+      'RESOURCE',
+      { customTags: ['  ＣＯＳ   委托 '], presetTagIds: [] },
+      { assessCustomTag: async () => ({ allowed: true }) },
+    );
+
+    await expect(
+      resolveContentTagsInTransaction(tx, prepared),
+    ).resolves.toEqual(['custom_1']);
+    expect(tx.transactionSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects policy before opening a transaction or touching delegates', async () => {
+    const db = isolatedResolutionAdapter();
+    await expect(
+      resolveContentTags(
+        db.root,
+        actor,
+        'RESOURCE',
+        { customTags: ['校外推广'], presetTagIds: [] },
+        { assessCustomTag: async () => ({ allowed: false }) },
+      ),
+    ).rejects.toThrowError(
+      expect.objectContaining({ code: 'POLICY_REJECTED' }),
+    );
+    expect(db.transactionSpy).not.toHaveBeenCalled();
+    expect(db.rootSpies.tagDefinition.findUnique).not.toHaveBeenCalled();
+    expect(db.transaction.tagDefinition.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('retries the whole transaction after P2002 without querying an aborted transaction', async () => {
+    const db = isolatedResolutionAdapter();
+    db.transaction.tagDefinition.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(
+        tagRecord({
+          id: 'custom_raced',
+          isPreset: false,
+          label: '算法',
+          slug: '算法',
+        }),
+      );
+    db.transaction.tagDefinition.upsert.mockRejectedValueOnce({
+      code: 'P2002',
+    });
+
+    await expect(
+      resolveContentTags(db.root, actor, 'RESOURCE', {
+        customTags: ['算法'],
+        presetTagIds: [],
+      }),
+    ).resolves.toEqual(['custom_raced']);
+    expect(db.transactionSpy).toHaveBeenCalledTimes(2);
+    expect(db.transaction.tagDefinition.findUnique).toHaveBeenCalledTimes(2);
+    expect(db.transaction.tagDefinition.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries P2034 at most three times and rereads presets each time', async () => {
+    const db = isolatedResolutionAdapter(['P2034', 'P2034', 'P2034']);
+    db.transaction.tagDefinition.findMany.mockResolvedValue([
+      tagRecord({ id: 'preset_1' }),
+    ]);
+
+    await expect(
+      resolveContentTags(db.root, actor, 'RESOURCE', {
+        customTags: [],
+        presetTagIds: ['preset_1'],
+      }),
+    ).rejects.toBeInstanceOf(TagConflictError);
+    expect(db.transactionSpy).toHaveBeenCalledTimes(3);
+    expect(db.transaction.tagDefinition.findMany).toHaveBeenCalledTimes(3);
+  });
+
+  it('rolls back the first custom when a second custom resolves inactive', async () => {
+    const tx = adapter();
+    const rootSpies = adapter();
+    const committed: string[] = [];
+    let staged: string[] = [];
+    tx.tagDefinition.findUnique.mockResolvedValue(null);
+    tx.tagDefinition.upsert.mockImplementation(async ({ create }) => {
+      const data = create as Record<string, unknown>;
+      const label = String(data.label);
+      staged.push(label);
+      return tagRecord({
+        id: `tag_${label}`,
+        isActive: label !== '失效标签',
+        isPreset: false,
+        label,
+        slug: String(data.slug),
+      });
+    });
+    const root: TagAdapter = {
+      auditLog: rootSpies.auditLog,
+      tagDefinition: rootSpies.tagDefinition,
+      $transaction: async <T>(operation: (store: TagAdapter) => Promise<T>) => {
+        staged = [];
+        try {
+          const result = await operation(tx);
+          committed.push(...staged);
+          return result;
+        } catch (error) {
+          staged = [];
+          throw error;
+        }
+      },
+    };
+
+    await expect(
+      resolveContentTags(root, actor, 'RESOURCE', {
+        customTags: ['正常标签', '失效标签'],
+        presetTagIds: [],
+      }),
+    ).rejects.toThrowError(expect.objectContaining({ code: 'INACTIVE_TAG' }));
+    expect(committed).toEqual([]);
+    expect(rootSpies.tagDefinition.upsert).not.toHaveBeenCalled();
   });
 });
 

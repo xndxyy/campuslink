@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { createDbClient } from '@/lib/db';
 import {
   createPresetTag,
+  listManagedTags,
+  parseManagedTagQuery,
   promoteCustomTag,
   resolveContentTags,
   setTagActive,
@@ -77,6 +79,65 @@ describeWithDatabase('governed tag persistence', () => {
         status: 'ACTIVE' as const,
       };
       const adapter = db as unknown as TagAdapter;
+
+      const rollbackResolutionAdapter: TagAdapter = {
+        $transaction: (operation, options) =>
+          db.$transaction(async (tx) => {
+            let upsertCount = 0;
+            const tagDefinition: TagAdapter['tagDefinition'] = {
+              create: tx.tagDefinition.create.bind(
+                tx.tagDefinition,
+              ) as unknown as TagAdapter['tagDefinition']['create'],
+              findMany: tx.tagDefinition.findMany.bind(
+                tx.tagDefinition,
+              ) as unknown as TagAdapter['tagDefinition']['findMany'],
+              findUnique: tx.tagDefinition.findUnique.bind(
+                tx.tagDefinition,
+              ) as unknown as TagAdapter['tagDefinition']['findUnique'],
+              updateMany: tx.tagDefinition.updateMany.bind(
+                tx.tagDefinition,
+              ) as unknown as TagAdapter['tagDefinition']['updateMany'],
+              upsert: async () => {
+                throw new Error('upsert is assigned below');
+              },
+            };
+            const upsert = tx.tagDefinition.upsert.bind(
+              tx.tagDefinition,
+            ) as unknown as TagAdapter['tagDefinition']['upsert'];
+            tagDefinition.upsert = async (args) => {
+              const record = await upsert(args);
+              upsertCount += 1;
+              return upsertCount === 2
+                ? ({ ...record, isActive: false } as typeof record)
+                : record;
+            };
+            return operation({
+              $transaction: () => {
+                throw new Error('nested transaction is not expected');
+              },
+              auditLog: tx.auditLog as unknown as TagAdapter['auditLog'],
+              tagDefinition,
+            });
+          }, options),
+        auditLog: db.auditLog as unknown as TagAdapter['auditLog'],
+        tagDefinition:
+          db.tagDefinition as unknown as TagAdapter['tagDefinition'],
+      };
+      await expect(
+        resolveContentTags(rollbackResolutionAdapter, actor, 'MARKETPLACE', {
+          customTags: ['事务回滚甲', '事务回滚乙'],
+          presetTagIds: [],
+        }),
+      ).rejects.toThrowError(expect.objectContaining({ code: 'INACTIVE_TAG' }));
+      expect(
+        await db.tagDefinition.count({
+          where: {
+            campusId: campus.id,
+            label: { in: ['事务回滚甲', '事务回滚乙'] },
+            scope: 'MARKETPLACE',
+          },
+        }),
+      ).toBe(0);
 
       const first = await resolveContentTags(adapter, actor, 'RESOURCE', {
         customTags: ['  ＣＯＳ   委托 '],
@@ -155,6 +216,49 @@ describeWithDatabase('governed tag persistence', () => {
         to: 'PRESET_ACTIVE',
       });
       expect(JSON.stringify(audit?.details)).not.toContain('课程资料');
+
+      const paged = [];
+      for (const label of [
+        '分页标签甲',
+        '分页标签乙',
+        '分页标签丙',
+        '分页标签丁',
+      ]) {
+        paged.push(
+          await createPresetTag(adapter, actor, {
+            label,
+            reason: 'Verify stable bounded administrator pagination.',
+            scope: 'CAMPUS_WORK',
+          }),
+        );
+      }
+      const firstPage = await listManagedTags(adapter, actor, 'CAMPUS_WORK', {
+        pageSize: 2,
+      });
+      expect(firstPage).toMatchObject({ hasNextPage: true });
+      expect(firstPage.items).toHaveLength(2);
+      expect(firstPage.nextCursor).toEqual(expect.any(String));
+      const secondQuery = parseManagedTagQuery(
+        new URLSearchParams(
+          `scope=CAMPUS_WORK&pageSize=2&cursor=${encodeURIComponent(firstPage.nextCursor!)}`,
+        ),
+      );
+      const secondPage = await listManagedTags(
+        adapter,
+        actor,
+        secondQuery.scope,
+        secondQuery.query,
+      );
+      expect(secondPage).toMatchObject({
+        hasNextPage: false,
+        nextCursor: null,
+      });
+      expect(secondPage.items).toHaveLength(2);
+      const pagedIds = [...firstPage.items, ...secondPage.items].map(
+        (item) => item.id,
+      );
+      expect(new Set(pagedIds).size).toBe(4);
+      expect(new Set(pagedIds)).toEqual(new Set(paged.map((item) => item.id)));
 
       const rollbackLabel = `rollback-${suffix}`.slice(0, 32);
       const rollbackAdapter: TagAdapter = {

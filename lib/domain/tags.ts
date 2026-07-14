@@ -125,6 +125,114 @@ function managedTag(record: TagRecord) {
   };
 }
 
+export interface ManagedTagCursor {
+  id: string;
+  label: string;
+}
+
+export interface ManagedTagQuery {
+  cursor?: ManagedTagCursor;
+  pageSize?: number;
+}
+
+export interface ManagedTagPage {
+  hasNextPage: boolean;
+  items: Array<ReturnType<typeof managedTag>>;
+  nextCursor: string | null;
+}
+
+function validatedManagedTagCursor(cursor: ManagedTagCursor) {
+  if (!cursor || typeof cursor !== 'object') {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  const id = tagId(cursor.id);
+  const label = normalizeTagLabel(cursor.label);
+  if (id !== cursor.id || label !== cursor.label) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  return { id, label };
+}
+
+export function encodeManagedTagCursor(cursor: ManagedTagCursor): string {
+  const valid = validatedManagedTagCursor(cursor);
+  return Buffer.from(JSON.stringify([valid.label, valid.id])).toString(
+    'base64url',
+  );
+}
+
+function decodeManagedTagCursor(value: string) {
+  if (!value || value.length > 512) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, 'base64url').toString('utf8'),
+    ) as unknown;
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== 2 ||
+      typeof parsed[0] !== 'string' ||
+      typeof parsed[1] !== 'string'
+    ) {
+      throw new Error('invalid cursor');
+    }
+    const cursor = validatedManagedTagCursor({
+      id: parsed[1],
+      label: parsed[0],
+    });
+    if (encodeManagedTagCursor(cursor) !== value) {
+      throw new Error('non-canonical cursor');
+    }
+    return cursor;
+  } catch (error) {
+    if (error instanceof TagValidationError) throw error;
+    throw new TagValidationError('INVALID_INPUT');
+  }
+}
+
+function singleQueryValue(params: URLSearchParams, key: string) {
+  const values = params.getAll(key);
+  if (values.length > 1) throw new TagValidationError('INVALID_INPUT');
+  return values[0];
+}
+
+function managedPageSize(value: number | undefined) {
+  const pageSize = value ?? 50;
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  return pageSize;
+}
+
+export function parseManagedTagQuery(searchParams: URLSearchParams): {
+  query: ManagedTagQuery;
+  scope: TagScope;
+} {
+  const allowed = new Set(['scope', 'pageSize', 'cursor']);
+  for (const key of searchParams.keys()) {
+    if (!allowed.has(key)) throw new TagValidationError('INVALID_INPUT');
+  }
+  const scopeValue = singleQueryValue(searchParams, 'scope');
+  const scope = validScope(scopeValue as TagScope);
+  const pageSizeValue = singleQueryValue(searchParams, 'pageSize');
+  if (pageSizeValue !== undefined && !/^[1-9]\d*$/.test(pageSizeValue)) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  const pageSize = managedPageSize(
+    pageSizeValue === undefined ? undefined : Number(pageSizeValue),
+  );
+  const cursorValue = singleQueryValue(searchParams, 'cursor');
+  return {
+    query: {
+      ...(cursorValue !== undefined
+        ? { cursor: decodeManagedTagCursor(cursorValue) }
+        : {}),
+      pageSize,
+    },
+    scope,
+  };
+}
+
 export async function listAvailableTags(
   adapter: TagAdapter,
   actor: VerifiedTagActor,
@@ -135,6 +243,7 @@ export async function listAvailableTags(
   const records = await adapter.tagDefinition.findMany({
     orderBy: [{ label: 'asc' }, { id: 'asc' }],
     select: { id: true, label: true },
+    take: 100,
     where: {
       campusId: actor.campusId,
       isActive: true,
@@ -149,21 +258,164 @@ export async function listManagedTags(
   adapter: TagAdapter,
   actor: TagActor,
   scopeValue: TagScope,
-) {
+  query: ManagedTagQuery = {},
+): Promise<ManagedTagPage> {
   requireAdmin(actor);
   const scope = validScope(scopeValue);
+  const pageSize = managedPageSize(query.pageSize);
+  const cursor = query.cursor
+    ? validatedManagedTagCursor(query.cursor)
+    : undefined;
   const records = await adapter.tagDefinition.findMany({
     orderBy: [{ label: 'asc' }, { id: 'asc' }],
     select: { id: true, isActive: true, isPreset: true, label: true },
-    where: { campusId: actor.campusId, scope },
+    take: pageSize + 1,
+    where: {
+      campusId: actor.campusId,
+      ...(cursor
+        ? {
+            OR: [
+              { label: { gt: cursor.label } },
+              { id: { gt: cursor.id }, label: cursor.label },
+            ],
+          }
+        : {}),
+      scope,
+    },
   });
-  return stableTagOrder(records).map(managedTag);
+  const hasNextPage = records.length > pageSize;
+  const items = records.slice(0, pageSize).map(managedTag);
+  const last = items.at(-1);
+  return {
+    hasNextPage,
+    items,
+    nextCursor:
+      hasNextPage && last
+        ? encodeManagedTagCursor({ id: last.id, label: last.label })
+        : null,
+  };
 }
 
 type CustomTagAssessment = boolean | { allowed: boolean } | void;
 
 export interface TagResolutionPolicy {
   assessCustomTag?: (label: string) => Promise<CustomTagAssessment>;
+}
+
+const preparedSelectionBrand: unique symbol = Symbol('prepared-tag-selection');
+
+export interface PreparedContentTagSelection {
+  readonly [preparedSelectionBrand]: true;
+  readonly actor: VerifiedTagActor;
+  readonly customTags: ReadonlyArray<{ label: string; slug: string }>;
+  readonly presetTagIds: readonly string[];
+  readonly scope: TagScope;
+}
+
+export type TagResolutionTransaction = Pick<TagAdapter, 'tagDefinition'>;
+
+export async function prepareContentTagSelection(
+  actor: VerifiedTagActor,
+  scopeValue: TagScope,
+  inputValue: TagSelectionInput,
+  policy: TagResolutionPolicy = {},
+): Promise<PreparedContentTagSelection> {
+  requireVerified(actor);
+  const scope = validScope(scopeValue);
+  const input = parseTagSelectionInput(inputValue);
+  const assess =
+    policy.assessCustomTag ?? (async () => ({ allowed: true }) as const);
+  const customTags: Array<{ label: string; slug: string }> = [];
+  for (const label of input.customTags) {
+    if (!isAllowedAssessment(await assess(label))) {
+      throw new TagValidationError('POLICY_REJECTED');
+    }
+    customTags.push(Object.freeze({ label, slug: createTagSlug(label) }));
+  }
+  return Object.freeze({
+    [preparedSelectionBrand]: true as const,
+    actor: Object.freeze({ ...actor }),
+    customTags: Object.freeze(customTags),
+    presetTagIds: Object.freeze([...input.presetTagIds]),
+    scope,
+  });
+}
+
+export async function resolveContentTagsInTransaction(
+  transaction: TagResolutionTransaction,
+  prepared: PreparedContentTagSelection,
+): Promise<string[]> {
+  if (prepared?.[preparedSelectionBrand] !== true) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  requireVerified(prepared.actor);
+  const scope = validScope(prepared.scope);
+  if (prepared.presetTagIds.length > 5 || prepared.customTags.length > 2) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+  const presets = prepared.presetTagIds.length
+    ? await transaction.tagDefinition.findMany({
+        select: {
+          campusId: true,
+          id: true,
+          isActive: true,
+          isPreset: true,
+          scope: true,
+        },
+        where: {
+          campusId: prepared.actor.campusId,
+          id: { in: prepared.presetTagIds },
+          isActive: true,
+          isPreset: true,
+          scope,
+        },
+      })
+    : [];
+  if (
+    presets.length !== prepared.presetTagIds.length ||
+    presets.some((record) => !validPreset(record, prepared.actor, scope)) ||
+    presets.some((record) => !prepared.presetTagIds.includes(record.id))
+  ) {
+    throw new TagValidationError('INVALID_INPUT');
+  }
+
+  const ids = presets.map((record) => record.id);
+  const missing: Array<{ label: string; slug: string }> = [];
+  for (const custom of prepared.customTags) {
+    const existing = await transaction.tagDefinition.findUnique({
+      where: customTagWhere(prepared.actor, scope, custom.slug),
+    });
+    if (existing) {
+      ids.push(
+        validateCustomRecord(existing, prepared.actor, scope, custom.slug).id,
+      );
+    } else {
+      missing.push(custom);
+    }
+  }
+  if (new Set(ids).size + missing.length > 5) {
+    throw new TagValidationError('TOO_MANY_TAGS');
+  }
+  for (const custom of missing) {
+    const record = await transaction.tagDefinition.upsert({
+      create: {
+        campusId: prepared.actor.campusId,
+        isActive: true,
+        isPreset: false,
+        label: custom.label,
+        scope,
+        slug: custom.slug,
+      },
+      update: {},
+      where: customTagWhere(prepared.actor, scope, custom.slug),
+    });
+    ids.push(
+      validateCustomRecord(record, prepared.actor, scope, custom.slug).id,
+    );
+  }
+  const unique = [...new Set(ids)].sort();
+  if (unique.length > 5) throw new TagValidationError('TOO_MANY_TAGS');
+  return unique;
 }
 
 function isUniqueConflict(error: unknown) {
@@ -233,35 +485,6 @@ function validateCustomRecord(
   return record;
 }
 
-async function resolveCustomTag(
-  adapter: TagAdapter,
-  actor: VerifiedTagActor,
-  scope: TagScope,
-  label: string,
-) {
-  const slug = createTagSlug(label);
-  const where = customTagWhere(actor, scope, slug);
-  let record: TagRecord | null;
-  try {
-    record = await adapter.tagDefinition.upsert({
-      create: {
-        campusId: actor.campusId,
-        isActive: true,
-        isPreset: false,
-        label,
-        scope,
-        slug,
-      },
-      update: {},
-      where,
-    });
-  } catch (error) {
-    if (!isUniqueConflict(error)) throw error;
-    record = await adapter.tagDefinition.findUnique({ where });
-  }
-  return validateCustomRecord(record, actor, scope, slug).id;
-}
-
 export async function resolveContentTags(
   adapter: TagAdapter,
   actor: VerifiedTagActor,
@@ -269,72 +492,32 @@ export async function resolveContentTags(
   inputValue: TagSelectionInput,
   policy: TagResolutionPolicy = {},
 ) {
-  requireVerified(actor);
-  const scope = validScope(scopeValue);
-  const input = parseTagSelectionInput(inputValue);
-  const presets = input.presetTagIds.length
-    ? await adapter.tagDefinition.findMany({
-        select: {
-          campusId: true,
-          id: true,
-          isActive: true,
-          isPreset: true,
-          scope: true,
-        },
-        where: {
-          campusId: actor.campusId,
-          id: { in: input.presetTagIds },
-          isActive: true,
-          isPreset: true,
-          scope,
-        },
-      })
-    : [];
-  if (
-    presets.length !== input.presetTagIds.length ||
-    presets.some((record) => !validPreset(record, actor, scope)) ||
-    presets.some((record) => !input.presetTagIds.includes(record.id))
-  ) {
-    throw new TagValidationError('INVALID_INPUT');
-  }
-
-  const ids = presets.map((record) => record.id);
-  const assess =
-    policy.assessCustomTag ?? (async () => ({ allowed: true }) as const);
-  const candidates: Array<{
-    existingId: string | null;
-    label: string;
-    slug: string;
-  }> = [];
-  for (const label of input.customTags) {
-    if (!isAllowedAssessment(await assess(label))) {
-      throw new TagValidationError('POLICY_REJECTED');
-    }
-    const slug = createTagSlug(label);
-    const existing = await adapter.tagDefinition.findUnique({
-      where: customTagWhere(actor, scope, slug),
-    });
-    candidates.push({
-      existingId: existing
-        ? validateCustomRecord(existing, actor, scope, slug).id
-        : null,
-      label,
-      slug,
-    });
-  }
-  const existingIds = candidates.flatMap((candidate) =>
-    candidate.existingId ? [candidate.existingId] : [],
+  const prepared = await prepareContentTagSelection(
+    actor,
+    scopeValue,
+    inputValue,
+    policy,
   );
-  const missingCount = candidates.length - existingIds.length;
-  if (new Set([...ids, ...existingIds]).size + missingCount > 5) {
-    throw new TagValidationError('TOO_MANY_TAGS');
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await adapter.$transaction(
+        (transaction) => resolveContentTagsInTransaction(transaction, prepared),
+        { isolationLevel: 'Serializable' },
+      );
+    } catch (error) {
+      if (
+        (isUniqueConflict(error) || isSerializationFailure(error)) &&
+        attempt < 2
+      ) {
+        continue;
+      }
+      if (isUniqueConflict(error) || isSerializationFailure(error)) {
+        throw new TagConflictError();
+      }
+      throw error;
+    }
   }
-  for (const candidate of candidates) {
-    ids.push(await resolveCustomTag(adapter, actor, scope, candidate.label));
-  }
-  const unique = [...new Set(ids)].sort();
-  if (unique.length > 5) throw new TagValidationError('TOO_MANY_TAGS');
-  return unique;
+  throw new TagConflictError();
 }
 
 async function serializable<T>(

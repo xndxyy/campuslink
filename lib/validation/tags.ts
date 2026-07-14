@@ -1,3 +1,5 @@
+import { caseFold } from 'unicode-case-folding';
+
 export type TagScope = 'RESOURCE' | 'MARKETPLACE' | 'CAMPUS_WORK';
 
 export interface TagSelectionInput {
@@ -54,9 +56,7 @@ export function normalizeTagLabel(value: unknown): string {
 }
 
 export function createTagSlug(value: unknown): string {
-  const slug = normalizeTagLabel(value)
-    .toUpperCase()
-    .toLowerCase()
+  const slug = caseFold(normalizeTagLabel(value))
     .replace(/[\p{P}\p{S}]+/gu, '-')
     .replace(/\p{White_Space}+/gu, '-')
     .replace(/-+/g, '-')

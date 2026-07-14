@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleTagGet, handleTagPost } from '@/app/api/admin/tags/route';
-import { TagConflictError, TagForbiddenError } from '@/lib/domain/tags';
+import {
+  TagConflictError,
+  TagForbiddenError,
+  encodeManagedTagCursor,
+} from '@/lib/domain/tags';
 import { TagValidationError } from '@/lib/validation/tags';
 
 const admin = {
@@ -33,9 +37,17 @@ describe('tag administrator route API', () => {
   });
 
   it('strictly accepts one valid scope and returns a no-store managed list', async () => {
-    const list = vi.fn(async () => [{ id: 'tag_1', label: '课程' }]);
+    const cursor = encodeManagedTagCursor({ id: 'tag_0', label: '基础' });
+    const result = {
+      hasNextPage: true,
+      items: [{ id: 'tag_1', isActive: true, isPreset: true, label: '课程' }],
+      nextCursor: encodeManagedTagCursor({ id: 'tag_1', label: '课程' }),
+    };
+    const list = vi.fn(async () => result);
     const response = await handleTagGet(
-      new Request('http://localhost/api/admin/tags?scope=RESOURCE'),
+      new Request(
+        `http://localhost/api/admin/tags?scope=RESOURCE&pageSize=2&cursor=${encodeURIComponent(cursor)}`,
+      ),
       { list, resolveUser: async () => admin },
     );
     expect(response.status).toBe(200);
@@ -43,9 +55,10 @@ describe('tag administrator route API', () => {
     expect(list).toHaveBeenCalledWith(
       { campusId: admin.campusId, id: admin.id, role: 'ADMIN' },
       'RESOURCE',
+      { cursor: { id: 'tag_0', label: '基础' }, pageSize: 2 },
     );
     await expect(response.json()).resolves.toEqual({
-      items: [{ id: 'tag_1', label: '课程' }],
+      ...result,
       scope: 'RESOURCE',
     });
   });
@@ -55,6 +68,11 @@ describe('tag administrator route API', () => {
     '?scope=RESOURCE&scope=MARKETPLACE',
     '?scope=INVALID',
     '?scope=RESOURCE&unknown=1',
+    '?scope=RESOURCE&pageSize=0',
+    '?scope=RESOURCE&pageSize=101',
+    '?scope=RESOURCE&pageSize=2&pageSize=3',
+    '?scope=RESOURCE&cursor=',
+    '?scope=RESOURCE&cursor=not-a-cursor',
   ])('rejects an invalid strict GET query %s', async (query) => {
     const list = vi.fn();
     const response = await handleTagGet(

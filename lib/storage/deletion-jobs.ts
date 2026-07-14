@@ -11,6 +11,13 @@ interface StorageDeletionRecord {
 
 export interface StorageDeletionAdapter {
   storageDeletionJob: {
+    aggregate(args: {
+      _count: { _all: true };
+      _min: { createdAt: true };
+    }): Promise<{
+      _count: { _all: number };
+      _min: { createdAt: Date | null };
+    }>;
     deleteMany(args: {
       where: Record<string, unknown>;
     }): Promise<{ count: number }>;
@@ -151,5 +158,20 @@ export async function processDueStorageDeletions(
     else if (result.status === 'missing') counts.missing += 1;
     else counts.retried += 1;
   }
-  return counts;
+  const backlog = await adapter.storageDeletionJob.aggregate({
+    _count: { _all: true },
+    _min: { createdAt: true },
+  });
+  const oldestPending = backlog._min.createdAt;
+  const oldestPendingAgeSeconds = oldestPending
+    ? Math.max(
+        0,
+        Math.floor((clock().getTime() - oldestPending.getTime()) / 1_000),
+      )
+    : null;
+  return {
+    ...counts,
+    oldestPendingAgeSeconds,
+    pending: backlog._count._all,
+  };
 }

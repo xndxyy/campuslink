@@ -330,7 +330,7 @@ ALLOW_DESTRUCTIVE_E2E=true
 
 当前仓库没有 Dockerfile，因此以下方案使用 Node.js + systemd。不要在没有新增、验证 Dockerfile 的情况下直接声称应用已容器化。
 
-全新服务器的线性执行顺序是：安装依赖（7.1）→ 创建用户/目录（7.2）→ 配置 Secret（7.3）→ 构建 release（7.4）→ 安装 systemd/Nginx/TLS（7.5-7.8）→ 按 9.1 执行迁移并原子启用首个版本 → 按第 8 节创建 Campus 和首管 → 接通扫描 Worker（7.9）→ 启用清理 timer（7.10）→ 完成第 11 节验收。章节按主题组织，因此首次部署应以本顺序为准。
+全新服务器的线性执行顺序是：安装依赖（7.1）→ 创建用户/目录（7.2）→ 配置 Secret（7.3）→ 构建 release（7.4）→ 安装 systemd/Nginx/TLS（7.5-7.8）→ 按 9.1 执行迁移并原子启用首个版本 → 按第 8 节创建 Campus 和首管 → 接通扫描 Worker（7.9）→ 启用上传清理与排队对象删除 timer（7.10）→ 完成第 11 节验收。章节按主题组织，因此首次部署应以本顺序为准。
 
 ### 7.1 安装受支持的系统依赖
 
@@ -840,9 +840,9 @@ Content-Type: application/json
 
 至少监控：队列最老消息年龄、`PENDING` 超过 10 分钟数量、`ERROR` 数量、死信队列深度、回调 4xx/5xx、扫描引擎签名更新时间和感染对象删除失败数。
 
-### 7.10 配置过期上传清理
+### 7.10 配置上传清理与排队对象删除
 
-创建 `/usr/local/sbin/campuslink-upload-cleanup`，脚本不读取也不 `source` 环境文件，只使用 systemd 注入的变量：
+创建 `/usr/local/sbin/campuslink-upload-cleanup`。同一个每 15 分钟维护任务必须依次尝试过期上传清理和排队对象删除；第一个端点失败也必须继续尝试第二个，最后再统一返回失败。两个端点共用 `UPLOAD_CLEANUP_SECRET` Bearer，不新增 Secret。脚本不读取也不 `source` 环境文件，只使用 systemd 注入的变量：
 
 ```bash
 #!/usr/bin/env bash
@@ -850,19 +850,69 @@ set -Eeuo pipefail
 
 : "${UPLOAD_CLEANUP_SECRET:?UPLOAD_CLEANUP_SECRET is required}"
 
-response="$(curl \
-  --fail-with-body --silent --show-error \
-  --connect-timeout 5 --max-time 45 \
-  --retry 3 --retry-delay 2 --retry-all-errors \
-  --request POST \
-  --header "Authorization: Bearer ${UPLOAD_CLEANUP_SECRET}" \
-  https://campus.example.edu/api/internal/uploads/cleanup)"
+status=0
+upload_json=''
+deletion_json=''
 
-failed="$(jq -er '.failed // 0' <<<"$response")"
-printf '%s\n' "$response"
-if [[ "$failed" != "0" ]]; then
-  exit 1
+upload_filter='def nonnegint: select(type == "number" and . >= 0 and floor == .);
+  {deletedPending: ((.deletedPending // 0) | nonnegint),
+   failed: ((.failed // 0) | nonnegint),
+   retainedRejected: ((.retainedRejected // 0) | nonnegint)}'
+deletion_filter='def nonnegint: select(type == "number" and . >= 0 and floor == .);
+  {deferred: ((.deferred // 0) | nonnegint),
+   deleted: ((.deleted // 0) | nonnegint),
+   missing: ((.missing // 0) | nonnegint),
+   retried: ((.retried // 0) | nonnegint),
+   pending: (.pending | nonnegint),
+   oldestPendingAgeSeconds:
+     (.oldestPendingAgeSeconds | if . == null then null else nonnegint end)}'
+
+run_endpoint() {
+  local name="$1" url="$2" filter="$3" output_name="$4"
+  local response safe_json
+  if ! response="$(curl \
+    --fail-with-body --silent --show-error \
+    --connect-timeout 5 --max-time 20 \
+    --retry 2 --retry-delay 2 --retry-all-errors \
+    --request POST \
+    --header "Authorization: Bearer ${UPLOAD_CLEANUP_SECRET}" \
+    "$url")"; then
+    printf '%s request failed\n' "$name" >&2
+    return 1
+  fi
+  if ! safe_json="$(jq -cer "$filter" <<<"$response")"; then
+    printf '%s returned invalid JSON\n' "$name" >&2
+    return 1
+  fi
+  printf '%s %s\n' "$name" "$safe_json"
+  printf -v "$output_name" '%s' "$safe_json"
+}
+
+if ! run_endpoint "upload cleanup" "https://campus.example.edu/api/internal/uploads/cleanup" "$upload_filter" upload_json; then
+  status=1
 fi
+if ! run_endpoint "queued object deletions" "https://campus.example.edu/api/internal/storage-deletions" "$deletion_filter" deletion_json; then
+  status=1
+fi
+
+if [[ -n "$upload_json" ]] && ! jq -e '.failed == 0' <<<"$upload_json" >/dev/null; then
+  printf 'upload cleanup reported failures\n' >&2
+  status=1
+fi
+if [[ -n "$deletion_json" ]]; then
+  if jq -e '.retried > 0' <<<"$deletion_json" >/dev/null; then
+    printf 'queued object deletion retry recorded\n' >&2
+    status=1
+  fi
+  if jq -e '.deferred > 0' <<<"$deletion_json" >/dev/null; then
+    printf 'queued object deletion deferred work remains\n' >&2
+  fi
+  if jq -e '.pending > 0 and (.oldestPendingAgeSeconds // 0) >= 3600' <<<"$deletion_json" >/dev/null; then
+    printf 'queued object deletion backlog is at least one hour old\n' >&2
+    status=1
+  fi
+fi
+exit "$status"
 ```
 
 ```bash
@@ -874,7 +924,7 @@ sudo chmod 755 /usr/local/sbin/campuslink-upload-cleanup
 
 ```ini
 [Unit]
-Description=Clean expired CampusLink uploads
+Description=Maintain CampusLink uploads and queued object deletions
 After=network-online.target
 Wants=network-online.target
 
@@ -886,7 +936,7 @@ EnvironmentFile=/etc/campuslink/campuslink.env
 RuntimeDirectory=campuslink
 RuntimeDirectoryMode=0750
 ExecStart=/usr/bin/flock --nonblock /run/campuslink/upload-cleanup.lock /usr/local/sbin/campuslink-upload-cleanup
-TimeoutStartSec=60
+TimeoutStartSec=180
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
@@ -897,7 +947,7 @@ ProtectSystem=full
 
 ```ini
 [Unit]
-Description=Run CampusLink upload cleanup every 15 minutes
+Description=Maintain CampusLink uploads and queued object deletions every 15 minutes
 
 [Timer]
 OnBootSec=5min
@@ -920,7 +970,7 @@ sudo systemctl status campuslink-upload-cleanup.timer --no-pager
 sudo journalctl -u campuslink-upload-cleanup.service -n 50 --no-pager
 ```
 
-监控系统必须对 service 失败、持续非 2xx 或响应中的 `failed` 非零告警。`flock` 和 systemd 单元共同阻止任务并发重入。
+监控系统必须对 service 失败、任一端点持续非 2xx/JSON 解析失败、上传响应 `failed` 非零、删除响应 `retried` 非零告警。`deferred` 连续两个 15 分钟周期非零时告警；`pending` 非零且 `oldestPendingAgeSeconds >= 3600`（1 小时）时按积压告警。脚本只打印白名单计数字段，不打印 Secret、对象键或原始错误。`flock` 和 systemd 单元共同阻止任务并发重入。
 
 ## 8. 首个生产管理员如何建立
 
@@ -1097,7 +1147,7 @@ WHERE usename = 'campuslink_app'
   AND "xact_start" IS NOT NULL;
 ```
 
-结果必须为 0 行。仍有事务时先判断能否安全等待；只有事故负责人批准后才能使用 `pg_terminate_backend`。完成“新请求 503、扫描消费暂停、清理停止、应用停止、数据库无在途事务”五项后，才算真正冻结写入。
+结果必须为 0 行。仍有事务时先判断能否安全等待；只有事故负责人批准后才能使用 `pg_terminate_backend`。完成“新请求 503、扫描消费暂停、上传清理与排队对象删除停止、应用停止、数据库无在途事务”五项后，才算真正冻结写入。
 
 如果本次维护还要求数据库与对象存储保持同一快照时间点，必须额外冻结 Bucket 写入。已签发的直传 URL 有效期为 5 分钟，浏览器不经过 Nginx 就能直接 `PutObject`。首选在 Bucket/IAM 临时添加只针对应用上传主体和 `campus/*` 前缀的显式 `Deny PutObject`，并用维护前签发的 URL 验证返回 403；若供应商无法临时拒绝，则至少等待所有签名 URL 过期和在途上传结束，并从对象存储访问日志确认不再出现新 PUT。记录最终对象清单和时间戳后，才算数据库与对象同时冻结。
 
@@ -1184,7 +1234,7 @@ sudo journalctl -u campuslink -n 100 --no-pager
 
 当前仓库没有专用 `/health` 或 `/ready` 路由，因此 `/auth/sign-in` 只能作为弱健康检查。启用维护模式时，公网预期仍为 503，不能在删除维护标记前把公网 curl 失败误判成应用失败。
 
-8. 若使用维护模式，源站检查通过后先撤销临时 `Deny PutObject` 并确认应用存储凭据恢复可用，再删除维护文件并 reload，完成公网和业务验证，最后恢复清理 timer 和外部扫描消费者：
+8. 若使用维护模式，源站检查通过后先撤销临时 `Deny PutObject` 并确认应用存储凭据恢复可用，再删除维护文件并 reload，完成公网和业务验证，最后恢复上传清理与排队对象删除 timer 和外部扫描消费者：
 
 ```bash
 sudo rm -f /var/lib/campuslink-edge/maintenance
@@ -1267,7 +1317,7 @@ sudo journalctl -u campuslink -n 100 --no-pager
 
 **数据库灾难恢复**适用于破坏性迁移、数据误写或数据库损坏：
 
-1. 立即按第 9.1 节第 4 步完成真正停写：维护页 503、暂停扫描消费者、停止清理 timer、停止应用，并确认 `campuslink_app` 没有在途数据库事务。事故涉及对象一致性时还要拒绝 `PutObject` 或等待签名 URL/在途上传结束并核对访问日志。只创建维护文件不算冻结完成；让外部队列保留消息并重试。
+1. 立即按第 9.1 节第 4 步完成真正停写：维护页 503、暂停扫描消费者、停止上传清理与排队对象删除 timer、停止应用，并确认 `campuslink_app` 没有在途数据库事务。事故涉及对象一致性时还要拒绝 `PutObject` 或等待签名 URL/在途上传结束并核对访问日志。只创建维护文件不算冻结完成；让外部队列保留消息并重试。
 2. 保存应用、Nginx、数据库、队列和对象存储日志，记录最后可信写入时间和事故时间线。
 3. 选择 PITR 时间点时评估发布后已经发生的合法写入。绝不能在已有新写入后盲目恢复“发布前快照”，否则会静默丢失用户数据。
 4. 恢复到一个新的隔离数据库实例，验证后再切换 `DATABASE_URL`；不要直接覆盖在线生产库。
@@ -1432,7 +1482,7 @@ DATABASE_URL="$RESTORE_DATABASE_URL" npx prisma migrate status
 - [ ] 应用存储账号与扫描 Worker 账号分离且均为最小权限。
 - [ ] SMTP STARTTLS/证书校验、SPF、DKIM、DMARC 和发件域名已验证。
 - [ ] 扫描 Worker、队列、死信队列和回调已完成真实文件端到端测试。
-- [ ] 上传清理 systemd timer 已启用，并能对失败报警。
+- [ ] 上传清理与排队对象删除 systemd timer 已启用；`retried` 非零、`deferred` 连续两次非零、`pending` 非零且 `oldestPendingAgeSeconds >= 3600`（1 小时）均能报警。
 - [ ] 日志、错误、数据库、队列、磁盘和证书监控已接入。
 
 ### 安全配置

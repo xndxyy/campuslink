@@ -33,12 +33,16 @@ Set `S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com`,
 production `APP_URL`; do not expose the S3 credentials to browser environment
 variables.
 
-## Expired upload cleanup
+## Scheduled storage maintenance
 
-Configure a random `UPLOAD_CLEANUP_SECRET`, then schedule an authenticated
-`POST /api/internal/uploads/cleanup` with
-`Authorization: Bearer <UPLOAD_CLEANUP_SECRET>`. This machine endpoint does not
-use browser Origin checks and returns counts only.
+Configure a random `UPLOAD_CLEANUP_SECRET`, then run one maintenance task every
+15 minutes. It must independently attempt authenticated calls to both
+`POST /api/internal/uploads/cleanup` and
+`POST /api/internal/storage-deletions` with
+`Authorization: Bearer <UPLOAD_CLEANUP_SECRET>`. These machine endpoints do not
+use browser Origin checks and return bounded counts only. A failure from one
+endpoint must not prevent the task from attempting the other, but any curl,
+non-2xx, or JSON failure makes the task fail after both attempts.
 
 The cleanup conditionally claims each expired `PENDING` row as `CLEANING`
 before touching storage. A concurrent completion that reaches `READY` first
@@ -47,6 +51,11 @@ ready. After storage deletion succeeds the claimed row is deleted; a storage
 failure leaves it `CLEANING` and eligible for the next scheduled run. Existing
 `REJECTED` records remain for audit history after their residual object is
 removed.
+
+The deletion response includes `retried`, `deferred`, `pending`, and
+`oldestPendingAgeSeconds`. Alert immediately when `retried` is non-zero, when
+`deferred` remains non-zero for two consecutive runs, or when `pending` is
+non-zero and `oldestPendingAgeSeconds` is at least 3,600 seconds (1 hour).
 
 ## Integration-test gate
 

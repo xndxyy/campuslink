@@ -86,3 +86,18 @@ Content-Type: application/json
 unpublishable and may be retried by sending a later verdict. Rotate the callback
 secret by briefly accepting traffic only after the scanner and application
 have been updated together.
+
+## Scheduled maintenance
+
+Run one flock-protected maintenance service every 15 minutes. The same run must
+attempt both `POST /api/internal/uploads/cleanup` and
+`POST /api/internal/storage-deletions`, even if either call fails. Both requests
+use `Authorization: Bearer <UPLOAD_CLEANUP_SECRET>`; do not add or expose a
+second secret. Validate and log only each endpoint's bounded JSON fields, then
+fail the service after both attempts if curl, HTTP status, or JSON validation
+failed.
+
+Alert on non-zero upload `failed` or deletion `retried`. Alert when deletion
+`deferred` remains non-zero for two consecutive 15-minute runs. Also alert when
+`pending` is non-zero and `oldestPendingAgeSeconds` reaches 3,600 seconds
+(1 hour), which indicates the durable deletion backlog is not draining.

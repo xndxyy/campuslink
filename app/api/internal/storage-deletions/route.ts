@@ -16,6 +16,8 @@ interface StorageDeletionRouteDependencies {
     deferred: number;
     deleted: number;
     missing: number;
+    oldestPendingAgeSeconds: number | null;
+    pending: number;
     retried: number;
   }>;
   secret?: string;

@@ -188,6 +188,7 @@ describe('internal storage deletion route', () => {
       secret: 'short',
     });
     expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toContain('no-store');
     expect(process).not.toHaveBeenCalled();
   });
 
@@ -200,6 +201,7 @@ describe('internal storage deletion route', () => {
         secret,
       });
       expect(response.status).toBe(401);
+      expect(response.headers.get('cache-control')).toContain('no-store');
       expect(process).not.toHaveBeenCalled();
     },
   );
@@ -210,6 +212,8 @@ describe('internal storage deletion route', () => {
         deferred: 4,
         deleted: 2,
         missing: 1,
+        oldestPendingAgeSeconds: 7_200,
+        pending: 5,
         retried: 3,
       })),
       secret,
@@ -219,6 +223,8 @@ describe('internal storage deletion route', () => {
       deferred: 4,
       deleted: 2,
       missing: 1,
+      oldestPendingAgeSeconds: 7_200,
+      pending: 5,
       retried: 3,
     });
 
@@ -229,6 +235,7 @@ describe('internal storage deletion route', () => {
       secret,
     });
     expect(failed.status).toBe(500);
+    expect(failed.headers.get('cache-control')).toContain('no-store');
     await expect(failed.json()).resolves.toEqual({
       message: 'Storage deletion processing failed.',
     });

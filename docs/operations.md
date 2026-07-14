@@ -20,10 +20,19 @@ run only and are rejected in CI.
 
 ## Scheduled jobs
 
-Call `POST /api/internal/uploads/cleanup` with
-`Authorization: Bearer <UPLOAD_CLEANUP_SECRET>` every 15 minutes. It removes
-expired incomplete uploads and retries rejected-object deletion. Alert on any
-non-2xx response or a sustained non-zero `failed` count.
+Run one maintenance task every 15 minutes. It must attempt both
+`POST /api/internal/uploads/cleanup` and
+`POST /api/internal/storage-deletions`, even when the first call fails. Both
+calls use `Authorization: Bearer <UPLOAD_CLEANUP_SECRET>`; no second scheduler
+secret is required. The first endpoint removes expired incomplete uploads and
+retries rejected-object deletion. The second drains queued object deletions
+that could not be completed in the originating request.
+
+Alert on any curl, non-2xx, or JSON validation failure; a non-zero upload
+`failed` count; or a non-zero storage-deletion `retried` count. Alert when
+`deferred` remains non-zero for two consecutive runs, and when `pending` is
+non-zero while `oldestPendingAgeSeconds` reaches 3,600 seconds (1 hour). The
+task must log only the endpoints' bounded count JSON, never the bearer secret.
 
 The malware scanner consumes new document objects independently. Alert if a
 document remains `PENDING` for more than ten minutes, if scan `ERROR` grows, or

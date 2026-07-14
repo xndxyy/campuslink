@@ -22,6 +22,10 @@ function adapter(job: Record<string, unknown> | null = {}) {
         };
   const value = {
     storageDeletionJob: {
+      aggregate: vi.fn(async () => ({
+        _count: { _all: 0 },
+        _min: { createdAt: null },
+      })),
       deleteMany: vi.fn(async () => ({ count: 1 })),
       findFirst: vi.fn(async ({ where }) => {
         if (!record) return null;
@@ -161,7 +165,18 @@ describe('storage deletion jobs', () => {
       take: 100,
       where: { nextAttempt: { lte: now } },
     });
-    expect(result).toEqual({ deferred: 0, deleted: 1, missing: 0, retried: 0 });
+    expect(result).toEqual({
+      deferred: 0,
+      deleted: 1,
+      missing: 0,
+      oldestPendingAgeSeconds: null,
+      pending: 0,
+      retried: 0,
+    });
+    expect(db.storageDeletionJob.aggregate).toHaveBeenCalledWith({
+      _count: { _all: true },
+      _min: { createdAt: true },
+    });
   });
 
   it('falls back to the default batch size for non-finite input', async () => {
@@ -289,7 +304,42 @@ describe('storage deletion jobs', () => {
     const storage = { deleteObject: vi.fn() };
     await expect(
       processDueStorageDeletions(db, { clock: () => now, storage }),
-    ).resolves.toEqual({ deferred: 1, deleted: 0, missing: 0, retried: 0 });
+    ).resolves.toEqual({
+      deferred: 1,
+      deleted: 0,
+      missing: 0,
+      oldestPendingAgeSeconds: null,
+      pending: 0,
+      retried: 0,
+    });
     expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('returns bounded real backlog metrics with a non-negative injected-clock age', async () => {
+    const db = adapter(null);
+    vi.mocked(db.storageDeletionJob.aggregate).mockResolvedValue({
+      _count: { _all: 7 },
+      _min: { createdAt: new Date('2026-07-13T22:00:00.000Z') },
+    });
+    await expect(
+      processDueStorageDeletions(db, {
+        clock: () => now,
+        storage: { deleteObject: vi.fn() },
+      }),
+    ).resolves.toMatchObject({
+      oldestPendingAgeSeconds: 7_200,
+      pending: 7,
+    });
+
+    vi.mocked(db.storageDeletionJob.aggregate).mockResolvedValue({
+      _count: { _all: 1 },
+      _min: { createdAt: new Date('2026-07-14T00:01:00.000Z') },
+    });
+    await expect(
+      processDueStorageDeletions(db, {
+        clock: () => now,
+        storage: { deleteObject: vi.fn() },
+      }),
+    ).resolves.toMatchObject({ oldestPendingAgeSeconds: 0, pending: 1 });
   });
 });

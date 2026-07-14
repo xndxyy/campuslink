@@ -519,7 +519,7 @@ describeWithDatabase('database schema constraints', () => {
         title: '互动约束',
       },
     });
-    await db.forumComment.create({
+    const comment = await db.forumComment.create({
       data: {
         authorId: reporterId,
         body: '一级评论',
@@ -529,11 +529,6 @@ describeWithDatabase('database schema constraints', () => {
     await db.forumLike.create({
       data: { postId: post.id, userId: reporterId },
     });
-    await expect(
-      db.forumLike.create({
-        data: { postId: post.id, userId: reporterId },
-      }),
-    ).rejects.toMatchObject({ code: 'P2002' });
 
     const directClient = new Client({
       connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
@@ -542,16 +537,30 @@ describeWithDatabase('database schema constraints', () => {
     try {
       await expect(
         directClient.query(
+          `INSERT INTO "ForumLike" (id, "userId", "postId")
+           VALUES ($1, $2, $3)`,
+          [`duplicate-like-${suffix}`, reporterId, post.id],
+        ),
+      ).rejects.toMatchObject({
+        code: '23505',
+        constraint: 'ForumLike_userId_postId_key',
+      });
+
+      const replacementPostId = `moved-${suffix}`;
+      await expect(
+        directClient.query(
           `UPDATE "ForumPost"
-           SET kind = 'TREE_HOLE',
+           SET id = $2,
+               kind = 'TREE_HOLE',
                "authorId" = NULL,
-               "anonymousCiphertext" = $2,
-               "anonymousFingerprint" = $3,
+               "anonymousCiphertext" = $3,
+               "anonymousFingerprint" = $4,
                "anonymousKeyVersion" = 1,
-               "publicCode" = $4
+               "publicCode" = $5
            WHERE id = $1`,
           [
             post.id,
+            replacementPostId,
             'v1:authenticated-envelope',
             'b'.repeat(64),
             suffix.slice(0, 12).toUpperCase(),
@@ -563,6 +572,28 @@ describeWithDatabase('database schema constraints', () => {
           'Commented forum posts cannot become tree holes',
         ),
       });
+
+      const unchanged = await directClient.query(
+        `SELECT
+           post.id AS "postId",
+           post.kind::text AS kind,
+           comment."postId" AS "commentPostId",
+           EXISTS (
+             SELECT 1 FROM "ForumPost" AS replacement WHERE replacement.id = $3
+           ) AS "replacementPostExists"
+         FROM "ForumPost" AS post
+         JOIN "ForumComment" AS comment ON comment.id = $2
+         WHERE post.id = $1`,
+        [post.id, comment.id, replacementPostId],
+      );
+      expect(unchanged.rows).toStrictEqual([
+        {
+          commentPostId: post.id,
+          kind: 'DISCUSSION',
+          postId: post.id,
+          replacementPostExists: false,
+        },
+      ]);
     } finally {
       await directClient.end();
     }

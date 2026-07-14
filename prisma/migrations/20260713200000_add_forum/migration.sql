@@ -185,7 +185,7 @@ BEGIN
       'ForumComment'
     )
     INTO has_comments
-    USING NEW."id";
+    USING OLD."id";
 
     IF has_comments THEN
       RAISE EXCEPTION 'Commented forum posts cannot become tree holes'

@@ -13,6 +13,9 @@ const migration = readSource(
   '../../prisma/migrations/20260713200000_add_forum/migration.sql',
 );
 const seed = readSource('../../prisma/seed.ts');
+const integrationSchemaSource = readSource(
+  '../integration/schema-constraints.test.ts',
+);
 
 function block(kind: 'enum' | 'model', name: string) {
   return (
@@ -96,6 +99,16 @@ describe('forum persistence schema contract', () => {
     expect(migration).not.toContain('FOR KEY SHARE');
   });
 
+  it('checks existing comments by the pre-update post id', () => {
+    const reverseKindGuard =
+      migration.match(
+        /CREATE FUNCTION "_protect_commented_forum_post_kind"\(\)([\s\S]*?)\n\$\$;/,
+      )?.[1] ?? '';
+
+    expect(reverseKindGuard).toContain('USING OLD."id"');
+    expect(reverseKindGuard).not.toContain('USING NEW."id"');
+  });
+
   it('allows only one like per user and adds forum report targets safely', () => {
     const like = block('model', 'ForumLike');
     expect(like).toMatch(/userId\s+String/);
@@ -112,6 +125,24 @@ describe('forum persistence schema contract', () => {
     expect(migration).toMatch(
       /ALTER TYPE "ReportTargetType" ADD VALUE IF NOT EXISTS 'FORUM_COMMENT'/,
     );
+  });
+
+  it('proves duplicate likes through parameterized direct PostgreSQL', () => {
+    const interactionTest = integrationSchemaSource.slice(
+      integrationSchemaSource.indexOf(
+        "it('enforces one like and prevents a commented discussion becoming a tree hole'",
+      ),
+      integrationSchemaSource.indexOf(
+        "it('allows one cover per announcement and rejects a duplicate cover'",
+      ),
+    );
+
+    expect(interactionTest).toMatch(/directClient\.query\(/);
+    expect(interactionTest).toContain('INSERT INTO "ForumLike"');
+    expect(interactionTest).toContain('VALUES ($1, $2, $3)');
+    expect(interactionTest).toContain('reporterId');
+    expect(interactionTest).toContain('post.id');
+    expect(interactionTest).toContain("code: '23505'");
   });
 
   it('seeds the approved Chinese categories idempotently without sample posts', () => {

@@ -379,6 +379,79 @@ describe('content service', () => {
     });
   });
 
+  it('whitelists resource update fields when an internal variable carries legacy columns', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    const resourceEditWithLegacyFields = {
+      courseCode: 'CS 101',
+      customTags: [],
+      presetTagIds: ['replacement_tag'],
+      summary: 'Revised lecture notes with worked examples and exercises.',
+      tags: ['legacy-string-tag'],
+      title: 'Revised algorithms notes',
+    };
+
+    await editOwnedContent(
+      serviceAdapter,
+      actor,
+      'resource',
+      'resource_1',
+      resourceEditWithLegacyFields,
+    );
+
+    expect(adapter.resource.updateMany).toHaveBeenCalledWith({
+      data: {
+        status: 'DRAFT',
+        summary: resourceEditWithLegacyFields.summary,
+        title: resourceEditWithLegacyFields.title,
+      },
+      where: {
+        authorId: actor.id,
+        id: 'resource_1',
+        status: { in: ['DRAFT', 'REJECTED'] },
+      },
+    });
+  });
+
+  it('whitelists marketplace update fields when an internal variable carries an extra key', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    const marketplaceEditWithExtraField = {
+      condition: 'GOOD' as const,
+      contact: 'Campus inbox only',
+      customTags: [],
+      description: 'A carefully revised discrete mathematics textbook.',
+      internalOnly: 'must-not-reach-prisma',
+      pickupArea: 'North library',
+      presetTagIds: ['replacement_tag'],
+      priceCents: 1999,
+      title: 'Revised discrete mathematics textbook',
+    };
+
+    await editOwnedContent(
+      serviceAdapter,
+      actor,
+      'marketplace',
+      'market_1',
+      marketplaceEditWithExtraField,
+    );
+
+    expect(adapter.marketplaceItem.updateMany).toHaveBeenCalledWith({
+      data: {
+        condition: marketplaceEditWithExtraField.condition,
+        contact: marketplaceEditWithExtraField.contact,
+        description: marketplaceEditWithExtraField.description,
+        pickupArea: marketplaceEditWithExtraField.pickupArea,
+        priceCents: marketplaceEditWithExtraField.priceCents,
+        status: 'DRAFT',
+        title: marketplaceEditWithExtraField.title,
+      },
+      where: {
+        id: 'market_1',
+        sellerId: actor.id,
+        status: { in: ['DRAFT', 'REJECTED'] },
+      },
+    });
+  });
+
   it.each(['P2002', 'P2034'])(
     'restarts the entire Serializable create transaction after %s',
     async (code) => {

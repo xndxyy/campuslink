@@ -778,8 +778,29 @@ export async function editOwnedContent(
     if (!('customTags' in input) || !('presetTagIds' in input)) {
       throw new ContentConflictError();
     }
-    const { customTags, presetTagIds, ...contentInput } = input;
+    const { customTags, presetTagIds } = input;
     const scope = kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE';
+    const updateData =
+      kind === 'resource'
+        ? 'summary' in input
+          ? {
+              status: ContentStatus.DRAFT,
+              summary: input.summary,
+              title: input.title,
+            }
+          : null
+        : 'condition' in input
+          ? {
+              condition: input.condition,
+              contact: input.contact,
+              description: input.description,
+              pickupArea: input.pickupArea,
+              priceCents: input.priceCents,
+              status: ContentStatus.DRAFT,
+              title: input.title,
+            }
+          : null;
+    if (!updateData) throw new ContentConflictError();
     const preparedTags = await prepareContentTagSelection(actor, scope, {
       customTags,
       presetTagIds,
@@ -789,7 +810,7 @@ export async function editOwnedContent(
       if (!transactionalDelegate.updateMany)
         throw new Error('Unsupported adapter');
       const changed = await transactionalDelegate.updateMany({
-        data: { ...contentInput, status: ContentStatus.DRAFT },
+        data: updateData,
         where: {
           id,
           [ownerField]: actor.id,

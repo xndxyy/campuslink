@@ -15,6 +15,7 @@ import {
   setTagActive,
   type TagAdapter,
   type TagRecord,
+  type TagResolutionPolicy,
 } from '@/lib/domain/tags';
 import { TagValidationError } from '@/lib/validation/tags';
 
@@ -26,6 +27,12 @@ const actor = {
   status: 'ACTIVE' as const,
 };
 const admin = { ...actor, id: 'admin_1', role: 'ADMIN' as const };
+
+const missingReturnPolicy: TagResolutionPolicy = {
+  // @ts-expect-error A policy callback must return an explicit decision.
+  assessCustomTag: async () => {},
+};
+void missingReturnPolicy;
 
 function tagRecord(overrides: Partial<TagRecord> = {}): TagRecord {
   return {
@@ -526,6 +533,72 @@ describe('atomic tag selection resolution', () => {
     expect(db.rootSpies.tagDefinition.findUnique).not.toHaveBeenCalled();
     expect(db.transaction.tagDefinition.findUnique).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['undefined', async () => undefined],
+    ['null', async () => null],
+    ['malformed allow object', async () => ({ allowed: true, extra: 'x' })],
+    ['false', async () => false],
+    [
+      'throw',
+      async () => {
+        throw new Error('private policy failure');
+      },
+    ],
+  ])(
+    'fails closed for %s policy decisions before DB work',
+    async (_name, callback) => {
+      const db = isolatedResolutionAdapter();
+      const assessCustomTag = vi.fn(callback) as unknown as NonNullable<
+        TagResolutionPolicy['assessCustomTag']
+      >;
+
+      await expect(
+        resolveContentTags(
+          db.root,
+          actor,
+          'RESOURCE',
+          { customTags: ['算法'], presetTagIds: [] },
+          { assessCustomTag },
+        ),
+      ).rejects.toThrowError(
+        expect.objectContaining({ code: 'POLICY_REJECTED' }),
+      );
+      expect(assessCustomTag).toHaveBeenCalledTimes(1);
+      expect(db.transactionSpy).not.toHaveBeenCalled();
+      expect(db.rootSpies.tagDefinition.upsert).not.toHaveBeenCalled();
+      expect(db.transaction.tagDefinition.upsert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([true, { allowed: true }] as const)(
+    'accepts one explicit allow decision %o before the transaction',
+    async (decision) => {
+      const db = isolatedResolutionAdapter();
+      db.transaction.tagDefinition.findUnique.mockResolvedValue(null);
+      db.transaction.tagDefinition.upsert.mockResolvedValue(
+        tagRecord({
+          id: 'custom_1',
+          isPreset: false,
+          label: '算法',
+          slug: '算法',
+        }),
+      );
+      const assessCustomTag = vi.fn(async () => decision);
+
+      await expect(
+        resolveContentTags(
+          db.root,
+          actor,
+          'RESOURCE',
+          { customTags: ['算法'], presetTagIds: [] },
+          { assessCustomTag },
+        ),
+      ).resolves.toEqual(['custom_1']);
+      expect(assessCustomTag).toHaveBeenCalledTimes(1);
+      expect(db.transactionSpy).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('retries the whole transaction after P2002 without querying an aborted transaction', async () => {
     const db = isolatedResolutionAdapter();

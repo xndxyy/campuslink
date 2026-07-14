@@ -39,6 +39,37 @@ describe('tag validation API', () => {
     expect(() => normalizeTagLabel(value)).toThrow(TagValidationError);
   });
 
+  it.each([
+    ['combining mark only', '\u0301'],
+    ['lone high surrogate', '\ud800'],
+    ['lone low surrogate', '\udc00'],
+    ['private use', '\ue000'],
+    ['unassigned scalar', '\u0378'],
+    ['noncharacter', '\ufdd0'],
+    ['bidi format control', '安全\u202e标签'],
+    ['punctuation only', '+++'],
+    ['emoji only', '🧪'],
+  ])(
+    'rejects non-scalar, Other, or baseless visible text: %s',
+    (_name, value) => {
+      expect(() => normalizeTagLabel(value)).toThrowError(
+        expect.objectContaining({ code: 'INVALID_LABEL' }),
+      );
+    },
+  );
+
+  it('counts Unicode scalars and keeps legal marks attached to a base', () => {
+    expect(normalizeTagLabel('𠀀'.repeat(32))).toBe('𠀀'.repeat(32));
+    expect(() => normalizeTagLabel('𠀀'.repeat(33))).toThrowError(
+      expect.objectContaining({ code: 'INVALID_LABEL' }),
+    );
+    expect(normalizeTagLabel('C++')).toBe('C++');
+    expect(normalizeTagLabel('高数')).toBe('高数');
+    expect(normalizeTagLabel('क़')).toMatch(/[\p{L}\p{M}]/u);
+    expect(createTagSlug('𠀀课程')).toBe('𠀀课程');
+    expect(createTagSlug('𠀀课程')).not.toContain('\ufffd');
+  });
+
   it('creates a stable, locale-independent, bounded Unicode slug', () => {
     const variants = ['  ＣＯＳ   委托  ', 'COS 委托', 'cos\u00a0委托'];
     expect(variants.map(createTagSlug)).toEqual([
@@ -51,7 +82,7 @@ describe('tag validation API', () => {
     expect(createTagSlug('Straße')).toBe(createTagSlug('STRASSE'));
     expect(createTagSlug('A'.repeat(32))).toHaveLength(32);
     expect(() => createTagSlug('+++')).toThrowError(
-      expect.objectContaining({ code: 'EMPTY_SLUG' }),
+      expect.objectContaining({ code: 'INVALID_LABEL' }),
     );
   });
 

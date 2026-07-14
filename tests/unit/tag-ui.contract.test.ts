@@ -14,8 +14,11 @@ const layout = source('../../app/admin/layout.tsx');
 const styles = source('../../app/globals.css');
 const schema = source('../../prisma/schema.prisma');
 const audit = source('../../lib/domain/audit.ts');
-const migration = source(
+const auditMigration = source(
   '../../prisma/migrations/20260713191000_add_tag_audit_subject/migration.sql',
+);
+const managementIndexMigration = source(
+  '../../prisma/migrations/20260713192000_add_tag_management_index/migration.sql',
 );
 const originalTagMigration = source(
   '../../prisma/migrations/20260713190000_add_tags_and_campus_work/migration.sql',
@@ -121,14 +124,40 @@ describe('tag audit subject expansion contract', () => {
   });
 
   it('adds TAG_DEFINITION only in the ordered expand-only 191000 migration', () => {
-    expect(migration).toMatch(
+    expect(createHash('sha256').update(auditMigration).digest('hex')).toBe(
+      '9eb81b3805adaad9a836ab0d8837d74de5e6135fc9a0cf8d5ba38a96cdf0d4cc',
+    );
+    expect(auditMigration).toMatch(
       /ALTER TYPE "ModerationSubjectType" ADD VALUE IF NOT EXISTS 'TAG_DEFINITION';/,
     );
-    expect(migration).not.toMatch(/DROP|DELETE|UPDATE|ALTER TABLE/i);
+    expect(auditMigration).not.toMatch(/DROP|DELETE|UPDATE|ALTER TABLE/i);
     expect(BigInt('20260713191000')).toBeLessThan(BigInt('20260713200000'));
     expect(schema).toMatch(
       /enum ModerationSubjectType\s*\{[\s\S]*?TAG_DEFINITION[\s\S]*?\}/,
     );
     expect(audit).toContain("'TAG_DEFINITION'");
+  });
+
+  it('adds only the concurrent four-column managed tag index in 192000', () => {
+    const indexName = 'TagDefinition_campusId_scope_label_id_idx';
+    expect(schema).toMatch(
+      new RegExp(
+        `@@index\\(\\[campusId, scope, label, id\\], map: "${indexName}"\\)`,
+      ),
+    );
+    expect(managementIndexMigration).toContain(
+      `DROP INDEX CONCURRENTLY IF EXISTS "${indexName}";`,
+    );
+    expect(managementIndexMigration).toContain(
+      `CREATE INDEX CONCURRENTLY "${indexName}" ON "TagDefinition"("campusId", "scope", "label", "id");`,
+    );
+    expect(managementIndexMigration).not.toMatch(/BEGIN|COMMIT/i);
+    expect(managementIndexMigration).not.toMatch(
+      /CREATE INDEX CONCURRENTLY IF NOT EXISTS/i,
+    );
+    expect(managementIndexMigration).not.toMatch(
+      /ALTER TABLE|DELETE FROM|UPDATE\s+"/i,
+    );
+    expect(BigInt('20260713192000')).toBeLessThan(BigInt('20260713200000'));
   });
 });

@@ -21,10 +21,16 @@ describeWithDatabase('governed tag persistence', () => {
   }) => {
     const db = createDbClient();
     const availability = await db.$queryRawUnsafe<
-      Array<{ hasSubject: boolean; tagTable: string | null }>
+      Array<{
+        hasManagementIndex: boolean;
+        hasSubject: boolean;
+        tagTable: string | null;
+      }>
     >(`
       SELECT
         to_regclass('"TagDefinition"')::text AS "tagTable",
+        to_regclass('"TagDefinition_campusId_scope_label_id_idx"') IS NOT NULL
+          AS "hasManagementIndex",
         EXISTS (
           SELECT 1
           FROM pg_enum value
@@ -33,7 +39,11 @@ describeWithDatabase('governed tag persistence', () => {
             AND value.enumlabel = 'TAG_DEFINITION'
         ) AS "hasSubject"
     `);
-    if (!availability[0]?.tagTable || !availability[0].hasSubject) {
+    if (
+      !availability[0]?.tagTable ||
+      !availability[0].hasSubject ||
+      !availability[0].hasManagementIndex
+    ) {
       await db.$disconnect();
       skip('live schema is missing the expand-only tag migrations');
       return;
@@ -259,6 +269,23 @@ describeWithDatabase('governed tag persistence', () => {
       );
       expect(new Set(pagedIds).size).toBe(4);
       expect(new Set(pagedIds)).toEqual(new Set(paged.map((item) => item.id)));
+      const plan = await db.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+        await tx.$executeRawUnsafe('SET LOCAL enable_bitmapscan = off');
+        return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+          `EXPLAIN (COSTS OFF)
+           SELECT "id", "label", "isActive", "isPreset"
+           FROM "TagDefinition"
+           WHERE "campusId" = $1 AND "scope" = $2::"TagScope"
+           ORDER BY "label" ASC, "id" ASC
+           LIMIT 3`,
+          campus.id,
+          'CAMPUS_WORK',
+        );
+      });
+      expect(plan.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+        'TagDefinition_campusId_scope_label_id_idx',
+      );
 
       const rollbackLabel = `rollback-${suffix}`.slice(0, 32);
       const rollbackAdapter: TagAdapter = {

@@ -33,10 +33,24 @@ export class TagValidationError extends Error {
 const completeHtmlTag = /<\/?[a-z][^>]*>/i;
 const unsafeHtmlSyntax =
   /<!--|<!doctype\b|javascript\s*:|<\s*\/?\s*(?:script|style|iframe|img|svg|object|embed|link|meta|form|input|button|textarea|select|option)\b[^>]*$/i;
-const forbiddenControl = /[\p{Cc}\p{Cf}]/u;
+const unicodeOther = /\p{C}/u;
+const unicodeWhitespace = /\p{White_Space}/u;
+const visibleBase = /[\p{L}\p{N}]/u;
+
+function hasForbiddenPreNormalizationScalar(value: string) {
+  for (const scalar of value) {
+    if (unicodeOther.test(scalar) && !unicodeWhitespace.test(scalar)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function normalizeTagLabel(value: unknown): string {
   if (typeof value !== 'string') {
+    throw new TagValidationError('INVALID_LABEL');
+  }
+  if (hasForbiddenPreNormalizationScalar(value)) {
     throw new TagValidationError('INVALID_LABEL');
   }
   const normalized = value
@@ -44,9 +58,10 @@ export function normalizeTagLabel(value: unknown): string {
     .replace(/\p{White_Space}+/gu, ' ')
     .trim();
   if (
-    normalized.length < 1 ||
-    normalized.length > 32 ||
-    forbiddenControl.test(normalized) ||
+    Array.from(normalized).length < 1 ||
+    Array.from(normalized).length > 32 ||
+    unicodeOther.test(normalized) ||
+    !visibleBase.test(normalized) ||
     completeHtmlTag.test(normalized) ||
     unsafeHtmlSyntax.test(normalized)
   ) {

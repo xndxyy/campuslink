@@ -296,7 +296,8 @@ export async function listManagedTags(
   };
 }
 
-type CustomTagAssessment = boolean | { allowed: boolean } | void;
+export type CustomTagAssessment =
+  boolean | { allowed: true } | { allowed: false; reason?: Uppercase<string> };
 
 export interface TagResolutionPolicy {
   assessCustomTag?: (label: string) => Promise<CustomTagAssessment>;
@@ -323,12 +324,18 @@ export async function prepareContentTagSelection(
   requireVerified(actor);
   const scope = validScope(scopeValue);
   const input = parseTagSelectionInput(inputValue);
-  const assess =
-    policy.assessCustomTag ?? (async () => ({ allowed: true }) as const);
   const customTags: Array<{ label: string; slug: string }> = [];
   for (const label of input.customTags) {
-    if (!isAllowedAssessment(await assess(label))) {
-      throw new TagValidationError('POLICY_REJECTED');
+    if (policy.assessCustomTag) {
+      let assessment: unknown;
+      try {
+        assessment = await policy.assessCustomTag(label);
+      } catch {
+        throw new TagValidationError('POLICY_REJECTED');
+      }
+      if (!isAllowedAssessment(assessment)) {
+        throw new TagValidationError('POLICY_REJECTED');
+      }
     }
     customTags.push(Object.freeze({ label, slug: createTagSlug(label) }));
   }
@@ -436,10 +443,19 @@ function isSerializationFailure(error: unknown) {
   );
 }
 
-function isAllowedAssessment(value: CustomTagAssessment) {
-  if (value === undefined || value === true) return true;
-  if (value === false) return false;
-  return value.allowed === true;
+function isAllowedAssessment(value: unknown) {
+  if (value === true) return true;
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    (Object.getPrototypeOf(value) !== Object.prototype &&
+      Object.getPrototypeOf(value) !== null)
+  ) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return record.allowed === true && Object.keys(record).length === 1;
 }
 
 function validPreset(

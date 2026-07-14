@@ -271,6 +271,7 @@ model TagDefinition {
   @@unique([campusId, scope, slug])
   @@unique([id, campusId, scope])
   @@index([campusId, scope, isActive, label])
+  @@index([campusId, scope, label, id], map: "TagDefinition_campusId_scope_label_id_idx")
 }
 
 model Resource {

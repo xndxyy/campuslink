@@ -21,6 +21,14 @@ const source = readFileSync(
   ),
   'utf8',
 );
+const editSource = readSource('../../components/content/edit-content-form.tsx');
+const tagSelectorSource = readSource(
+  '../../components/content/tag-selector.tsx',
+);
+const resourcePageSource = readSource('../../app/submit/resource/page.tsx');
+const marketplacePageSource = readSource(
+  '../../app/submit/marketplace/page.tsx',
+);
 
 describe('submission form async event safety', () => {
   it('captures the form before awaiting and resets the captured element', () => {
@@ -34,6 +42,43 @@ describe('submission form async event safety', () => {
     expect(source).toContain('new FormData(form)');
     expect(source).toContain('form.reset()');
     expect(source).not.toContain('event.currentTarget.reset()');
+  });
+});
+
+describe('publishing tag selection contract', () => {
+  it('uses one accessible reusable selector for resource and marketplace tags', () => {
+    expect(tagSelectorSource).toContain('export function TagSelector');
+    expect(tagSelectorSource).toContain('<fieldset');
+    expect(tagSelectorSource).toContain('<legend>');
+    expect(tagSelectorSource).toContain('type="checkbox"');
+    expect(tagSelectorSource).toContain('最多选择 5 个标签');
+    expect(tagSelectorSource).toContain('最多添加 2 个自定义标签');
+    expect(source).toContain('import { TagSelector }');
+    expect(source).toContain("kind !== 'job'");
+    expect(source).toContain('<TagSelector');
+    expect(editSource).toContain('import { TagSelector }');
+    expect(editSource).toContain('<TagSelector');
+  });
+
+  it('submits presetTagIds and customTags as arrays without legacy tag strings', () => {
+    for (const formSource of [source, editSource]) {
+      expect(formSource).toContain('presetTagIds');
+      expect(formSource).toContain('customTags');
+      expect(formSource).not.toMatch(/split\(['"]\s*,\s*['"]\)/);
+      expect(formSource).not.toContain('values.tags');
+      expect(formSource).not.toContain('name="tags"');
+      expect(formSource).not.toContain('name="courseCode"');
+    }
+  });
+
+  it('loads campus-scoped presets on both publishing pages', () => {
+    for (const pageSource of [resourcePageSource, marketplacePageSource]) {
+      expect(pageSource).toContain('requireVerifiedUser');
+      expect(pageSource).toContain('listAvailableTags');
+      expect(pageSource).toContain('availableTags={availableTags}');
+    }
+    expect(resourcePageSource).toContain("'RESOURCE'");
+    expect(marketplacePageSource).toContain("'MARKETPLACE'");
   });
 });
 

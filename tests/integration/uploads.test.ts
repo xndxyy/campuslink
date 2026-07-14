@@ -137,12 +137,18 @@ describeWithStorage('direct storage uploads', () => {
       db.asset.findUniqueOrThrow({ where: { id: intent.assetId } }),
     ).resolves.toMatchObject({ scanStatus: 'PENDING', status: 'READY' });
 
-    const actor = { campusId, id: ownerId, role: 'STUDENT' as const };
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: ownerId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
     const input = {
       assetIds: [intent.assetId],
-      courseCode: 'SEC-101',
+      customTags: ['security'],
+      presetTagIds: [],
       summary: 'A real integration document awaiting a malware verdict.',
-      tags: ['security'],
       title: 'Scanner integration resource',
     };
     await expect(

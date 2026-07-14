@@ -1,5 +1,11 @@
 import { ContentStatus } from './content-status';
 import { getDefaultCampusSlug } from '@/lib/config';
+import {
+  prepareContentTagSelection,
+  resolveContentTagsInTransaction,
+  TagConflictError,
+  type TagResolutionTransaction,
+} from '@/lib/domain/tags';
 import type {
   ContentListQuery,
   CreateJobInput,
@@ -19,6 +25,22 @@ export interface ContentActor {
   campusId: string;
   id: string;
   role: Role;
+}
+
+export interface VerifiedContentActor extends ContentActor {
+  emailVerifiedAt: Date;
+  status: 'ACTIVE';
+}
+
+function isVerifiedContentActor(
+  actor: ContentActor,
+): actor is VerifiedContentActor {
+  return (
+    'status' in actor &&
+    actor.status === 'ACTIVE' &&
+    'emailVerifiedAt' in actor &&
+    actor.emailVerifiedAt instanceof Date
+  );
 }
 
 interface AssetRecord {
@@ -70,8 +92,20 @@ interface Delegate {
   }) => Promise<{ count: number }>;
 }
 
+interface TagJoinDelegate {
+  createMany(args: {
+    data: Array<Record<string, unknown>>;
+  }): Promise<{ count: number }>;
+  deleteMany(args: {
+    where: Record<string, unknown>;
+  }): Promise<{ count: number }>;
+}
+
 export interface ContentAdapter {
-  $transaction<T>(operation: (tx: ContentAdapter) => Promise<T>): Promise<T>;
+  $transaction<T>(
+    operation: (tx: ContentAdapter) => Promise<T>,
+    options?: { isolationLevel: 'Serializable' },
+  ): Promise<T>;
   asset: {
     findFirst?(
       args: Record<string, unknown>,
@@ -84,10 +118,13 @@ export interface ContentAdapter {
   };
   jobPost: Delegate;
   marketplaceItem: Delegate;
+  marketplaceTag: TagJoinDelegate;
   moderationAction?: {
     findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   };
   resource: Delegate;
+  resourceTag: TagJoinDelegate;
+  tagDefinition: TagResolutionTransaction['tagDefinition'];
 }
 
 export class ContentConflictError extends Error {
@@ -112,6 +149,68 @@ export class ContentNotFoundError extends Error {
   constructor() {
     super('Content was not found');
   }
+}
+
+function isRetryableTransactionError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
+  return (
+    candidate.code === 'P2002' ||
+    candidate.code === 'P2034' ||
+    candidate.code === '40001' ||
+    candidate.meta?.code === '40001'
+  );
+}
+
+async function serializableContentTransaction<T>(
+  adapter: ContentAdapter,
+  operation: (tx: ContentAdapter) => Promise<T>,
+) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await adapter.$transaction(operation, {
+        isolationLevel: 'Serializable',
+      });
+    } catch (error) {
+      if (isRetryableTransactionError(error) && attempt < 2) continue;
+      if (
+        isRetryableTransactionError(error) ||
+        error instanceof TagConflictError
+      ) {
+        throw new ContentConflictError();
+      }
+      throw error;
+    }
+  }
+  throw new ContentConflictError();
+}
+
+async function writeResolvedTagJoins(
+  transaction: ContentAdapter,
+  actor: VerifiedContentActor,
+  kind: 'resource' | 'marketplace',
+  contentId: string,
+  tagIds: string[],
+  replace: boolean,
+) {
+  const delegate =
+    kind === 'resource' ? transaction.resourceTag : transaction.marketplaceTag;
+  const contentIdField =
+    kind === 'resource' ? 'resourceId' : 'marketplaceItemId';
+  if (replace) {
+    await delegate.deleteMany({ where: { [contentIdField]: contentId } });
+  }
+  if (tagIds.length === 0) return;
+  const scope = kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE';
+  const created = await delegate.createMany({
+    data: tagIds.map((tagId) => ({
+      campusId: actor.campusId,
+      [contentIdField]: contentId,
+      scope,
+      tagId,
+    })),
+  });
+  if (created.count !== tagIds.length) throw new ContentConflictError();
 }
 
 function delegateFor(adapter: ContentAdapter, kind: ContentKind): Delegate {
@@ -155,11 +254,15 @@ function validateAssets(
 
 export async function createResource(
   adapter: ContentAdapter,
-  actor: ContentActor,
+  actor: VerifiedContentActor,
   input: CreateResourceInput,
   policy?: DocumentScanPolicy,
 ) {
-  return adapter.$transaction(async (tx) => {
+  const preparedTags = await prepareContentTagSelection(actor, 'RESOURCE', {
+    customTags: input.customTags,
+    presetTagIds: input.presetTagIds,
+  });
+  return serializableContentTransaction(adapter, async (tx) => {
     const assets = await tx.asset.findMany({
       where: { id: { in: input.assetIds } },
     });
@@ -177,13 +280,23 @@ export async function createResource(
       data: {
         authorId: actor.id,
         campusId: actor.campusId,
-        courseCode: input.courseCode,
         status: ContentStatus.DRAFT,
         summary: input.summary,
-        tags: input.tags,
         title: input.title,
       },
     });
+    const resolvedTagIds = await resolveContentTagsInTransaction(
+      tx,
+      preparedTags,
+    );
+    await writeResolvedTagJoins(
+      tx,
+      actor,
+      'resource',
+      created.id,
+      resolvedTagIds,
+      false,
+    );
     const attached = await tx.asset.updateMany({
       data: { resourceId: created.id },
       where: {
@@ -206,10 +319,14 @@ export async function createResource(
 
 export async function createMarketplaceItem(
   adapter: ContentAdapter,
-  actor: ContentActor,
+  actor: VerifiedContentActor,
   input: CreateMarketplaceItemInput,
 ) {
-  return adapter.$transaction(async (tx) => {
+  const preparedTags = await prepareContentTagSelection(actor, 'MARKETPLACE', {
+    customTags: input.customTags,
+    presetTagIds: input.presetTagIds,
+  });
+  return serializableContentTransaction(adapter, async (tx) => {
     const assets = await tx.asset.findMany({
       where: { id: { in: input.assetIds } },
     });
@@ -227,6 +344,18 @@ export async function createMarketplaceItem(
         title: input.title,
       },
     });
+    const resolvedTagIds = await resolveContentTagsInTransaction(
+      tx,
+      preparedTags,
+    );
+    await writeResolvedTagJoins(
+      tx,
+      actor,
+      'marketplace',
+      created.id,
+      resolvedTagIds,
+      false,
+    );
     const attached = await tx.asset.updateMany({
       data: { marketplaceItemId: created.id },
       where: {
@@ -295,7 +424,17 @@ function publicWhere(
     ...(kind === 'resource' && query.courseCode
       ? { courseCode: query.courseCode }
       : {}),
-    ...(kind === 'resource' && query.tag ? { tags: { has: query.tag } } : {}),
+    ...(kind === 'resource' && query.tag
+      ? {
+          tagAssignments: {
+            some: {
+              tag: {
+                label: { equals: query.tag, mode: 'insensitive' },
+              },
+            },
+          },
+        }
+      : {}),
     ...(kind === 'marketplace' && query.condition
       ? { condition: query.condition }
       : {}),
@@ -335,7 +474,18 @@ function publicSelect(kind: ContentKind) {
       author: { select: { name: true } },
       courseCode: true,
       summary: true,
-      tags: true,
+      tagAssignments: {
+        select: {
+          tag: {
+            select: {
+              id: true,
+              isActive: true,
+              isPreset: true,
+              label: true,
+            },
+          },
+        },
+      },
     };
   }
   if (kind === 'marketplace') {
@@ -350,6 +500,18 @@ function publicSelect(kind: ContentKind) {
       pickupArea: true,
       priceCents: true,
       seller: { select: { name: true } },
+      tagAssignments: {
+        select: {
+          tag: {
+            select: {
+              id: true,
+              isActive: true,
+              isPreset: true,
+              label: true,
+            },
+          },
+        },
+      },
       // Contact is deliberately absent until the audited request-contact flow.
     };
   }
@@ -361,6 +523,41 @@ function publicSelect(kind: ContentKind) {
     payText: true,
     author: { select: { name: true } },
   };
+}
+
+function presentContentRecord(record: ContentRecord) {
+  if (!Array.isArray(record.tagAssignments)) return record;
+  const tags = record.tagAssignments
+    .flatMap((assignment) => {
+      if (!assignment || typeof assignment !== 'object') return [];
+      const tag = (assignment as { tag?: unknown }).tag;
+      if (!tag || typeof tag !== 'object') return [];
+      const candidate = tag as Record<string, unknown>;
+      if (
+        typeof candidate.id !== 'string' ||
+        typeof candidate.label !== 'string' ||
+        typeof candidate.isActive !== 'boolean' ||
+        typeof candidate.isPreset !== 'boolean'
+      ) {
+        return [];
+      }
+      return [
+        {
+          id: candidate.id,
+          isActive: candidate.isActive,
+          isPreset: candidate.isPreset,
+          label: candidate.label,
+        },
+      ];
+    })
+    .sort((left, right) =>
+      left.label === right.label
+        ? left.id.localeCompare(right.id)
+        : left.label.localeCompare(right.label, 'zh-CN'),
+    );
+  const content = { ...record };
+  delete content.tagAssignments;
+  return { ...content, tags };
 }
 
 export async function listPublicContent(
@@ -386,7 +583,12 @@ export async function listPublicContent(
     }),
     delegate.count({ where }),
   ]);
-  return { items, page, pageSize, total };
+  return {
+    items: items.map(presentContentRecord),
+    page,
+    pageSize,
+    total,
+  };
 }
 
 export async function getPublicContent(
@@ -396,10 +598,11 @@ export async function getPublicContent(
 ) {
   const delegate = delegateFor(adapter, kind);
   if (!delegate.findFirst) throw new Error('Unsupported adapter');
-  return delegate.findFirst({
+  const item = await delegate.findFirst({
     select: publicSelect(kind),
     where: { id, status: ContentStatus.PUBLISHED },
   });
+  return item ? presentContentRecord(item) : null;
 }
 
 export async function listOwnedContent(
@@ -419,10 +622,15 @@ export async function listOwnedContent(
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
   const items = await delegate.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: {
+      ...publicSelect(kind),
+      ...(kind === 'marketplace' ? { contact: true } : {}),
+    },
     where: { [ownerField]: actor.id },
   });
+  const presentedItems = items.map(presentContentRecord);
   if (!adapter.moderationAction || items.length === 0) {
-    return items.map((item) => ({
+    return presentedItems.map((item) => ({
       ...(item as ContentRecord),
       decisionAction: null,
       decisionReason: null,
@@ -466,7 +674,7 @@ export async function listOwnedContent(
       });
     }
   }
-  return items.map((item) => ({
+  return presentedItems.map((item) => ({
     ...(item as ContentRecord),
     decisionAction: latest.get(item.id)?.action ?? null,
     decisionReason: latest.get(item.id)?.reason ?? null,
@@ -563,6 +771,40 @@ export async function editOwnedContent(
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
+  if (kind !== 'job') {
+    if (!isVerifiedContentActor(actor)) {
+      throw new ContentForbiddenError();
+    }
+    if (!('customTags' in input) || !('presetTagIds' in input)) {
+      throw new ContentConflictError();
+    }
+    const { customTags, presetTagIds, ...contentInput } = input;
+    const scope = kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE';
+    const preparedTags = await prepareContentTagSelection(actor, scope, {
+      customTags,
+      presetTagIds,
+    });
+    return serializableContentTransaction(adapter, async (tx) => {
+      const transactionalDelegate = delegateFor(tx, kind);
+      if (!transactionalDelegate.updateMany)
+        throw new Error('Unsupported adapter');
+      const changed = await transactionalDelegate.updateMany({
+        data: { ...contentInput, status: ContentStatus.DRAFT },
+        where: {
+          id,
+          [ownerField]: actor.id,
+          status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
+        },
+      });
+      if (changed.count !== 1) throw new ContentConflictError();
+      const resolvedTagIds = await resolveContentTagsInTransaction(
+        tx,
+        preparedTags,
+      );
+      await writeResolvedTagJoins(tx, actor, kind, id, resolvedTagIds, true);
+      return { id, status: ContentStatus.DRAFT };
+    });
+  }
   const changed = await delegate.updateMany({
     data: { ...input, status: ContentStatus.DRAFT },
     where: {
@@ -584,13 +826,14 @@ export async function getOwnedContent(
   const delegate = delegateFor(adapter, kind);
   if (!delegate.findFirst) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
-  return delegate.findFirst({
+  const item = await delegate.findFirst({
     select: {
       ...publicSelect(kind),
       ...(kind === 'marketplace' ? { contact: true } : {}),
     },
     where: { id, [ownerField]: actor.id },
   });
+  return item ? presentContentRecord(item) : null;
 }
 
 export async function authorizeAssetRead(

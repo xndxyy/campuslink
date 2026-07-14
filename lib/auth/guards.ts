@@ -4,6 +4,7 @@ import {
   getCurrentUser,
   isVerifiedActiveUser,
   type SessionUser,
+  type VerifiedSessionUser,
 } from './auth-service';
 import { isRoleAllowed, type UserRole } from './permissions';
 
@@ -41,7 +42,7 @@ export async function requireUser(
 
 export async function requireVerifiedUser(
   resolveUser: CurrentUserResolver = getCurrentUser,
-): Promise<SessionUser> {
+): Promise<VerifiedSessionUser> {
   const user = await requireUser(resolveUser);
 
   if (!isVerifiedActiveUser(user)) {

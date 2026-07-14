@@ -1,7 +1,10 @@
 import Link from 'next/link';
 
 import type { ContentRecord } from '@/lib/domain/content-service';
-import type { PublicContentKind } from '@/lib/domain/public-content';
+import {
+  contentTagsForPresentation,
+  type PublicContentKind,
+} from '@/lib/domain/public-content';
 import type { ContentListQuery } from '@/lib/validation/content';
 
 const labels = {
@@ -129,6 +132,7 @@ export function PublicList({
       <section className="editorial-list" aria-label={`${copy.title}列表`}>
         {items.map((item, index) => {
           const description = String(item.summary ?? item.description ?? '');
+          const tags = contentTagsForPresentation(item);
           const meta =
             kind === 'resource'
               ? String(item.courseCode ?? '跨学科')
@@ -142,6 +146,19 @@ export function PublicList({
               </span>
               <div>
                 <p className="card-meta">{meta}</p>
+                {tags.length > 0 ? (
+                  <ul className="content-tag-list" aria-label="内容标签">
+                    {tags.map((tag) => (
+                      <li
+                        className={tag.isActive ? undefined : 'is-inactive'}
+                        key={tag.id}
+                        title={tag.isActive ? undefined : '历史标签（已停用）'}
+                      >
+                        {tag.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 <h2>
                   <Link href={`${routeFor(kind)}/${item.id}`}>
                     {String(item.title)}

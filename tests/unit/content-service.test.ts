@@ -3,17 +3,22 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ContentConflictError,
   type ContentAdapter,
+  type ContentRecord,
   createJobPost,
   createMarketplaceItem,
   createResource,
+  editOwnedContent,
+  getOwnedContent,
   listOwnedContent,
   listPublicContent,
 } from '@/lib/domain/content-service';
 
 const actor = {
   campusId: 'campus_server',
+  emailVerifiedAt: new Date('2026-07-14T00:00:00Z'),
   id: 'user_server',
   role: 'STUDENT' as const,
+  status: 'ACTIVE' as const,
 };
 
 type Asset = {
@@ -28,10 +33,17 @@ type Asset = {
 
 function createAdapter(assets: Asset[] = []) {
   const created: Array<Record<string, unknown>> = [];
+  let resourceTagRows: Array<Record<string, unknown>> = [];
+  let marketplaceTagRows: Array<Record<string, unknown>> = [];
   const adapter = {
     $transaction: vi.fn(
-      async <T>(operation: (tx: typeof adapter) => Promise<T>) =>
-        operation(adapter),
+      async <T>(
+        operation: (tx: typeof adapter) => Promise<T>,
+        options?: { isolationLevel: 'Serializable' },
+      ) => {
+        void options;
+        return operation(adapter);
+      },
     ),
     asset: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
@@ -62,6 +74,19 @@ function createAdapter(assets: Asset[] = []) {
         id: 'market_1',
         ...data,
       })),
+    },
+    marketplaceTag: {
+      createMany: vi.fn(
+        async ({ data }: { data: Record<string, unknown>[] }) => {
+          marketplaceTagRows.push(...data);
+          return { count: data.length };
+        },
+      ),
+      deleteMany: vi.fn(async () => {
+        const count = marketplaceTagRows.length;
+        marketplaceTagRows = [];
+        return { count };
+      }),
     },
     moderationAction: {
       findMany: vi.fn(async () => [
@@ -100,25 +125,62 @@ function createAdapter(assets: Asset[] = []) {
           status: 'PUBLISHED',
         },
       ]),
+      findFirst: vi.fn(async (): Promise<ContentRecord | null> => null),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: 'resource_1',
         ...data,
       })),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
+    resourceTag: {
+      createMany: vi.fn(
+        async ({ data }: { data: Record<string, unknown>[] }) => {
+          resourceTagRows.push(...data);
+          return { count: data.length };
+        },
+      ),
+      deleteMany: vi.fn(async () => {
+        const count = resourceTagRows.length;
+        resourceTagRows = [];
+        return { count };
+      }),
+    },
+    tagDefinition: {
+      findMany: vi.fn(
+        async ({ where }: { where: { id: { in: string[] }; scope: string } }) =>
+          where.id.in.map((id) => ({
+            campusId: actor.campusId,
+            id,
+            isActive: true,
+            isPreset: true,
+            label: id,
+            scope: where.scope,
+            slug: id,
+          })),
+      ),
+      findUnique: vi.fn(async () => null),
+      upsert: vi.fn(
+        async ({ create }: { create: Record<string, unknown> }) => ({
+          ...create,
+          id: `custom_${String(create.slug)}`,
+        }),
+      ),
+    },
   };
   return {
     adapter,
     created,
+    marketplaceTagRows: () => marketplaceTagRows,
+    resourceTagRows: () => resourceTagRows,
     serviceAdapter: adapter as unknown as ContentAdapter,
   };
 }
 
 const resourceInput = {
   assetIds: ['doc_1'],
-  courseCode: 'CS 101',
+  customTags: ['算法'],
+  presetTagIds: [],
   summary: 'Complete lecture notes with worked examples and exercises.',
-  tags: ['algorithms'],
   title: 'Algorithms revision notes',
 };
 
@@ -150,8 +212,10 @@ describe('content service', () => {
         assetIds: ['missing_image'],
         condition: 'GOOD',
         contact: 'Campus inbox only',
+        customTags: [],
         description: 'A carefully used discrete mathematics textbook.',
         pickupArea: 'North library',
+        presetTagIds: [],
         priceCents: 1999,
         title: 'Discrete mathematics textbook',
       }),
@@ -180,7 +244,7 @@ describe('content service', () => {
   });
 
   it('creates, attaches, and submits a resource in one transaction', async () => {
-    const { adapter, serviceAdapter } = createAdapter([
+    const { adapter, resourceTagRows, serviceAdapter } = createAdapter([
       {
         id: 'doc_1',
         kind: 'RESOURCE_DOCUMENT',
@@ -192,7 +256,9 @@ describe('content service', () => {
     ]);
     const result = await createResource(serviceAdapter, actor, resourceInput);
 
-    expect(adapter.$transaction).toHaveBeenCalledOnce();
+    expect(adapter.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
     expect(adapter.resource.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         authorId: actor.id,
@@ -200,6 +266,25 @@ describe('content service', () => {
         status: 'DRAFT',
       }),
     });
+    const resourceData = adapter.resource.create.mock.calls[0]?.[0].data;
+    expect(resourceData).not.toHaveProperty('courseCode');
+    expect(resourceData).not.toHaveProperty('tags');
+    expect(adapter.resourceTag.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          campusId: actor.campusId,
+          resourceId: 'resource_1',
+          scope: 'RESOURCE',
+          tagId: 'custom_算法',
+        },
+      ],
+    });
+    expect(resourceTagRows()).toEqual([
+      expect.objectContaining({
+        resourceId: 'resource_1',
+        tagId: 'custom_算法',
+      }),
+    ]);
     expect(adapter.asset.updateMany).toHaveBeenCalledWith({
       data: { resourceId: 'resource_1' },
       where: {
@@ -216,6 +301,148 @@ describe('content service', () => {
       where: { id: 'resource_1' },
     });
     expect(result.status).toBe('PENDING');
+  });
+
+  it('writes marketplace tag joins from the resolved selection', async () => {
+    const { adapter, marketplaceTagRows, serviceAdapter } = createAdapter([
+      {
+        id: 'image_1',
+        kind: 'MARKETPLACE_IMAGE',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
+    ]);
+
+    await createMarketplaceItem(serviceAdapter, actor, {
+      assetIds: ['image_1'],
+      condition: 'GOOD',
+      contact: 'Campus inbox only',
+      customTags: [],
+      description: 'A carefully used discrete mathematics textbook.',
+      pickupArea: 'North library',
+      presetTagIds: ['preset_market'],
+      priceCents: 1999,
+      title: 'Discrete mathematics textbook',
+    });
+
+    expect(adapter.marketplaceTag.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          campusId: actor.campusId,
+          marketplaceItemId: 'market_1',
+          scope: 'MARKETPLACE',
+          tagId: 'preset_market',
+        },
+      ],
+    });
+    expect(marketplaceTagRows()).toHaveLength(1);
+  });
+
+  it('atomically replaces every resource tag join during an owned edit', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    await editOwnedContent(serviceAdapter, actor, 'resource', 'resource_1', {
+      customTags: [],
+      presetTagIds: ['replacement_tag'],
+      summary: 'Revised lecture notes with worked examples and exercises.',
+      title: 'Revised algorithms notes',
+    });
+
+    expect(adapter.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
+    expect(adapter.resourceTag.deleteMany).toHaveBeenCalledWith({
+      where: { resourceId: 'resource_1' },
+    });
+    expect(adapter.resourceTag.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          campusId: actor.campusId,
+          resourceId: 'resource_1',
+          scope: 'RESOURCE',
+          tagId: 'replacement_tag',
+        },
+      ],
+    });
+    expect(adapter.resource.updateMany).toHaveBeenCalledWith({
+      data: {
+        status: 'DRAFT',
+        summary: 'Revised lecture notes with worked examples and exercises.',
+        title: 'Revised algorithms notes',
+      },
+      where: {
+        authorId: actor.id,
+        id: 'resource_1',
+        status: { in: ['DRAFT', 'REJECTED'] },
+      },
+    });
+  });
+
+  it.each(['P2002', 'P2034'])(
+    'restarts the entire Serializable create transaction after %s',
+    async (code) => {
+      const { adapter, serviceAdapter } = createAdapter([
+        {
+          id: 'doc_1',
+          kind: 'RESOURCE_DOCUMENT',
+          marketplaceItemId: null,
+          ownerId: actor.id,
+          resourceId: null,
+          status: 'READY',
+        },
+      ]);
+      let attempts = 0;
+      adapter.$transaction.mockImplementation(
+        async <T>(operation: (tx: typeof adapter) => Promise<T>) => {
+          attempts += 1;
+          const result = await operation(adapter);
+          if (attempts === 1) throw { code };
+          return result;
+        },
+      );
+
+      await expect(
+        createResource(serviceAdapter, actor, resourceInput),
+      ).resolves.toMatchObject({ status: 'PENDING' });
+      expect(adapter.$transaction).toHaveBeenCalledTimes(2);
+      expect(adapter.resource.create).toHaveBeenCalledTimes(2);
+      expect(adapter.tagDefinition.findUnique).toHaveBeenCalledTimes(2);
+      expect(adapter.asset.updateMany).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('presents inactive historical tags to owners without using legacy resource tags', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    adapter.resource.findFirst.mockResolvedValue({
+      id: 'resource_1',
+      status: 'DRAFT',
+      tagAssignments: [
+        {
+          tag: {
+            id: 'inactive_tag',
+            isActive: false,
+            isPreset: true,
+            label: '旧标签',
+          },
+        },
+      ],
+      tags: ['legacy-string-must-not-win'],
+      title: 'Historical resource',
+    });
+
+    await expect(
+      getOwnedContent(serviceAdapter, actor, 'resource', 'resource_1'),
+    ).resolves.toMatchObject({
+      tags: [
+        {
+          id: 'inactive_tag',
+          isActive: false,
+          isPreset: true,
+          label: '旧标签',
+        },
+      ],
+    });
   });
 
   it('fails closed when production tries to attach an unscanned document', async () => {
@@ -296,6 +523,27 @@ describe('content service', () => {
     );
     expect(result).toEqual(
       expect.objectContaining({ page: 2, pageSize: 2, total: 3 }),
+    );
+  });
+
+  it('filters public resources through tag relations instead of legacy string tags', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    await listPublicContent(serviceAdapter, 'resource', {
+      page: 1,
+      pageSize: 12,
+      tag: '算法',
+    });
+
+    expect(adapter.resource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tagAssignments: {
+            some: {
+              tag: { label: { equals: '算法', mode: 'insensitive' } },
+            },
+          },
+        }),
+      }),
     );
   });
 

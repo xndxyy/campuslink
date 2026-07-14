@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createTagSlug, normalizeTagLabel } from './tags';
 
 const completeHtmlTag = /<\/?[a-z][^>]*>/i;
 const unsafeHtmlSyntax =
@@ -30,12 +31,52 @@ const assetIds = z
     'Asset IDs must be unique',
   );
 
-const tags = z
-  .array(plainText(1, 32, 'Tag'))
-  .max(8)
-  .transform((values) => [
-    ...new Set(values.map((value) => value.toLocaleLowerCase('en-US'))),
-  ]);
+const presetTagIds = z
+  .array(z.string().trim().min(1).max(191))
+  .max(5)
+  .refine(
+    (values) => new Set(values).size === values.length,
+    'Preset tag IDs must be unique',
+  );
+
+const customTag = z.string().transform((value, context) => {
+  try {
+    return normalizeTagLabel(value);
+  } catch {
+    context.addIssue({ code: 'custom', message: 'Invalid custom tag' });
+    return z.NEVER;
+  }
+});
+
+const customTags = z
+  .array(customTag)
+  .max(2)
+  .superRefine((values, context) => {
+    if (new Set(values).size !== values.length) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Custom tags must be unique',
+      });
+    }
+    const slugs = values.map(createTagSlug);
+    if (new Set(slugs).size !== slugs.length) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Custom tags must be distinct',
+      });
+    }
+  });
+
+const tagSelectionShape = { customTags, presetTagIds };
+
+function enforceTagLimit(
+  value: { customTags: string[]; presetTagIds: string[] },
+  context: z.RefinementCtx,
+) {
+  if (value.customTags.length + value.presetTagIds.length > 5) {
+    context.addIssue({ code: 'custom', message: 'Select at most five tags' });
+  }
+}
 
 const price = z
   .union([z.string(), z.number()])
@@ -63,27 +104,26 @@ export const marketplaceConditions = [
 export const createResourceSchema = z
   .object({
     assetIds,
-    courseCode: plainText(0, 64, 'Course code')
-      .transform((value) => value.replace(/\s+/g, ' ').toUpperCase())
-      .optional()
-      .transform((value) => value || undefined),
+    ...tagSelectionShape,
     summary: plainText(20, 5_000, 'Summary'),
-    tags,
     title: plainText(3, 200, 'Title'),
   })
-  .strict();
+  .strict()
+  .superRefine(enforceTagLimit);
 
 export const createMarketplaceItemSchema = z
   .object({
     assetIds,
     condition: z.enum(marketplaceConditions),
     contact: plainText(3, 300, 'Contact preference'),
+    ...tagSelectionShape,
     description: plainText(20, 5_000, 'Description'),
     pickupArea: plainText(2, 200, 'Pickup area'),
     price,
     title: plainText(3, 200, 'Title'),
   })
   .strict()
+  .superRefine(enforceTagLimit)
   .transform(({ price, ...value }) => ({ ...value, priceCents: price }));
 
 export const createJobSchema = z
@@ -96,19 +136,26 @@ export const createJobSchema = z
   })
   .strict();
 
-export const updateResourceSchema = createResourceSchema.omit({
-  assetIds: true,
-});
+export const updateResourceSchema = z
+  .object({
+    ...tagSelectionShape,
+    summary: plainText(20, 5_000, 'Summary'),
+    title: plainText(3, 200, 'Title'),
+  })
+  .strict()
+  .superRefine(enforceTagLimit);
 export const updateMarketplaceItemSchema = z
   .object({
     condition: z.enum(marketplaceConditions),
     contact: plainText(3, 300, 'Contact preference'),
+    ...tagSelectionShape,
     description: plainText(20, 5_000, 'Description'),
     pickupArea: plainText(2, 200, 'Pickup area'),
     price,
     title: plainText(3, 200, 'Title'),
   })
   .strict()
+  .superRefine(enforceTagLimit)
   .transform(({ price, ...value }) => ({ ...value, priceCents: price }));
 export const updateJobSchema = createJobSchema;
 

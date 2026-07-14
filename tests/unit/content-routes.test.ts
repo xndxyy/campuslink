@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleCreateJob } from '@/app/api/jobs/route';
 import { handleCreateMarketplaceItem } from '@/app/api/marketplace/route';
 import { handleCreateResource } from '@/app/api/resources/route';
+import { handleContentAction } from '@/lib/domain/content-action-route';
 import { ContentConflictError } from '@/lib/domain/content-service';
 
 const user = {
@@ -29,8 +30,9 @@ function request(
 
 const resourceBody = {
   assetIds: ['doc_1'],
+  customTags: ['算法'],
+  presetTagIds: [],
   summary: 'Complete lecture notes with worked examples and exercises.',
-  tags: ['algorithms'],
   title: 'Algorithms revision notes',
 };
 
@@ -74,7 +76,13 @@ describe('content creation routes', () => {
     );
     expect(response.status).toBe(201);
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ campusId: user.campusId, id: user.id }),
+      {
+        campusId: user.campusId,
+        emailVerifiedAt: user.emailVerifiedAt,
+        id: user.id,
+        role: user.role,
+        status: user.status,
+      },
       expect.objectContaining({ title: resourceBody.title }),
     );
   });
@@ -85,8 +93,10 @@ describe('content creation routes', () => {
         assetIds: ['image_1'],
         condition: 'GOOD',
         contact: 'Campus inbox only',
+        customTags: [],
         description: 'A carefully used discrete mathematics textbook.',
         pickupArea: 'North library',
+        presetTagIds: [],
         price: '19.99',
         title: 'Discrete mathematics textbook',
       }),
@@ -116,5 +126,52 @@ describe('content creation routes', () => {
       { create, resolveUser: async () => user },
     );
     expect(response.status).toBe(201);
+  });
+
+  it('passes the complete verified server actor into tag-aware edits', async () => {
+    const edit = vi.fn(async () => ({ id: 'resource_1', status: 'DRAFT' }));
+    const actionRequest = new Request(
+      'http://localhost/api/resources/resource_1',
+      {
+        body: JSON.stringify({
+          action: 'edit',
+          data: {
+            customTags: ['算法'],
+            presetTagIds: [],
+            summary:
+              'Complete lecture notes with worked examples and exercises.',
+            title: 'Algorithms revision notes',
+          },
+        }),
+        headers: {
+          'content-type': 'application/json',
+          origin: new URL(process.env.APP_URL ?? 'http://localhost:3000')
+            .origin,
+        },
+        method: 'PATCH',
+      },
+    );
+
+    const response = await Reflect.apply(handleContentAction, undefined, [
+      actionRequest,
+      'resource',
+      'resource_1',
+      { adapter: {}, edit, resolveUser: async () => user },
+    ]);
+
+    expect(response.status).toBe(200);
+    expect(edit).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        campusId: user.campusId,
+        emailVerifiedAt: user.emailVerifiedAt,
+        id: user.id,
+        role: user.role,
+        status: user.status,
+      },
+      'resource',
+      'resource_1',
+      expect.objectContaining({ customTags: ['算法'], presetTagIds: [] }),
+    );
   });
 });

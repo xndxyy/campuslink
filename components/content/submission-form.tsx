@@ -3,11 +3,29 @@
 import { useState } from 'react';
 
 import { FileUploader } from '@/components/uploads/file-uploader';
+import { TagSelector } from '@/components/content/tag-selector';
+import type {
+  AvailableTag,
+  TagSelection,
+} from '@/components/content/tag-selector';
 
 type FormKind = 'resource' | 'marketplace' | 'job';
 
-export function SubmissionForm({ kind }: { kind: FormKind }) {
+const emptyTagSelection = (): TagSelection => ({
+  customTags: ['', ''],
+  presetTagIds: [],
+});
+
+export function SubmissionForm({
+  availableTags = [],
+  kind,
+}: {
+  availableTags?: AvailableTag[];
+  kind: FormKind;
+}) {
   const [assetIds, setAssetIds] = useState<string[]>([]);
+  const [tagSelection, setTagSelection] =
+    useState<TagSelection>(emptyTagSelection);
   const [state, setState] = useState<'idle' | 'pending' | 'success' | 'error'>(
     'idle',
   );
@@ -21,9 +39,9 @@ export function SubmissionForm({ kind }: { kind: FormKind }) {
     const values = Object.fromEntries(new FormData(form));
     const body: Record<string, unknown> = { ...values };
     if (kind !== 'job') body.assetIds = assetIds;
-    if (kind === 'resource') {
-      body.tags = String(values.tags ?? '')
-        .split(',')
+    if (kind !== 'job') {
+      body.presetTagIds = tagSelection.presetTagIds;
+      body.customTags = tagSelection.customTags
         .map((tag) => tag.trim())
         .filter(Boolean);
     }
@@ -48,6 +66,7 @@ export function SubmissionForm({ kind }: { kind: FormKind }) {
       setMessage('已进入审核队列。你可以在“我的提交”查看状态。');
       form.reset();
       setAssetIds([]);
+      setTagSelection(emptyTagSelection());
     } catch (error) {
       setState('error');
       setMessage(
@@ -85,17 +104,16 @@ export function SubmissionForm({ kind }: { kind: FormKind }) {
       </label>
       {kind === 'resource' ? (
         <>
-          <label>
-            课程代码（可选）
-            <input name="courseCode" maxLength={64} />
-          </label>
-          <label>
-            标签（用英文逗号分隔）
-            <input name="tags" maxLength={200} />
-          </label>
           <FileUploader kind="RESOURCE_DOCUMENT" onReady={rememberAsset} />
           <FileUploader kind="RESOURCE_IMAGE" onReady={rememberAsset} />
         </>
+      ) : null}
+      {kind !== 'job' ? (
+        <TagSelector
+          availableTags={availableTags}
+          onChange={setTagSelection}
+          value={tagSelection}
+        />
       ) : null}
       {kind === 'marketplace' ? (
         <>

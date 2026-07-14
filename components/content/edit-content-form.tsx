@@ -3,15 +3,46 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ContentRecord } from '@/lib/domain/content-service';
+import { TagSelector } from '@/components/content/tag-selector';
+import type {
+  AvailableTag,
+  ContentTag,
+  TagSelection,
+} from '@/components/content/tag-selector';
+
+function contentTags(item: ContentRecord): ContentTag[] {
+  if (!Array.isArray(item.tags)) return [];
+  return item.tags.filter((tag): tag is ContentTag => {
+    if (!tag || typeof tag !== 'object') return false;
+    const candidate = tag as Partial<ContentTag>;
+    return (
+      typeof candidate.id === 'string' &&
+      typeof candidate.label === 'string' &&
+      typeof candidate.isActive === 'boolean' &&
+      typeof candidate.isPreset === 'boolean'
+    );
+  });
+}
 
 export function EditContentForm({
   item,
   kind,
+  availableTags = [],
 }: {
+  availableTags?: AvailableTag[];
   item: ContentRecord;
   kind: 'resource' | 'marketplace' | 'job';
 }) {
   const router = useRouter();
+  const historicalTags = contentTags(item);
+  const [tagSelection, setTagSelection] = useState<TagSelection>(() => ({
+    customTags: historicalTags
+      .filter((tag) => tag.isActive && !tag.isPreset)
+      .map((tag) => tag.label),
+    presetTagIds: historicalTags
+      .filter((tag) => tag.isActive && tag.isPreset)
+      .map((tag) => tag.id),
+  }));
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -21,11 +52,12 @@ export function EditContentForm({
     const values: Record<string, unknown> = Object.fromEntries(
       new FormData(event.currentTarget),
     );
-    if (kind === 'resource')
-      values.tags = String(values.tags ?? '')
-        .split(',')
+    if (kind !== 'job') {
+      values.presetTagIds = tagSelection.presetTagIds;
+      values.customTags = tagSelection.customTags
         .map((value) => value.trim())
         .filter(Boolean);
+    }
     const endpoint =
       kind === 'resource'
         ? 'resources'
@@ -73,26 +105,6 @@ export function EditContentForm({
           rows={8}
         />
       </label>
-      {kind === 'resource' ? (
-        <>
-          <label>
-            课程代码
-            <input
-              defaultValue={String(item.courseCode ?? '')}
-              name="courseCode"
-            />
-          </label>
-          <label>
-            标签
-            <input
-              defaultValue={
-                Array.isArray(item.tags) ? item.tags.join(', ') : ''
-              }
-              name="tags"
-            />
-          </label>
-        </>
-      ) : null}
       {kind === 'marketplace' ? (
         <>
           <label>
@@ -130,6 +142,14 @@ export function EditContentForm({
             />
           </label>
         </>
+      ) : null}
+      {kind !== 'job' ? (
+        <TagSelector
+          availableTags={availableTags}
+          historicalTags={historicalTags}
+          onChange={setTagSelection}
+          value={tagSelection}
+        />
       ) : null}
       {kind === 'job' ? (
         <>

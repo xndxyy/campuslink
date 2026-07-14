@@ -6,6 +6,8 @@ import {
   createMarketplaceItemSchema,
   createResourceSchema,
   plainText,
+  updateMarketplaceItemSchema,
+  updateResourceSchema,
 } from '@/lib/validation/content';
 
 describe('content validation', () => {
@@ -36,8 +38,10 @@ describe('content validation', () => {
         assetIds: ['asset_1'],
         condition: 'GOOD',
         contact: 'Campus inbox only',
+        customTags: [],
         description: 'A carefully used discrete mathematics textbook.',
         pickupArea: 'North library entrance',
+        presetTagIds: [],
         price: '19.99',
         title: 'Discrete mathematics textbook',
       }).priceCents,
@@ -48,8 +52,10 @@ describe('content validation', () => {
         assetIds: ['asset_1'],
         condition: 'GOOD',
         contact: 'Campus inbox only',
+        customTags: [],
         description: 'A carefully used discrete mathematics textbook.',
         pickupArea: 'North library entrance',
+        presetTagIds: [],
         price: '0.001',
         title: 'Discrete mathematics textbook',
       }),
@@ -60,25 +66,86 @@ describe('content validation', () => {
         assetIds: ['asset_1'],
         condition: 'GOOD',
         contact: 'Campus inbox only',
+        customTags: [],
         description: 'A carefully used discrete mathematics textbook.',
         pickupArea: 'North library entrance',
+        presetTagIds: [],
         price: '21474836.48',
         title: 'Discrete mathematics textbook',
       }),
     ).toThrow();
   });
 
-  it('normalizes and deduplicates bounded resource tags and course codes', () => {
+  it('accepts strict structured tag selections for resource and marketplace creates', () => {
     const parsed = createResourceSchema.parse({
       assetIds: ['doc_1'],
-      courseCode: ' cs 101 ',
+      customTags: ['  高等数学  '],
+      presetTagIds: ['preset_resource'],
       summary: 'Complete lecture notes with worked examples and exercises.',
-      tags: [' Algorithms ', 'algorithms', ' Exam '],
       title: 'Algorithms revision notes',
     });
 
-    expect(parsed.courseCode).toBe('CS 101');
-    expect(parsed.tags).toEqual(['algorithms', 'exam']);
+    expect(parsed).toMatchObject({
+      customTags: ['高等数学'],
+      presetTagIds: ['preset_resource'],
+    });
+    expect(
+      createMarketplaceItemSchema.parse({
+        assetIds: ['image_1'],
+        condition: 'GOOD',
+        contact: 'Campus inbox only',
+        customTags: ['教材'],
+        description: 'A carefully used discrete mathematics textbook.',
+        pickupArea: 'North library entrance',
+        presetTagIds: ['preset_marketplace'],
+        price: '19.99',
+        title: 'Discrete mathematics textbook',
+      }),
+    ).toMatchObject({
+      customTags: ['教材'],
+      presetTagIds: ['preset_marketplace'],
+    });
+  });
+
+  it.each([
+    ['resource create courseCode', createResourceSchema, 'courseCode'],
+    ['resource create legacy tags', createResourceSchema, 'tags'],
+    ['resource update courseCode', updateResourceSchema, 'courseCode'],
+    ['resource update legacy tags', updateResourceSchema, 'tags'],
+  ])('strictly rejects %s', (_name, schema, legacyKey) => {
+    const input = {
+      customTags: [],
+      presetTagIds: [],
+      summary: 'Complete lecture notes with worked examples and exercises.',
+      title: 'Algorithms revision notes',
+      ...(schema === createResourceSchema ? { assetIds: ['doc_1'] } : {}),
+      [legacyKey]: legacyKey === 'tags' ? ['algorithms'] : 'CS 101',
+    };
+
+    expect(schema.safeParse(input).success).toBe(false);
+  });
+
+  it('accepts structured tag selections on resource and marketplace updates', () => {
+    expect(
+      updateResourceSchema.safeParse({
+        customTags: ['复习'],
+        presetTagIds: ['preset_resource'],
+        summary: 'Complete lecture notes with worked examples and exercises.',
+        title: 'Algorithms revision notes',
+      }).success,
+    ).toBe(true);
+    expect(
+      updateMarketplaceItemSchema.safeParse({
+        condition: 'GOOD',
+        contact: 'Campus inbox only',
+        customTags: ['教材'],
+        description: 'A carefully used discrete mathematics textbook.',
+        pickupArea: 'North library entrance',
+        presetTagIds: ['preset_marketplace'],
+        price: '19.99',
+        title: 'Discrete mathematics textbook',
+      }).success,
+    ).toBe(true);
   });
 
   it.each([
@@ -87,8 +154,9 @@ describe('content validation', () => {
       createResourceSchema,
       {
         assetIds: ['doc_1'],
+        customTags: [],
+        presetTagIds: [],
         summary: '<b>notes</b>',
-        tags: [],
         title: 'Useful notes',
       },
     ],
@@ -99,8 +167,10 @@ describe('content validation', () => {
         assetIds: ['image_1'],
         condition: 'GOOD',
         contact: 'mail me',
+        customTags: [],
         description: '<script>alert(1)</script>',
         pickupArea: 'Library',
+        presetTagIds: [],
         price: '1.00',
         title: 'Used book',
       },
@@ -124,8 +194,9 @@ describe('content validation', () => {
     expect(() =>
       createResourceSchema.parse({
         assetIds: Array.from({ length: 9 }, (_, index) => `asset_${index}`),
+        customTags: [],
+        presetTagIds: [],
         summary: 'Complete lecture notes with worked examples and exercises.',
-        tags: [],
         title: 'Algorithms revision notes',
       }),
     ).toThrow();

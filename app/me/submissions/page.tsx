@@ -6,6 +6,7 @@ import {
   type ContentAdapter,
   listOwnedContent,
 } from '@/lib/domain/content-service';
+import { contentTagsForPresentation } from '@/lib/domain/public-content';
 
 async function loadGroups() {
   try {
@@ -65,6 +66,19 @@ export default async function MySubmissionsPage() {
                 >
                   {String(item.status)}
                 </span>
+                {contentTagsForPresentation(item).length > 0 ? (
+                  <ul className="content-tag-list" aria-label="内容标签">
+                    {contentTagsForPresentation(item).map((tag) => (
+                      <li
+                        className={tag.isActive ? undefined : 'is-inactive'}
+                        key={tag.id}
+                        title={tag.isActive ? undefined : '历史标签（已停用）'}
+                      >
+                        {tag.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 {item.decisionReason ? (
                   <p className="decision-reason">
                     Latest moderator decision ({String(item.decisionAction)}):{' '}

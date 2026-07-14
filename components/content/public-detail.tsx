@@ -2,7 +2,10 @@ import Link from 'next/link';
 import Image from 'next/image';
 
 import type { ContentRecord } from '@/lib/domain/content-service';
-import type { PublicContentKind } from '@/lib/domain/public-content';
+import {
+  contentTagsForPresentation,
+  type PublicContentKind,
+} from '@/lib/domain/public-content';
 import { EngagementActions } from './engagement-actions';
 
 export function documentAccessLink(assetId: string, canDownload: boolean) {
@@ -27,6 +30,7 @@ export function PublicDetail({
   kind: PublicContentKind;
 }) {
   const description = String(item.summary ?? item.description ?? '');
+  const tags = contentTagsForPresentation(item);
   const author = (item.author ?? item.seller) as { name?: unknown } | undefined;
   const assets = Array.isArray(item.assets)
     ? (item.assets as Array<{ contentType: string; id: string; kind: string }>)
@@ -63,6 +67,19 @@ export function PublicDetail({
           <p className="author-line">
             发布者：{String(author?.name ?? '校园成员')}
           </p>
+          {tags.length > 0 ? (
+            <ul className="content-tag-list" aria-label="内容标签">
+              {tags.map((tag) => (
+                <li
+                  className={tag.isActive ? undefined : 'is-inactive'}
+                  key={tag.id}
+                  title={tag.isActive ? undefined : '历史标签（已停用）'}
+                >
+                  {tag.label}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </header>
         {assets.some((asset) => asset.kind.endsWith('_IMAGE')) ? (
           <div className="asset-gallery">

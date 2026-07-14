@@ -10,6 +10,8 @@ import {
   createJobPost,
   createMarketplaceItem,
   createResource,
+  editOwnedContent,
+  getOwnedContent,
   listPublicContent,
 } from '@/lib/domain/content-service';
 
@@ -57,6 +59,7 @@ describeWithDatabase('content publishing actions', () => {
   afterAll(async () => {
     if (campusId) {
       await db.user.deleteMany({ where: { campusId } });
+      await db.tagDefinition.deleteMany({ where: { campusId } });
       await db.campus.delete({ where: { id: campusId } });
     }
     await db.$disconnect();
@@ -86,20 +89,28 @@ describeWithDatabase('content publishing actions', () => {
       }),
     ]);
     const adapter = db as unknown as ContentAdapter;
-    const actor = { campusId, id: studentId, role: 'STUDENT' as const };
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: studentId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
     const resource = await createResource(adapter, actor, {
       assetIds: [document.id],
-      courseCode: undefined,
+      customTags: ['算法'],
+      presetTagIds: [],
       summary: 'Complete lecture notes with worked examples and exercises.',
-      tags: ['algorithms'],
       title: 'Algorithms revision notes',
     });
     const marketplace = await createMarketplaceItem(adapter, actor, {
       assetIds: [image.id],
       condition: 'GOOD',
       contact: 'Private campus inbox',
+      customTags: ['教材'],
       description: 'A carefully used discrete mathematics textbook.',
       pickupArea: 'North library',
+      presetTagIds: [],
       priceCents: 1999,
       title: 'Discrete mathematics textbook',
     });
@@ -166,16 +177,183 @@ describeWithDatabase('content publishing actions', () => {
     await expect(
       createResource(
         db as unknown as ContentAdapter,
-        { campusId, id: studentId, role: 'STUDENT' },
+        {
+          campusId,
+          emailVerifiedAt: new Date(),
+          id: studentId,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+        },
         {
           assetIds: [otherDocument.id],
-          courseCode: undefined,
+          customTags: [],
+          presetTagIds: [],
           summary: 'Complete lecture notes with worked examples and exercises.',
-          tags: [],
           title: 'Wrong owner notes',
         },
       ),
     ).rejects.toBeInstanceOf(ContentConflictError);
+  });
+
+  it('rolls back the asset binding, content, custom tag, and joins together', async () => {
+    const document = await db.asset.create({
+      data: {
+        contentType: 'application/pdf',
+        kind: 'RESOURCE_DOCUMENT',
+        ownerId: studentId,
+        sizeBytes: 10,
+        status: 'READY',
+        storageKey: `content/${randomUUID()}`,
+      },
+    });
+    const title = `Rollback resource ${randomUUID()}`;
+    const customTag = `Rollback ${randomUUID().slice(0, 8)}`;
+    const failingAdapter = {
+      ...db,
+      $transaction: <T>(
+        operation: (tx: ContentAdapter) => Promise<T>,
+        options?: { isolationLevel: 'Serializable' },
+      ) =>
+        db.$transaction(async (tx) => {
+          const transactionalAdapter = {
+            asset: {
+              findMany: (args: { where: { id: { in: string[] } } }) =>
+                tx.asset.findMany(args),
+              updateMany: async (args: {
+                data: { marketplaceItemId?: string; resourceId?: string };
+                where: Record<string, unknown>;
+              }) => {
+                await tx.asset.updateMany(args as never);
+                return { count: 0 };
+              },
+            },
+            jobPost: tx.jobPost,
+            marketplaceItem: tx.marketplaceItem,
+            marketplaceTag: tx.marketplaceTag,
+            resource: tx.resource,
+            resourceTag: tx.resourceTag,
+            tagDefinition: tx.tagDefinition,
+          } as unknown as ContentAdapter;
+          return operation(transactionalAdapter);
+        }, options),
+    } as unknown as ContentAdapter;
+
+    await expect(
+      createResource(
+        failingAdapter,
+        {
+          campusId,
+          emailVerifiedAt: new Date(),
+          id: studentId,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+        },
+        {
+          assetIds: [document.id],
+          customTags: [customTag],
+          presetTagIds: [],
+          summary:
+            'This controlled failure verifies complete transaction rollback.',
+          title,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+
+    await expect(
+      db.resource.findFirst({ where: { title } }),
+    ).resolves.toBeNull();
+    await expect(
+      db.tagDefinition.findFirst({
+        where: { campusId, label: customTag, scope: 'RESOURCE' },
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      db.resourceTag.count({ where: { resource: { title } } }),
+    ).resolves.toBe(0);
+    await expect(
+      db.asset.findUnique({ where: { id: document.id } }),
+    ).resolves.toMatchObject({ resourceId: null });
+  });
+
+  it('atomically replaces joins and still presents an inactive historical tag', async () => {
+    const [firstTag, secondTag] = await Promise.all([
+      db.tagDefinition.create({
+        data: {
+          campusId,
+          isPreset: true,
+          label: `Preset A ${randomUUID().slice(0, 6)}`,
+          scope: 'RESOURCE',
+          slug: `preset-a-${randomUUID()}`.slice(0, 40),
+        },
+      }),
+      db.tagDefinition.create({
+        data: {
+          campusId,
+          isPreset: true,
+          label: `Preset B ${randomUUID().slice(0, 6)}`,
+          scope: 'RESOURCE',
+          slug: `preset-b-${randomUUID()}`.slice(0, 40),
+        },
+      }),
+    ]);
+    const resource = await db.resource.create({
+      data: {
+        authorId: studentId,
+        campusId,
+        status: 'DRAFT',
+        summary: 'Draft resource used to verify atomic tag replacement.',
+        title: `Editable resource ${randomUUID()}`,
+      },
+    });
+    await db.resourceTag.create({
+      data: {
+        campusId,
+        resourceId: resource.id,
+        scope: 'RESOURCE',
+        tagId: firstTag.id,
+      },
+    });
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: studentId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+
+    await editOwnedContent(
+      db as unknown as ContentAdapter,
+      actor,
+      'resource',
+      resource.id,
+      {
+        customTags: [],
+        presetTagIds: [secondTag.id],
+        summary: 'Revised resource used to verify atomic tag replacement.',
+        title: resource.title,
+      },
+    );
+    await expect(
+      db.resourceTag.findMany({
+        select: { tagId: true },
+        where: { resourceId: resource.id },
+      }),
+    ).resolves.toEqual([{ tagId: secondTag.id }]);
+
+    await db.tagDefinition.update({
+      data: { isActive: false },
+      where: { id: secondTag.id },
+    });
+    await expect(
+      getOwnedContent(
+        db as unknown as ContentAdapter,
+        actor,
+        'resource',
+        resource.id,
+      ),
+    ).resolves.toMatchObject({
+      tags: [expect.objectContaining({ id: secondTag.id, isActive: false })],
+    });
   });
 
   it('returns only approved public records and excludes marketplace contact', async () => {

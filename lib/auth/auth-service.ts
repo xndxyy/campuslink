@@ -32,6 +32,11 @@ export interface SessionUser {
   status: UserStatus;
 }
 
+export interface VerifiedSessionUser extends SessionUser {
+  emailVerifiedAt: Date;
+  status: 'ACTIVE';
+}
+
 type AuthDatabase = ReturnType<typeof getDb>;
 
 interface AuthDependencies {
@@ -69,8 +74,8 @@ function sessionUserFromDatabaseUser(user: {
 }
 
 export function isVerifiedActiveUser(
-  user: Pick<SessionUser, 'emailVerifiedAt' | 'status'>,
-): boolean {
+  user: SessionUser,
+): user is VerifiedSessionUser {
   return user.status === 'ACTIVE' && user.emailVerifiedAt !== null;
 }
 

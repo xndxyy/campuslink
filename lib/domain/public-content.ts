@@ -1,12 +1,36 @@
 import { getDb } from '@/lib/db';
 import {
   type ContentAdapter,
+  type ContentRecord,
   getPublicContent,
   listPublicContent,
 } from '@/lib/domain/content-service';
 import { contentListQuerySchema } from '@/lib/validation/content';
 
 export type PublicContentKind = 'resource' | 'marketplace' | 'job';
+
+export interface PresentedContentTag {
+  id: string;
+  isActive: boolean;
+  isPreset: boolean;
+  label: string;
+}
+
+export function contentTagsForPresentation(
+  item: ContentRecord,
+): PresentedContentTag[] {
+  if (!Array.isArray(item.tags)) return [];
+  return item.tags.filter((tag): tag is PresentedContentTag => {
+    if (!tag || typeof tag !== 'object') return false;
+    const candidate = tag as Partial<PresentedContentTag>;
+    return (
+      typeof candidate.id === 'string' &&
+      typeof candidate.label === 'string' &&
+      typeof candidate.isActive === 'boolean' &&
+      typeof candidate.isPreset === 'boolean'
+    );
+  });
+}
 
 export async function loadPublicList(
   kind: PublicContentKind,

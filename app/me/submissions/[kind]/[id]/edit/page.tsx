@@ -7,6 +7,7 @@ import {
   type ContentKind,
   getOwnedContent,
 } from '@/lib/domain/content-service';
+import { listAvailableTags, type TagAdapter } from '@/lib/domain/tags';
 
 export default async function EditSubmissionPage({
   params,
@@ -22,12 +23,24 @@ export default async function EditSubmissionPage({
   } catch {
     redirect('/auth/sign-in');
   }
-  const item = await getOwnedContent(
-    getDb() as unknown as ContentAdapter,
-    { campusId: user.campusId, id: user.id, role: user.role },
-    kind,
-    id,
-  );
+  const database = getDb();
+  const actor = {
+    campusId: user.campusId,
+    emailVerifiedAt: user.emailVerifiedAt,
+    id: user.id,
+    role: user.role,
+    status: user.status,
+  };
+  const [item, availableTags] = await Promise.all([
+    getOwnedContent(database as unknown as ContentAdapter, actor, kind, id),
+    kind === 'job'
+      ? Promise.resolve([])
+      : listAvailableTags(
+          database as unknown as TagAdapter,
+          actor,
+          kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE',
+        ),
+  ]);
   if (!item || !['DRAFT', 'REJECTED'].includes(String(item.status))) notFound();
   return (
     <main className="page-shell form-page">
@@ -36,7 +49,7 @@ export default async function EditSubmissionPage({
         <h1>{String(item.title)}</h1>
         <p>附件保持不变。保存后内容处于草稿状态，可从“我的提交”重新送审。</p>
       </header>
-      <EditContentForm item={item} kind={kind} />
+      <EditContentForm availableTags={availableTags} item={item} kind={kind} />
     </main>
   );
 }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import {
   AuthenticationRequiredError,
   requireVerifiedUser,
+  type CurrentUserResolver,
   VerificationRequiredError,
 } from '@/lib/auth/guards';
 import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
@@ -21,11 +22,19 @@ import {
   updateMarketplaceItemSchema,
   updateResourceSchema,
 } from '@/lib/validation/content';
+import { TagValidationError } from '@/lib/validation/tags';
+
+export interface ContentActionDependencies {
+  adapter?: ContentAdapter;
+  edit?: typeof editOwnedContent;
+  resolveUser?: CurrentUserResolver;
+}
 
 export async function handleContentAction(
   request: Request,
   kind: PublicContentKind,
   id: string,
+  dependencies: ContentActionDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request))
     return NextResponse.json(
@@ -33,7 +42,7 @@ export async function handleContentAction(
       { status: 403 },
     );
   try {
-    const user = await requireVerifiedUser();
+    const user = await requireVerifiedUser(dependencies.resolveUser);
     const body = (await readBoundedJson(request).catch((error) => error)) as
       | JsonBodyError
       | {
@@ -46,8 +55,15 @@ export async function handleContentAction(
         { status: body.status },
       );
     }
-    const actor = { campusId: user.campusId, id: user.id, role: user.role };
-    const adapter = getDb() as unknown as ContentAdapter;
+    const actor = {
+      campusId: user.campusId,
+      emailVerifiedAt: user.emailVerifiedAt,
+      id: user.id,
+      role: user.role,
+      status: user.status,
+    };
+    const adapter =
+      dependencies.adapter ?? (getDb() as unknown as ContentAdapter);
     const editSchema =
       kind === 'resource'
         ? updateResourceSchema
@@ -63,7 +79,13 @@ export async function handleContentAction(
       );
     }
     const result = parsedEdit?.success
-      ? await editOwnedContent(adapter, actor, kind, id, parsedEdit.data)
+      ? await (dependencies.edit ?? editOwnedContent)(
+          adapter,
+          actor,
+          kind,
+          id,
+          parsedEdit.data,
+        )
       : body?.action === 'archive'
         ? await archiveOwnedContent(adapter, actor, kind, id)
         : body?.action === 'submit'
@@ -95,6 +117,11 @@ export async function handleContentAction(
       return NextResponse.json(
         { message: 'Content state conflict.' },
         { status: 409 },
+      );
+    if (error instanceof TagValidationError)
+      return NextResponse.json(
+        { message: 'Invalid content details.' },
+        { status: 400 },
       );
     return NextResponse.json(
       { message: 'Unable to update content.' },

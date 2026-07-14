@@ -32,17 +32,21 @@ describe('CampusWork public search indexes', () => {
     );
   });
 
-  it('creates one concurrent idempotent GIN trigram index per search field', () => {
+  it('recreates each stable GIN trigram index after dropping invalid retries', () => {
     for (const field of ['title', 'description', 'location', 'payText']) {
-      expect(migration).toContain(
-        `CREATE INDEX CONCURRENTLY IF NOT EXISTS "CampusWorkPost_${field}_trgm_idx"`,
-      );
-      expect(migration).toContain(
-        `ON "CampusWorkPost" USING GIN ("${field}" gin_trgm_ops);`,
+      const indexName = `CampusWorkPost_${field}_trgm_idx`;
+      expect(migration).toMatch(
+        new RegExp(
+          `DROP INDEX CONCURRENTLY IF EXISTS "${indexName}";\\s*` +
+            `CREATE INDEX CONCURRENTLY "${indexName}"\\s*` +
+            `ON "CampusWorkPost" USING GIN \\(\\"${field}\\" gin_trgm_ops\\);`,
+        ),
       );
     }
-    expect(
-      migration.match(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/g),
-    ).toHaveLength(4);
+    expect(migration.match(/DROP INDEX CONCURRENTLY IF EXISTS/g)).toHaveLength(
+      4,
+    );
+    expect(migration.match(/CREATE INDEX CONCURRENTLY /g)).toHaveLength(4);
+    expect(migration).not.toMatch(/CREATE INDEX CONCURRENTLY IF NOT EXISTS/i);
   });
 });

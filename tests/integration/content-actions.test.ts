@@ -973,17 +973,25 @@ describeWithDatabase('content publishing actions', () => {
     ] as const;
     const metadata = await db.$queryRaw<
       Array<{
+        attributes: number;
         column: string;
         indexName: string;
+        keys: number;
         method: string;
         operatorClass: string;
+        ready: boolean;
+        valid: boolean;
       }>
     >`
       SELECT
         index_relation.relname AS "indexName",
         attribute.attname AS "column",
         access_method.amname AS method,
-        operator_class.opcname AS "operatorClass"
+        operator_class.opcname AS "operatorClass",
+        index_metadata.indisvalid AS valid,
+        index_metadata.indisready AS ready,
+        index_metadata.indnatts::int AS attributes,
+        index_metadata.indnkeyatts::int AS keys
       FROM pg_catalog.pg_index AS index_metadata
       JOIN pg_catalog.pg_class AS table_relation
         ON table_relation.oid = index_metadata.indrelid
@@ -1008,10 +1016,14 @@ describeWithDatabase('content publishing actions', () => {
     expect(metadata).toEqual(
       searchIndexes
         .map(([column, indexName]) => ({
+          attributes: 1,
           column,
           indexName,
+          keys: 1,
           method: 'gin',
           operatorClass: 'gin_trgm_ops',
+          ready: true,
+          valid: true,
         }))
         .sort((left, right) => left.indexName.localeCompare(right.indexName)),
     );

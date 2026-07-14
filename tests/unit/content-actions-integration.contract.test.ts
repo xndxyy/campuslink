@@ -127,7 +127,15 @@ describe('content actions integration coverage', () => {
     expect(testSource).toContain('pg_catalog.pg_index');
     expect(testSource).toContain('pg_catalog.pg_opclass');
     expect(testSource).toContain('pg_catalog.pg_attribute');
+    expect(testSource).toContain('index_metadata.indisvalid AS valid');
+    expect(testSource).toContain('index_metadata.indisready AS ready');
+    expect(testSource).toContain('index_metadata.indnatts::int AS attributes');
+    expect(testSource).toContain('index_metadata.indnkeyatts::int AS keys');
     expect(testSource).toContain("operatorClass: 'gin_trgm_ops'");
+    expect(testSource).toContain('attributes: 1');
+    expect(testSource).toContain('keys: 1');
+    expect(testSource).toContain('ready: true');
+    expect(testSource).toContain('valid: true');
     expect(testSource).toContain('EXPLAIN (COSTS OFF)');
     expect(testSource).toContain('SET LOCAL enable_seqscan = off');
   });

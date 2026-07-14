@@ -16,6 +16,7 @@ import {
 import { createDbClient } from '@/lib/db';
 
 const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
+const DATABASE_LOCK_WAIT_TIMEOUT_MS = 2_000;
 const campusWorkMigrationSql = readFileSync(
   fileURLToPath(
     new URL(
@@ -26,6 +27,33 @@ const campusWorkMigrationSql = readFileSync(
   'utf8',
 );
 const temporarySchemaPattern = /^campus_work_migration_[0-9a-f]{32}$/;
+
+async function waitForDatabaseLock(
+  db: ReturnType<typeof createDbClient>,
+  applicationName: string,
+) {
+  const deadline = Date.now() + DATABASE_LOCK_WAIT_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    const activity = await db.$queryRawUnsafe<
+      Array<{ waitEventType: string | null }>
+    >(
+      `SELECT wait_event_type AS "waitEventType"
+       FROM pg_stat_activity
+       WHERE application_name = $1`,
+      applicationName,
+    );
+    if (activity.some(({ waitEventType }) => waitEventType === 'Lock')) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error(
+    `Database client ${applicationName} did not wait on a lock within ${DATABASE_LOCK_WAIT_TIMEOUT_MS}ms`,
+  );
+}
 
 function safeIntegrationDatabaseUrl(databaseUrl: string | undefined) {
   if (!databaseUrl) {
@@ -364,18 +392,19 @@ describeWithDatabase('database schema constraints', () => {
       },
     });
 
-    await expect(
-      db.forumPost.create({
-        data: {
-          authorId: reporterId,
-          body: '数据库仅验证分类存在；停用状态由后续服务层拒绝。',
-          campusId,
-          category: inactiveCategory.slug,
-          kind: 'DISCUSSION',
-          title: '停用分类数据库边界',
-        },
-      }),
-    ).resolves.toMatchObject({ category: inactiveCategory.slug });
+    const inactiveCategoryPost = await db.forumPost.create({
+      data: {
+        authorId: reporterId,
+        body: '数据库仅验证分类存在；停用状态由后续服务层拒绝。',
+        campusId,
+        category: inactiveCategory.slug,
+        kind: 'DISCUSSION',
+        title: '停用分类数据库边界',
+      },
+    });
+    expect(inactiveCategoryPost).toMatchObject({
+      category: inactiveCategory.slug,
+    });
 
     const directClient = new Client({
       connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
@@ -407,6 +436,36 @@ describeWithDatabase('database schema constraints', () => {
           otherCategory.slug,
         ]),
       ).rejects.toMatchObject({ code: '23503' });
+
+      await expect(
+        directClient.query(
+          `UPDATE "ForumCategory"
+           SET "campusId" = $1
+           WHERE id = $2`,
+          [otherCampus.id, inactiveCategory.id],
+        ),
+      ).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringContaining(
+          'Forum category campus ownership is immutable',
+        ),
+      });
+
+      const unchangedOwnership = await directClient.query(
+        `SELECT
+           category."campusId" AS "categoryCampusId",
+           post."campusId" AS "postCampusId"
+         FROM "ForumCategory" AS category
+         JOIN "ForumPost" AS post
+           ON post."campusId" = category."campusId"
+          AND post.category = category.slug
+         WHERE category.id = $1
+           AND post.id = $2`,
+        [inactiveCategory.id, inactiveCategoryPost.id],
+      );
+      expect(unchangedOwnership.rows).toStrictEqual([
+        { categoryCampusId: campusId, postCampusId: campusId },
+      ]);
     } finally {
       await directClient.end();
     }
@@ -597,6 +656,293 @@ describeWithDatabase('database schema constraints', () => {
     } finally {
       await directClient.end();
     }
+  });
+
+  it('serializes comment insertion against a post kind update', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const suffix = randomUUID().replaceAll('-', '');
+    const category = await db.forumCategory.create({
+      data: {
+        campusId,
+        label: '评论并发约束',
+        slug: `comment-lock-${suffix}`,
+      },
+    });
+    const post = await db.forumPost.create({
+      data: {
+        authorId: reporterId,
+        body: '评论插入持有父帖锁时，帖子类型更新必须串行等待。',
+        campusId,
+        category: category.slug,
+        kind: 'DISCUSSION',
+        title: '评论锁序列化',
+      },
+    });
+    const inserterName = `forum-comment-inserter-${suffix}`;
+    const updaterName = `forum-post-kind-updater-${suffix}`;
+    const connectionString = safeIntegrationDatabaseUrl(
+      process.env.DATABASE_URL,
+    );
+    const inserter = new Client({
+      application_name: inserterName,
+      connectionString,
+    });
+    const updater = new Client({
+      application_name: updaterName,
+      connectionString,
+    });
+
+    await Promise.all([inserter.connect(), updater.connect()]);
+    try {
+      await Promise.all([
+        inserter.query("SET statement_timeout = '3s'"),
+        updater.query("SET statement_timeout = '3s'"),
+      ]);
+      await inserter.query('BEGIN');
+      await inserter.query(
+        `INSERT INTO "ForumComment"
+           (id, "postId", "authorId", body, "updatedAt")
+         VALUES ($1, $2, $3, $4, now())`,
+        [
+          `serialized-comment-${suffix}`,
+          post.id,
+          reporterId,
+          '该评论应先提交，再由帖子类型保护触发器拒绝更新。',
+        ],
+      );
+
+      const kindUpdate = expect(
+        updater.query(
+          `UPDATE "ForumPost" SET kind = 'TREE_HOLE' WHERE id = $1`,
+          [post.id],
+        ),
+      ).rejects.toMatchObject({
+        code: '23514',
+        message: expect.stringContaining(
+          'Commented forum posts cannot become tree holes',
+        ),
+      });
+
+      await waitForDatabaseLock(db, updaterName);
+      await inserter.query('COMMIT');
+      await kindUpdate;
+
+      await expect(
+        db.forumPost.findUniqueOrThrow({ where: { id: post.id } }),
+      ).resolves.toMatchObject({ kind: 'DISCUSSION' });
+      await expect(
+        db.forumComment.count({ where: { postId: post.id } }),
+      ).resolves.toBe(1);
+    } finally {
+      await Promise.allSettled([
+        inserter.query('ROLLBACK'),
+        updater.query('ROLLBACK'),
+      ]);
+      await Promise.all([inserter.end(), updater.end()]);
+    }
+  }, 10_000);
+
+  it('orders user deletion before self-comment parent locking', async () => {
+    if (!reporterId || !campusId) {
+      throw new Error('Test reporter setup failed');
+    }
+
+    const suffix = randomUUID().replaceAll('-', '');
+    const category = await db.forumCategory.create({
+      data: {
+        campusId,
+        label: '用户删除并发约束',
+        slug: `user-delete-lock-${suffix}`,
+      },
+    });
+    const post = await db.forumPost.create({
+      data: {
+        authorId: reporterId,
+        body: '自评论插入必须先等待用户父记录，再锁帖子父记录。',
+        campusId,
+        category: category.slug,
+        kind: 'DISCUSSION',
+        title: '用户优先锁序',
+      },
+    });
+    const deleterName = `forum-user-deleter-${suffix}`;
+    const inserterName = `forum-self-comment-inserter-${suffix}`;
+    const connectionString = safeIntegrationDatabaseUrl(
+      process.env.DATABASE_URL,
+    );
+    const deleter = new Client({
+      application_name: deleterName,
+      connectionString,
+    });
+    const inserter = new Client({
+      application_name: inserterName,
+      connectionString,
+    });
+
+    await Promise.all([deleter.connect(), inserter.connect()]);
+    try {
+      await Promise.all([
+        deleter.query("SET statement_timeout = '3s'"),
+        inserter.query("SET statement_timeout = '3s'"),
+      ]);
+      await deleter.query('BEGIN');
+      await deleter.query(`SELECT id FROM "User" WHERE id = $1 FOR UPDATE`, [
+        reporterId,
+      ]);
+
+      const commentInsert = expect(
+        inserter.query(
+          `INSERT INTO "ForumComment"
+             (id, "postId", "authorId", body, "updatedAt")
+           VALUES ($1, $2, $3, $4, now())`,
+          [
+            `deleted-user-comment-${suffix}`,
+            post.id,
+            reporterId,
+            '父用户被删除后，该评论必须由外键拒绝。',
+          ],
+        ),
+      ).rejects.toMatchObject({ code: '23503' });
+
+      await waitForDatabaseLock(db, inserterName);
+      await deleter.query(`DELETE FROM "User" WHERE id = $1`, [reporterId]);
+      await deleter.query('COMMIT');
+      await commentInsert;
+
+      await expect(
+        db.forumPost.findUnique({ where: { id: post.id } }),
+      ).resolves.toBeNull();
+    } finally {
+      await Promise.allSettled([
+        deleter.query('ROLLBACK'),
+        inserter.query('ROLLBACK'),
+      ]);
+      await Promise.all([deleter.end(), inserter.end()]);
+    }
+  }, 10_000);
+
+  it('uses every forum discovery and identity index', async () => {
+    const expectedIndexes = [
+      {
+        fragment: '("campusId", "anonymousFingerprint", "createdAt", id)',
+        indexName: 'ForumPost_campusId_anonymousFingerprint_createdAt_id_idx',
+        method: 'btree',
+      },
+      {
+        fragment: '("campusId", kind, status, category, "createdAt", id)',
+        indexName: 'ForumPost_campusId_kind_status_category_createdAt_id_idx',
+        method: 'btree',
+      },
+      {
+        fragment: 'USING gin (body gin_trgm_ops)',
+        indexName: 'ForumPost_body_trgm_idx',
+        method: 'gin',
+      },
+      {
+        fragment: 'USING gin (title gin_trgm_ops)',
+        indexName: 'ForumPost_title_trgm_idx',
+        method: 'gin',
+      },
+    ] as const;
+    const metadata = await db.$queryRaw<
+      Array<{
+        definition: string;
+        indexName: string;
+        method: string;
+        ready: boolean;
+        valid: boolean;
+      }>
+    >`
+      SELECT
+        index_relation.relname AS "indexName",
+        access_method.amname AS method,
+        index_metadata.indisvalid AS valid,
+        index_metadata.indisready AS ready,
+        pg_get_indexdef(index_relation.oid) AS definition
+      FROM pg_catalog.pg_index AS index_metadata
+      JOIN pg_catalog.pg_class AS index_relation
+        ON index_relation.oid = index_metadata.indexrelid
+      JOIN pg_catalog.pg_class AS table_relation
+        ON table_relation.oid = index_metadata.indrelid
+      JOIN pg_catalog.pg_am AS access_method
+        ON access_method.oid = index_relation.relam
+      WHERE table_relation.oid = to_regclass('public."ForumPost"')
+        AND index_relation.relname IN (
+          'ForumPost_campusId_anonymousFingerprint_createdAt_id_idx',
+          'ForumPost_campusId_kind_status_category_createdAt_id_idx',
+          'ForumPost_body_trgm_idx',
+          'ForumPost_title_trgm_idx'
+        )
+      ORDER BY index_relation.relname
+    `;
+
+    expect(metadata).toHaveLength(expectedIndexes.length);
+    for (const expected of expectedIndexes) {
+      expect(metadata).toContainEqual(
+        expect.objectContaining({
+          indexName: expected.indexName,
+          method: expected.method,
+          ready: true,
+          valid: true,
+        }),
+      );
+      expect(
+        metadata.find(({ indexName }) => indexName === expected.indexName)
+          ?.definition,
+      ).toContain(expected.fragment);
+    }
+
+    const plans = await db.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+      return Promise.all([
+        tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+          `EXPLAIN (COSTS OFF)
+           SELECT id FROM "ForumPost"
+           WHERE "campusId" = $1
+             AND kind = 'DISCUSSION'
+             AND status = 'PUBLISHED'
+             AND category = $2
+           ORDER BY "createdAt" DESC, id DESC
+           LIMIT 20`,
+          campusId,
+          'campus-life',
+        ),
+        tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+          `EXPLAIN (COSTS OFF)
+           SELECT id FROM "ForumPost"
+           WHERE "campusId" = $1
+             AND "anonymousFingerprint" = $2
+           ORDER BY "createdAt" DESC, id DESC
+           LIMIT 20`,
+          campusId,
+          'a'.repeat(64),
+        ),
+        tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+          `EXPLAIN (COSTS OFF)
+           SELECT id FROM "ForumPost" WHERE title ILIKE $1`,
+          '%probe%',
+        ),
+        tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
+          `EXPLAIN (COSTS OFF)
+           SELECT id FROM "ForumPost" WHERE body ILIKE $1`,
+          '%probe%',
+        ),
+      ]);
+    });
+    const planText = plans.map((plan) =>
+      plan.map((row) => row['QUERY PLAN']).join('\n'),
+    );
+    expect(planText[0]).toContain(
+      'ForumPost_campusId_kind_status_category_createdAt_id_idx',
+    );
+    expect(planText[1]).toContain(
+      'ForumPost_campusId_anonymousFingerprint_createdAt_id_idx',
+    );
+    expect(planText[2]).toContain('ForumPost_title_trgm_idx');
+    expect(planText[3]).toContain('ForumPost_body_trgm_idx');
   });
 
   it('allows one cover per announcement and rejects a duplicate cover', async () => {

@@ -43,3 +43,54 @@ export const campusWorkPresetTags: readonly CampusWorkPresetTag[] = [
     slug: 'other',
   },
 ];
+
+export type ForumCategorySeed = {
+  readonly isActive: true;
+  readonly label: string;
+  readonly slug: string;
+};
+
+export const forumCategorySeeds: readonly ForumCategorySeed[] = [
+  { isActive: true, label: '校园生活', slug: 'campus-life' },
+  { isActive: true, label: '学习互助', slug: 'study-help' },
+  { isActive: true, label: '失物招领', slug: 'lost-and-found' },
+  { isActive: true, label: '兴趣交流', slug: 'interests' },
+  { isActive: true, label: '其他', slug: 'other' },
+];
+
+export interface ForumCategorySeedAdapter {
+  forumCategory: {
+    upsert(args: {
+      create: {
+        campusId: string;
+        isActive: boolean;
+        label: string;
+        slug: string;
+      };
+      update: Record<string, never>;
+      where: {
+        campusId_slug: { campusId: string; slug: string };
+      };
+    }): Promise<unknown>;
+  };
+}
+
+export async function seedForumCategories(
+  adapter: ForumCategorySeedAdapter,
+  campusId: string,
+) {
+  for (const category of forumCategorySeeds) {
+    await adapter.forumCategory.upsert({
+      where: {
+        campusId_slug: { campusId, slug: category.slug },
+      },
+      update: {},
+      create: {
+        campusId,
+        isActive: category.isActive,
+        label: category.label,
+        slug: category.slug,
+      },
+    });
+  }
+}

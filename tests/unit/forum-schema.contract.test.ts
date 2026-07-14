@@ -13,6 +13,7 @@ const migration = readSource(
   '../../prisma/migrations/20260713200000_add_forum/migration.sql',
 );
 const seed = readSource('../../prisma/seed.ts');
+const seedDataSource = readSource('../../prisma/seed-data.ts');
 const integrationSchemaSource = readSource(
   '../integration/schema-constraints.test.ts',
 );
@@ -88,7 +89,7 @@ describe('forum persistence schema contract', () => {
     expect(comment).not.toMatch(/parent/i);
 
     expect(migration).toMatch(
-      /CREATE TRIGGER "ForumComment_discussion_only"[\s\S]*BEFORE INSERT OR UPDATE OF "postId" ON "ForumComment"[\s\S]*EXECUTE FUNCTION "_reject_tree_hole_comment"/,
+      /CREATE TRIGGER "ForumComment_ownership_guard"[\s\S]*BEFORE INSERT OR UPDATE OF "postId", "authorId" ON "ForumComment"[\s\S]*EXECUTE FUNCTION "_reject_tree_hole_comment"/,
     );
     expect(migration).toMatch(
       /CREATE TRIGGER "ForumPost_commented_kind_guard"[\s\S]*BEFORE UPDATE OF "kind" ON "ForumPost"[\s\S]*EXECUTE FUNCTION "_protect_commented_forum_post_kind"/,
@@ -96,7 +97,30 @@ describe('forum persistence schema contract', () => {
     expect(migration).toMatch(
       /SELECT "kind"::text[\s\S]*WHERE "id" = \$1 FOR UPDATE/,
     );
-    expect(migration).not.toContain('FOR KEY SHARE');
+  });
+
+  it('locks comment parents in user then post order and keeps ownership immutable', () => {
+    const commentGuard =
+      migration.match(
+        /CREATE FUNCTION "_reject_tree_hole_comment"\(\)([\s\S]*?)\n\$\$;/,
+      )?.[1] ?? '';
+    const userLock = commentGuard.indexOf(
+      'SELECT TRUE FROM %I.%I WHERE "id" = $1 FOR KEY SHARE',
+    );
+    const postLock = commentGuard.indexOf(
+      'SELECT "kind"::text FROM %I.%I WHERE "id" = $1 FOR UPDATE',
+    );
+
+    expect(commentGuard).toContain("IF TG_OP = 'UPDATE' THEN");
+    expect(commentGuard).toContain(
+      'NEW."postId" IS DISTINCT FROM OLD."postId"',
+    );
+    expect(commentGuard).toContain(
+      'NEW."authorId" IS DISTINCT FROM OLD."authorId"',
+    );
+    expect(commentGuard).toContain('Comment ownership is immutable');
+    expect(userLock).toBeGreaterThan(-1);
+    expect(postLock).toBeGreaterThan(userLock);
   });
 
   it('checks existing comments by the pre-update post id', () => {
@@ -127,6 +151,46 @@ describe('forum persistence schema contract', () => {
     );
   });
 
+  it('indexes every confirmed forum discovery and identity lookup', () => {
+    const post = block('model', 'ForumPost');
+    expect(post).toMatch(
+      /@@index\(\[campusId, kind, status, category, createdAt, id\], map: "ForumPost_campusId_kind_status_category_createdAt_id_idx"\)/,
+    );
+    expect(post).toMatch(
+      /@@index\(\[campusId, anonymousFingerprint, createdAt, id\], map: "ForumPost_campusId_anonymousFingerprint_createdAt_id_idx"\)/,
+    );
+    expect(post).toMatch(
+      /@@index\(\[title\(ops: raw\("gin_trgm_ops"\)\)\], type: Gin, map: "ForumPost_title_trgm_idx"\)/,
+    );
+    expect(post).toMatch(
+      /@@index\(\[body\(ops: raw\("gin_trgm_ops"\)\)\], type: Gin, map: "ForumPost_body_trgm_idx"\)/,
+    );
+    expect(migration).toContain(
+      '"ForumPost_campusId_kind_status_category_createdAt_id_idx"',
+    );
+    expect(migration).toContain(
+      '"ForumPost_campusId_anonymousFingerprint_createdAt_id_idx"',
+    );
+    expect(migration).toMatch(
+      /CREATE INDEX "ForumPost_title_trgm_idx"[\s\S]*USING GIN \("title" gin_trgm_ops\)/,
+    );
+    expect(migration).toMatch(
+      /CREATE INDEX "ForumPost_body_trgm_idx"[\s\S]*USING GIN \("body" gin_trgm_ops\)/,
+    );
+  });
+
+  it('keeps forum category campus ownership immutable in SQL and integration coverage', () => {
+    expect(migration).toMatch(
+      /CREATE TRIGGER "ForumCategory_immutable_campusId"[\s\S]*BEFORE UPDATE OF "campusId" ON "ForumCategory"[\s\S]*EXECUTE FUNCTION "_prevent_forum_category_campus_change"/,
+    );
+    expect(integrationSchemaSource).toContain('UPDATE "ForumCategory"');
+    expect(integrationSchemaSource).toContain(
+      'Forum category campus ownership is immutable',
+    );
+    expect(integrationSchemaSource).toContain("code: '23514'");
+    expect(integrationSchemaSource).toContain('categoryCampusId');
+  });
+
   it('proves duplicate likes through parameterized direct PostgreSQL', () => {
     const interactionTest = integrationSchemaSource.slice(
       integrationSchemaSource.indexOf(
@@ -153,12 +217,30 @@ describe('forum persistence schema contract', () => {
       '兴趣交流',
       '其他',
     ]) {
-      expect(seed).toContain(`label: '${label}'`);
+      expect(seedDataSource).toContain(`label: '${label}'`);
     }
-    expect(seed).toContain('for (const category of forumCategories)');
-    expect(seed).toContain('db.forumCategory.upsert({');
-    expect(seed).toContain('campusId_slug: {');
+    expect(seed).toContain('seedForumCategories(db, campus.id)');
+    expect(seed).not.toContain('const forumCategories =');
     expect(seed).not.toContain('db.forumPost.create({');
+  });
+
+  it('covers bounded two-client comment lock serialization without fixed sleeps', () => {
+    expect(integrationSchemaSource).toContain(
+      'const DATABASE_LOCK_WAIT_TIMEOUT_MS = 2_000',
+    );
+    expect(integrationSchemaSource).toContain(
+      'async function waitForDatabaseLock',
+    );
+    expect(integrationSchemaSource).toContain('FROM pg_stat_activity');
+    expect(integrationSchemaSource).toContain('wait_event_type');
+    expect(integrationSchemaSource).toContain("SET statement_timeout = '3s'");
+    expect(integrationSchemaSource).toContain(
+      "it('serializes comment insertion against a post kind update'",
+    );
+    expect(integrationSchemaSource).toContain(
+      "it('orders user deletion before self-comment parent locking'",
+    );
+    expect(integrationSchemaSource).not.toContain('setTimeout(resolve, 1_000)');
   });
 
   it('keeps the forum migration expand-only', () => {

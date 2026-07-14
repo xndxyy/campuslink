@@ -404,7 +404,11 @@ model ForumPost {
   updatedAt            DateTime       @updatedAt
 
   @@index([campusId, kind, status, createdAt, id])
+  @@index([campusId, kind, status, category, createdAt, id], map: "ForumPost_campusId_kind_status_category_createdAt_id_idx")
+  @@index([campusId, anonymousFingerprint, createdAt, id], map: "ForumPost_campusId_anonymousFingerprint_createdAt_id_idx")
   @@index([authorId, status, createdAt, id])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "ForumPost_title_trgm_idx")
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "ForumPost_body_trgm_idx")
 }
 
 model ForumComment {

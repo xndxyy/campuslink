@@ -89,8 +89,16 @@ CREATE INDEX "ForumCategory_campusId_isActive_label_id_idx"
 CREATE UNIQUE INDEX "ForumPost_publicCode_key" ON "ForumPost"("publicCode");
 CREATE INDEX "ForumPost_campusId_kind_status_createdAt_id_idx"
   ON "ForumPost"("campusId", "kind", "status", "createdAt", "id");
+CREATE INDEX "ForumPost_campusId_kind_status_category_createdAt_id_idx"
+  ON "ForumPost"("campusId", "kind", "status", "category", "createdAt", "id");
+CREATE INDEX "ForumPost_campusId_anonymousFingerprint_createdAt_id_idx"
+  ON "ForumPost"("campusId", "anonymousFingerprint", "createdAt", "id");
 CREATE INDEX "ForumPost_authorId_status_createdAt_id_idx"
   ON "ForumPost"("authorId", "status", "createdAt", "id");
+CREATE INDEX "ForumPost_title_trgm_idx"
+  ON "ForumPost" USING GIN ("title" gin_trgm_ops);
+CREATE INDEX "ForumPost_body_trgm_idx"
+  ON "ForumPost" USING GIN ("body" gin_trgm_ops);
 
 CREATE INDEX "ForumComment_postId_status_createdAt_id_idx"
   ON "ForumComment"("postId", "status", "createdAt", "id");
@@ -138,6 +146,27 @@ ALTER TABLE "ForumLike"
   FOREIGN KEY ("postId") REFERENCES "ForumPost"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
+CREATE FUNCTION "_prevent_forum_category_campus_change"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF NEW."campusId" IS DISTINCT FROM OLD."campusId" THEN
+    RAISE EXCEPTION 'Forum category campus ownership is immutable'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "ForumCategory_immutable_campusId"
+BEFORE UPDATE OF "campusId" ON "ForumCategory"
+FOR EACH ROW
+EXECUTE FUNCTION "_prevent_forum_category_campus_change"();
+
 CREATE FUNCTION "_reject_tree_hole_comment"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -145,8 +174,32 @@ SECURITY INVOKER
 SET search_path = pg_catalog
 AS $$
 DECLARE
+  author_exists BOOLEAN;
   post_kind TEXT;
 BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW."postId" IS DISTINCT FROM OLD."postId"
+      OR NEW."authorId" IS DISTINCT FROM OLD."authorId" THEN
+      RAISE EXCEPTION 'Comment ownership is immutable'
+        USING ERRCODE = '23514';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  EXECUTE format(
+    'SELECT TRUE FROM %I.%I WHERE "id" = $1 FOR KEY SHARE',
+    TG_TABLE_SCHEMA,
+    'User'
+  )
+  INTO author_exists
+  USING NEW."authorId";
+
+  -- Missing parents are left to the existing foreign-key constraints.
+  IF author_exists IS DISTINCT FROM TRUE THEN
+    RETURN NEW;
+  END IF;
+
   EXECUTE format(
     'SELECT "kind"::text FROM %I.%I WHERE "id" = $1 FOR UPDATE',
     TG_TABLE_SCHEMA,
@@ -164,8 +217,8 @@ BEGIN
 END
 $$;
 
-CREATE TRIGGER "ForumComment_discussion_only"
-BEFORE INSERT OR UPDATE OF "postId" ON "ForumComment"
+CREATE TRIGGER "ForumComment_ownership_guard"
+BEFORE INSERT OR UPDATE OF "postId", "authorId" ON "ForumComment"
 FOR EACH ROW
 EXECUTE FUNCTION "_reject_tree_hole_comment"();
 

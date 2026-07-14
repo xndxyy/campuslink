@@ -249,40 +249,21 @@ describe('scoped tag schema contract', () => {
 });
 
 describe('campus-work preset seed contract', () => {
-  const presets = [
-    ['COS委托', 'cos-commission'],
-    ['校园跑腿', 'campus-errand'],
-    ['临时兼职', 'temporary-job'],
-    ['技能服务', 'skills-service'],
-    ['其他', 'other'],
-  ] as const;
-
-  it('seeds exactly the five approved campus-work presets with stable slugs', () => {
-    for (const [label, slug] of presets) {
-      expect(seedSource).toMatch(
-        new RegExp(
-          `label:\\s*['"]${label}['"][\\s\\S]*?slug:\\s*['"]${slug}['"]`,
-        ),
-      );
-    }
-    expect(seedSource).not.toContain('TagScope.RESOURCE');
-    expect(seedSource).not.toContain('TagScope.MARKETPLACE');
-  });
-
-  it('upserts each preset through the scoped composite key and reactivates it', () => {
+  it('imports and iterates the shared pure preset data', () => {
     expect(seedSource).toMatch(
-      /TagScope[\s\S]*from '..\/generated\/prisma\/client'/,
+      /import \{ campusWorkPresetTags \} from ['"]\.\/seed-data['"]/,
     );
+    expect(seedSource).not.toMatch(/const campusWorkPresetTags\s*=/);
     expect(seedSource).toMatch(/for \(const preset of campusWorkPresetTags\)/);
     expect(seedSource).toMatch(/db\.tagDefinition\.upsert\(\{/);
     expect(seedSource).toMatch(
-      /where:\s*\{\s*campusId_scope_slug:\s*\{\s*campusId:\s*campus\.id,\s*scope:\s*TagScope\.CAMPUS_WORK,\s*slug:\s*preset\.slug/,
+      /where:\s*\{\s*campusId_scope_slug:\s*\{\s*campusId:\s*campus\.id,\s*scope:\s*preset\.scope,\s*slug:\s*preset\.slug/,
     );
     expect(seedSource).toMatch(
-      /update:\s*\{[\s\S]*?isActive:\s*true,[\s\S]*?isPreset:\s*true,[\s\S]*?label:\s*preset\.label/,
+      /update:\s*\{[\s\S]*?isActive:\s*preset\.isActive,[\s\S]*?isPreset:\s*preset\.isPreset,[\s\S]*?label:\s*preset\.label/,
     );
     expect(seedSource).toMatch(
-      /create:\s*\{[\s\S]*?campusId:\s*campus\.id,[\s\S]*?isActive:\s*true,[\s\S]*?isPreset:\s*true,[\s\S]*?label:\s*preset\.label,[\s\S]*?scope:\s*TagScope\.CAMPUS_WORK,[\s\S]*?slug:\s*preset\.slug/,
+      /create:\s*\{[\s\S]*?campusId:\s*campus\.id,[\s\S]*?isActive:\s*preset\.isActive,[\s\S]*?isPreset:\s*preset\.isPreset,[\s\S]*?label:\s*preset\.label,[\s\S]*?scope:\s*preset\.scope,[\s\S]*?slug:\s*preset\.slug/,
     );
   });
 });

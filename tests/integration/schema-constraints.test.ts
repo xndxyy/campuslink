@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
+import { Client } from 'pg';
 import {
   afterAll,
   afterEach,
@@ -13,6 +16,139 @@ import {
 import { createDbClient } from '@/lib/db';
 
 const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
+const campusWorkMigrationSql = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../prisma/migrations/20260713190000_add_tags_and_campus_work/migration.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
+const temporarySchemaPattern = /^campus_work_migration_[0-9a-f]{32}$/;
+
+function safeIntegrationDatabaseUrl(databaseUrl: string | undefined) {
+  if (!databaseUrl) {
+    throw new Error('Migration harness requires DATABASE_URL.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new Error('Migration harness requires a valid DATABASE_URL.');
+  }
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) {
+    throw new Error('Migration harness requires PostgreSQL.');
+  }
+  const databaseName = decodeURIComponent(
+    parsed.pathname.split('/').filter(Boolean).at(-1) ?? '',
+  );
+  if (!/(_test|_e2e)$/.test(databaseName)) {
+    throw new Error('Migration harness database must end in _test or _e2e.');
+  }
+
+  return databaseUrl;
+}
+
+const legacyCampusWorkSchemaSql = `
+CREATE TYPE "ContentStatus" AS ENUM (
+  'DRAFT',
+  'PENDING',
+  'PUBLISHED',
+  'REJECTED',
+  'HIDDEN',
+  'ARCHIVED'
+);
+
+CREATE TABLE "Campus" (
+  "id" TEXT NOT NULL,
+  CONSTRAINT "Campus_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "User" (
+  "id" TEXT NOT NULL,
+  "campusId" TEXT NOT NULL,
+  CONSTRAINT "User_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "User_campusId_fkey" FOREIGN KEY ("campusId")
+    REFERENCES "Campus"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE TABLE "Resource" (
+  "id" TEXT NOT NULL,
+  CONSTRAINT "Resource_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "MarketplaceItem" (
+  "id" TEXT NOT NULL,
+  CONSTRAINT "MarketplaceItem_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE "JobPost" (
+  "id" TEXT NOT NULL,
+  "authorId" TEXT NOT NULL,
+  "campusId" TEXT NOT NULL,
+  "company" VARCHAR(200) NOT NULL,
+  "title" VARCHAR(200) NOT NULL,
+  "description" TEXT NOT NULL,
+  "location" VARCHAR(200) NOT NULL,
+  "payText" VARCHAR(200) NOT NULL,
+  "status" "ContentStatus" NOT NULL DEFAULT 'DRAFT',
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "JobPost_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "JobPost_authorId_fkey" FOREIGN KEY ("authorId")
+    REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "JobPost_campusId_fkey" FOREIGN KEY ("campusId")
+    REFERENCES "Campus"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+INSERT INTO "Campus" ("id") VALUES ('campus-fixture');
+INSERT INTO "User" ("id", "campusId") VALUES
+  ('user-alpha', 'campus-fixture'),
+  ('user-beta', 'campus-fixture');
+INSERT INTO "Resource" ("id") VALUES ('resource-fixture');
+INSERT INTO "MarketplaceItem" ("id") VALUES ('marketplace-fixture');
+INSERT INTO "JobPost" (
+  "id",
+  "authorId",
+  "campusId",
+  "company",
+  "title",
+  "description",
+  "location",
+  "payText",
+  "status",
+  "createdAt",
+  "updatedAt"
+) VALUES
+  (
+    'job-alpha',
+    'user-alpha',
+    'campus-fixture',
+    'Campus Learning Centre',
+    'Peer Tutor',
+    'Tutor first-year students.',
+    'Library Room 1',
+    '$20/hour',
+    'DRAFT',
+    TIMESTAMP '2026-01-02 03:04:05',
+    TIMESTAMP '2026-01-03 04:05:06'
+  ),
+  (
+    'job-beta',
+    'user-beta',
+    'campus-fixture',
+    'Student Union',
+    'Event Assistant',
+    'Help operate the welcome event.',
+    'Student Hall',
+    '$120/day',
+    'PUBLISHED',
+    TIMESTAMP '2026-02-03 04:05:06',
+    TIMESTAMP '2026-02-04 05:06:07'
+  );
+`;
 
 describeWithDatabase('database schema constraints', () => {
   let db!: ReturnType<typeof createDbClient>;
@@ -574,43 +710,169 @@ describeWithDatabase('database schema constraints', () => {
       ]),
     ).resolves.toEqual([null, null, null]);
   });
+});
 
-  it('preserves every pre-migration JobPost field in CampusWorkPost', async () => {
-    const migrations = await db.$queryRaw<Array<{ finishedAt: Date | null }>>`
-      SELECT "finished_at" AS "finishedAt"
-      FROM "_prisma_migrations"
-      WHERE "migration_name" = '20260713190000_add_tags_and_campus_work'
-        AND "rolled_back_at" IS NULL
-      ORDER BY "finished_at" DESC
-      LIMIT 1
-    `;
-    const finishedAt = migrations[0]?.finishedAt;
-    expect(finishedAt).toBeInstanceOf(Date);
-    if (!finishedAt) {
-      throw new Error('Campus-work migration history is missing');
+describeWithDatabase('campus-work migration harness', () => {
+  it('copies pre-migration jobs and enforces scoped tag constraints', async () => {
+    const databaseUrl = safeIntegrationDatabaseUrl(process.env.DATABASE_URL);
+    const temporarySchema = `campus_work_migration_${randomUUID().replaceAll('-', '')}`;
+    if (!temporarySchemaPattern.test(temporarySchema)) {
+      throw new Error('Generated migration schema name is unsafe.');
     }
 
-    const mismatches = await db.$queryRaw<Array<{ id: string }>>`
-      SELECT source."id"
-      FROM "JobPost" AS source
-      LEFT JOIN "CampusWorkPost" AS target ON target."id" = source."id"
-      WHERE source."createdAt" <= ${finishedAt}
-        AND (
-          target."id" IS NULL
-          OR target."authorId" IS DISTINCT FROM source."authorId"
-          OR target."campusId" IS DISTINCT FROM source."campusId"
-          OR target."company" IS DISTINCT FROM source."company"
-          OR target."title" IS DISTINCT FROM source."title"
-          OR target."description" IS DISTINCT FROM source."description"
-          OR target."location" IS DISTINCT FROM source."location"
-          OR target."payText" IS DISTINCT FROM source."payText"
-          OR target."status" IS DISTINCT FROM source."status"
-          OR target."createdAt" IS DISTINCT FROM source."createdAt"
-          OR target."updatedAt" IS DISTINCT FROM source."updatedAt"
-          OR target."contact" IS NOT NULL
-        )
-    `;
+    const migrationClient = new Client({ connectionString: databaseUrl });
+    let schemaCreated = false;
 
-    expect(mismatches).toEqual([]);
+    await migrationClient.connect();
+    try {
+      await migrationClient.query(`CREATE SCHEMA "${temporarySchema}"`);
+      schemaCreated = true;
+      await migrationClient.query(`SET search_path TO "${temporarySchema}"`);
+      await migrationClient.query(legacyCampusWorkSchemaSql);
+      await migrationClient.query(campusWorkMigrationSql);
+
+      const copied = await migrationClient.query({
+        rowMode: 'array',
+        text: `
+          SELECT
+            "id",
+            "authorId",
+            "campusId",
+            "company",
+            "title",
+            "description",
+            "location",
+            "payText",
+            "status"::text,
+            to_char("createdAt", 'YYYY-MM-DD HH24:MI:SS'),
+            to_char("updatedAt", 'YYYY-MM-DD HH24:MI:SS'),
+            "contact"
+          FROM "CampusWorkPost"
+          ORDER BY "id"
+        `,
+      });
+      expect(copied.rows).toStrictEqual([
+        [
+          'job-alpha',
+          'user-alpha',
+          'campus-fixture',
+          'Campus Learning Centre',
+          'Peer Tutor',
+          'Tutor first-year students.',
+          'Library Room 1',
+          '$20/hour',
+          'DRAFT',
+          '2026-01-02 03:04:05',
+          '2026-01-03 04:05:06',
+          null,
+        ],
+        [
+          'job-beta',
+          'user-beta',
+          'campus-fixture',
+          'Student Union',
+          'Event Assistant',
+          'Help operate the welcome event.',
+          'Student Hall',
+          '$120/day',
+          'PUBLISHED',
+          '2026-02-03 04:05:06',
+          '2026-02-04 05:06:07',
+          null,
+        ],
+      ]);
+
+      await migrationClient.query(`
+        INSERT INTO "TagDefinition"
+          ("id", "campusId", "scope", "label", "slug")
+        VALUES
+          ('tag-resource', 'campus-fixture', 'RESOURCE', 'Notes', 'notes'),
+          ('tag-marketplace', 'campus-fixture', 'MARKETPLACE', 'Sale', 'sale'),
+          ('tag-campus-work', 'campus-fixture', 'CAMPUS_WORK', 'Errand', 'errand')
+      `);
+      await expect(
+        migrationClient.query(`
+          INSERT INTO "TagDefinition"
+            ("id", "campusId", "scope", "label", "slug")
+          VALUES
+            ('tag-duplicate', 'campus-fixture', 'CAMPUS_WORK', 'Duplicate', 'errand')
+        `),
+      ).rejects.toMatchObject({ code: '23505' });
+      await expect(
+        migrationClient.query(`
+          INSERT INTO "TagDefinition"
+            ("id", "campusId", "scope", "label", "slug")
+          VALUES
+            ('tag-other-scope', 'campus-fixture', 'MARKETPLACE', 'Errand', 'errand')
+        `),
+      ).resolves.toBeDefined();
+
+      for (const join of [
+        {
+          contentColumn: 'resourceId',
+          contentId: 'resource-fixture',
+          contentTable: 'Resource',
+          table: 'ResourceTag',
+          tagId: 'tag-resource',
+        },
+        {
+          contentColumn: 'marketplaceItemId',
+          contentId: 'marketplace-fixture',
+          contentTable: 'MarketplaceItem',
+          table: 'MarketplaceTag',
+          tagId: 'tag-marketplace',
+        },
+        {
+          contentColumn: 'campusWorkPostId',
+          contentId: 'job-alpha',
+          contentTable: 'CampusWorkPost',
+          table: 'CampusWorkTag',
+          tagId: 'tag-campus-work',
+        },
+      ]) {
+        const insert = `
+          INSERT INTO "${join.table}" ("${join.contentColumn}", "tagId")
+          VALUES ('${join.contentId}', '${join.tagId}')
+        `;
+        await migrationClient.query(insert);
+        await expect(migrationClient.query(insert)).rejects.toMatchObject({
+          code: '23505',
+        });
+        await expect(
+          migrationClient.query(`
+            INSERT INTO "${join.table}" ("${join.contentColumn}", "tagId")
+            VALUES ('${join.contentId}', 'missing-tag')
+          `),
+        ).rejects.toMatchObject({ code: '23503' });
+        await expect(
+          migrationClient.query(`
+            INSERT INTO "${join.table}" ("${join.contentColumn}", "tagId")
+            VALUES ('missing-content', '${join.tagId}')
+          `),
+        ).rejects.toMatchObject({ code: '23503' });
+        await expect(
+          migrationClient.query(
+            `DELETE FROM "TagDefinition" WHERE "id" = '${join.tagId}'`,
+          ),
+        ).rejects.toMatchObject({ code: '23503' });
+        await migrationClient.query(
+          `DELETE FROM "${join.contentTable}" WHERE "id" = '${join.contentId}'`,
+        );
+        const remaining = await migrationClient.query(
+          `SELECT COUNT(*)::int AS count FROM "${join.table}"`,
+        );
+        expect(remaining.rows).toStrictEqual([{ count: 0 }]);
+      }
+    } finally {
+      try {
+        if (schemaCreated) {
+          await migrationClient.query(
+            `DROP SCHEMA "${temporarySchema}" CASCADE`,
+          );
+        }
+      } finally {
+        await migrationClient.end();
+      }
+    }
   });
 });

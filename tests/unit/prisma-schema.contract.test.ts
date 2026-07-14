@@ -162,6 +162,7 @@ describe('scoped tag schema contract', () => {
       /campus\s+Campus\s+@relation\(fields: \[campusId\], references: \[id\], onDelete: Restrict\)/,
     );
     expect(tagDefinition).toContain('@@unique([campusId, scope, slug])');
+    expect(tagDefinition).toContain('@@unique([id, campusId, scope])');
     expect(tagDefinition).toContain(
       '@@index([campusId, scope, isActive, label])',
     );
@@ -169,14 +170,29 @@ describe('scoped tag schema contract', () => {
   });
 
   it('uses explicit indexed join models with cascading content and restricted tags', () => {
-    for (const [join, contentModel, contentField, contentId, reverseField] of [
-      ['ResourceTag', 'Resource', 'resource', 'resourceId', 'resourceTags'],
+    for (const [
+      join,
+      contentModel,
+      contentField,
+      contentId,
+      reverseField,
+      scope,
+    ] of [
+      [
+        'ResourceTag',
+        'Resource',
+        'resource',
+        'resourceId',
+        'resourceTags',
+        'RESOURCE',
+      ],
       [
         'MarketplaceTag',
         'MarketplaceItem',
         'marketplaceItem',
         'marketplaceItemId',
         'marketplaceTags',
+        'MARKETPLACE',
       ],
       [
         'CampusWorkTag',
@@ -184,18 +200,23 @@ describe('scoped tag schema contract', () => {
         'campusWorkPost',
         'campusWorkPostId',
         'campusWorkTags',
+        'CAMPUS_WORK',
       ],
     ] as const) {
       const joinModel = model(join);
       expect(joinModel).toMatch(new RegExp(`${contentId}\\s+String`));
       expect(joinModel).toMatch(/tagId\s+String/);
+      expect(joinModel).toMatch(/campusId\s+String/);
+      expect(joinModel).toMatch(
+        new RegExp(`scope\\s+TagScope\\s+@default\\(${scope}\\)`),
+      );
       expect(joinModel).toMatch(
         new RegExp(
           `${contentField}\\s+${contentModel}\\s+@relation\\(fields: \\[${contentId}\\], references: \\[id\\], onDelete: Cascade\\)`,
         ),
       );
       expect(joinModel).toMatch(
-        /tag\s+TagDefinition\s+@relation\(fields: \[tagId\], references: \[id\], onDelete: Restrict\)/,
+        /tag\s+TagDefinition\s+@relation\(fields: \[tagId, campusId, scope\], references: \[id, campusId, scope\], onDelete: Restrict\)/,
       );
       expect(joinModel).toContain(`@@id([${contentId}, tagId])`);
       expect(joinModel).toContain(`@@index([tagId, ${contentId}])`);

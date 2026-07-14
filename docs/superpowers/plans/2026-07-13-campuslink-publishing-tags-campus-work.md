@@ -60,6 +60,8 @@ model TagDefinition {
 
 Add nullable campus-work contact and compatibility fields first. Copy every `JobPost` row without changing IDs, author IDs, campus IDs, timestamps, or statuses. Do not drop the legacy table/columns in this task.
 
+Deployment note: migration `20260713190000` takes a short `SHARE ROW EXCLUSIVE` lock on `JobPost` while it installs and verifies the compatibility copy. After commit, a sync trigger bridges legacy inserts, updates, and deletes until the Phase 5 contract migration removes the legacy writer path.
+
 - [ ] **Step 4: Verify migration integrity**
 
 Run: `npm run db:generate`  

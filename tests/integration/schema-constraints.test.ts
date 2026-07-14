@@ -76,12 +76,18 @@ CREATE TABLE "User" (
 
 CREATE TABLE "Resource" (
   "id" TEXT NOT NULL,
-  CONSTRAINT "Resource_pkey" PRIMARY KEY ("id")
+  "campusId" TEXT NOT NULL,
+  CONSTRAINT "Resource_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "Resource_campusId_fkey" FOREIGN KEY ("campusId")
+    REFERENCES "Campus"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE "MarketplaceItem" (
   "id" TEXT NOT NULL,
-  CONSTRAINT "MarketplaceItem_pkey" PRIMARY KEY ("id")
+  "campusId" TEXT NOT NULL,
+  CONSTRAINT "MarketplaceItem_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "MarketplaceItem_campusId_fkey" FOREIGN KEY ("campusId")
+    REFERENCES "Campus"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 CREATE TABLE "JobPost" (
@@ -103,12 +109,14 @@ CREATE TABLE "JobPost" (
     REFERENCES "Campus"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
-INSERT INTO "Campus" ("id") VALUES ('campus-fixture');
+INSERT INTO "Campus" ("id") VALUES ('campus-fixture'), ('campus-other');
 INSERT INTO "User" ("id", "campusId") VALUES
   ('user-alpha', 'campus-fixture'),
   ('user-beta', 'campus-fixture');
-INSERT INTO "Resource" ("id") VALUES ('resource-fixture');
-INSERT INTO "MarketplaceItem" ("id") VALUES ('marketplace-fixture');
+INSERT INTO "Resource" ("id", "campusId")
+  VALUES ('resource-fixture', 'campus-fixture');
+INSERT INTO "MarketplaceItem" ("id", "campusId")
+  VALUES ('marketplace-fixture', 'campus-fixture');
 INSERT INTO "JobPost" (
   "id",
   "authorId",
@@ -534,6 +542,7 @@ describeWithDatabase('database schema constraints', () => {
     if (!campusId || !reporterId) {
       throw new Error('Test content setup failed');
     }
+    const joinCampusId = campusId;
 
     const [resource, marketplaceItem, campusWorkPost] = await Promise.all([
       db.resource.create({
@@ -596,75 +605,114 @@ describeWithDatabase('database schema constraints', () => {
 
     await Promise.all([
       db.resourceTag.create({
-        data: { resourceId: resource.id, tagId: resourceTag.id },
+        data: {
+          campusId,
+          resourceId: resource.id,
+          scope: 'RESOURCE',
+          tagId: resourceTag.id,
+        },
       }),
       db.marketplaceTag.create({
         data: {
+          campusId,
           marketplaceItemId: marketplaceItem.id,
+          scope: 'MARKETPLACE',
           tagId: marketplaceTag.id,
         },
       }),
       db.campusWorkTag.create({
-        data: { campusWorkPostId: campusWorkPost.id, tagId: campusWorkTag.id },
+        data: {
+          campusId,
+          campusWorkPostId: campusWorkPost.id,
+          scope: 'CAMPUS_WORK',
+          tagId: campusWorkTag.id,
+        },
       }),
     ]);
 
     await expect(
       db.resourceTag.create({
-        data: { resourceId: resource.id, tagId: resourceTag.id },
+        data: {
+          campusId,
+          resourceId: resource.id,
+          scope: 'RESOURCE',
+          tagId: resourceTag.id,
+        },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
     await expect(
       db.marketplaceTag.create({
         data: {
+          campusId,
           marketplaceItemId: marketplaceItem.id,
+          scope: 'MARKETPLACE',
           tagId: marketplaceTag.id,
         },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
     await expect(
       db.campusWorkTag.create({
-        data: { campusWorkPostId: campusWorkPost.id, tagId: campusWorkTag.id },
+        data: {
+          campusId,
+          campusWorkPostId: campusWorkPost.id,
+          scope: 'CAMPUS_WORK',
+          tagId: campusWorkTag.id,
+        },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
 
     for (const operation of [
       () =>
         db.resourceTag.create({
-          data: { resourceId: resource.id, tagId: `missing-${randomUUID()}` },
+          data: {
+            campusId: joinCampusId,
+            resourceId: resource.id,
+            scope: 'RESOURCE',
+            tagId: `missing-${randomUUID()}`,
+          },
         }),
       () =>
         db.resourceTag.create({
           data: {
+            campusId: joinCampusId,
             resourceId: `missing-${randomUUID()}`,
+            scope: 'RESOURCE',
             tagId: resourceTag.id,
           },
         }),
       () =>
         db.marketplaceTag.create({
           data: {
+            campusId: joinCampusId,
             marketplaceItemId: marketplaceItem.id,
+            scope: 'MARKETPLACE',
             tagId: `missing-${randomUUID()}`,
           },
         }),
       () =>
         db.marketplaceTag.create({
           data: {
+            campusId: joinCampusId,
             marketplaceItemId: `missing-${randomUUID()}`,
+            scope: 'MARKETPLACE',
             tagId: marketplaceTag.id,
           },
         }),
       () =>
         db.campusWorkTag.create({
           data: {
+            campusId: joinCampusId,
             campusWorkPostId: campusWorkPost.id,
+            scope: 'CAMPUS_WORK',
             tagId: `missing-${randomUUID()}`,
           },
         }),
       () =>
         db.campusWorkTag.create({
           data: {
+            campusId: joinCampusId,
             campusWorkPostId: `missing-${randomUUID()}`,
+            scope: 'CAMPUS_WORK',
             tagId: campusWorkTag.id,
           },
         }),
@@ -713,7 +761,7 @@ describeWithDatabase('database schema constraints', () => {
 });
 
 describeWithDatabase('campus-work migration harness', () => {
-  it('copies pre-migration jobs and enforces scoped tag constraints', async () => {
+  it('copies jobs, verifies the legacy JobPost sync bridge, and enforces tag isolation', async () => {
     const databaseUrl = safeIntegrationDatabaseUrl(process.env.DATABASE_URL);
     const temporarySchema = `campus_work_migration_${randomUUID().replaceAll('-', '')}`;
     if (!temporarySchemaPattern.test(temporarySchema)) {
@@ -783,12 +831,124 @@ describeWithDatabase('campus-work migration harness', () => {
       ]);
 
       await migrationClient.query(`
+        UPDATE "CampusWorkPost"
+        SET "contact" = 'preserve-this-contact'
+        WHERE "id" = 'job-beta'
+      `);
+      await migrationClient.query(`
+        UPDATE "JobPost"
+        SET
+          "company" = 'Updated Student Union',
+          "title" = 'Updated Event Assistant',
+          "description" = 'Updated through the legacy writer.',
+          "location" = 'Updated Student Hall',
+          "payText" = '$140/day',
+          "status" = 'HIDDEN',
+          "updatedAt" = TIMESTAMP '2026-02-05 06:07:08'
+        WHERE "id" = 'job-beta'
+      `);
+      const updatedCopy = await migrationClient.query({
+        rowMode: 'array',
+        text: `
+          SELECT
+            "company",
+            "title",
+            "description",
+            "location",
+            "payText",
+            "status"::text,
+            to_char("updatedAt", 'YYYY-MM-DD HH24:MI:SS'),
+            "contact"
+          FROM "CampusWorkPost"
+          WHERE "id" = 'job-beta'
+        `,
+      });
+      expect(updatedCopy.rows).toStrictEqual([
+        [
+          'Updated Student Union',
+          'Updated Event Assistant',
+          'Updated through the legacy writer.',
+          'Updated Student Hall',
+          '$140/day',
+          'HIDDEN',
+          '2026-02-05 06:07:08',
+          'preserve-this-contact',
+        ],
+      ]);
+
+      await migrationClient.query(`
+        INSERT INTO "JobPost" (
+          "id",
+          "authorId",
+          "campusId",
+          "company",
+          "title",
+          "description",
+          "location",
+          "payText",
+          "status",
+          "createdAt",
+          "updatedAt"
+        ) VALUES (
+          'job-gamma',
+          'user-alpha',
+          'campus-fixture',
+          'Library',
+          'Shelf Assistant',
+          'Created through the legacy writer.',
+          'Library',
+          '$18/hour',
+          'PENDING',
+          TIMESTAMP '2026-03-04 05:06:07',
+          TIMESTAMP '2026-03-05 06:07:08'
+        )
+      `);
+      const insertedCopy = await migrationClient.query(
+        `SELECT "id", "contact" FROM "CampusWorkPost" WHERE "id" = 'job-gamma'`,
+      );
+      expect(insertedCopy.rows).toStrictEqual([
+        { contact: null, id: 'job-gamma' },
+      ]);
+      await migrationClient.query(
+        `DELETE FROM "JobPost" WHERE "id" = 'job-gamma'`,
+      );
+      const deletedCopy = await migrationClient.query(
+        `SELECT COUNT(*)::int AS count FROM "CampusWorkPost" WHERE "id" = 'job-gamma'`,
+      );
+      expect(deletedCopy.rows).toStrictEqual([{ count: 0 }]);
+
+      await migrationClient.query(`
+        INSERT INTO "CampusWorkPost" (
+          "id",
+          "authorId",
+          "campusId",
+          "title",
+          "description",
+          "location",
+          "payText",
+          "updatedAt"
+        ) VALUES (
+          'campus-work-fixture',
+          'user-alpha',
+          'campus-fixture',
+          'Campus work fixture',
+          'Used to verify tag isolation.',
+          'Campus',
+          'Negotiable',
+          TIMESTAMP '2026-04-05 06:07:08'
+        )
+      `);
+
+      await migrationClient.query(`
         INSERT INTO "TagDefinition"
           ("id", "campusId", "scope", "label", "slug")
         VALUES
           ('tag-resource', 'campus-fixture', 'RESOURCE', 'Notes', 'notes'),
           ('tag-marketplace', 'campus-fixture', 'MARKETPLACE', 'Sale', 'sale'),
-          ('tag-campus-work', 'campus-fixture', 'CAMPUS_WORK', 'Errand', 'errand')
+          ('tag-campus-work', 'campus-fixture', 'CAMPUS_WORK', 'Errand', 'errand'),
+          ('tag-other-resource', 'campus-other', 'RESOURCE', 'Other notes', 'notes'),
+          ('tag-other-marketplace', 'campus-other', 'MARKETPLACE', 'Other sale', 'sale'),
+          ('tag-other-campus-work', 'campus-other', 'CAMPUS_WORK', 'Other errand', 'errand')
       `);
       await expect(
         migrationClient.query(`
@@ -812,27 +972,41 @@ describeWithDatabase('campus-work migration harness', () => {
           contentColumn: 'resourceId',
           contentId: 'resource-fixture',
           contentTable: 'Resource',
+          otherCampusTagId: 'tag-other-resource',
+          scope: 'RESOURCE',
           table: 'ResourceTag',
           tagId: 'tag-resource',
+          wrongScope: 'MARKETPLACE',
+          wrongScopeTagId: 'tag-marketplace',
         },
         {
           contentColumn: 'marketplaceItemId',
           contentId: 'marketplace-fixture',
           contentTable: 'MarketplaceItem',
+          otherCampusTagId: 'tag-other-marketplace',
+          scope: 'MARKETPLACE',
           table: 'MarketplaceTag',
           tagId: 'tag-marketplace',
+          wrongScope: 'CAMPUS_WORK',
+          wrongScopeTagId: 'tag-campus-work',
         },
         {
           contentColumn: 'campusWorkPostId',
-          contentId: 'job-alpha',
+          contentId: 'campus-work-fixture',
           contentTable: 'CampusWorkPost',
+          otherCampusTagId: 'tag-other-campus-work',
+          scope: 'CAMPUS_WORK',
           table: 'CampusWorkTag',
           tagId: 'tag-campus-work',
+          wrongScope: 'RESOURCE',
+          wrongScopeTagId: 'tag-resource',
         },
       ]) {
         const insert = `
-          INSERT INTO "${join.table}" ("${join.contentColumn}", "tagId")
-          VALUES ('${join.contentId}', '${join.tagId}')
+          INSERT INTO "${join.table}"
+            ("${join.contentColumn}", "tagId", "campusId", "scope")
+          VALUES
+            ('${join.contentId}', '${join.tagId}', 'campus-fixture', '${join.scope}')
         `;
         await migrationClient.query(insert);
         await expect(migrationClient.query(insert)).rejects.toMatchObject({
@@ -840,16 +1014,49 @@ describeWithDatabase('campus-work migration harness', () => {
         });
         await expect(
           migrationClient.query(`
-            INSERT INTO "${join.table}" ("${join.contentColumn}", "tagId")
-            VALUES ('${join.contentId}', 'missing-tag')
+            INSERT INTO "${join.table}"
+              ("${join.contentColumn}", "tagId", "campusId", "scope")
+            VALUES
+              ('${join.contentId}', 'missing-tag', 'campus-fixture', '${join.scope}')
           `),
         ).rejects.toMatchObject({ code: '23503' });
         await expect(
           migrationClient.query(`
-            INSERT INTO "${join.table}" ("${join.contentColumn}", "tagId")
-            VALUES ('missing-content', '${join.tagId}')
+            INSERT INTO "${join.table}"
+              ("${join.contentColumn}", "tagId", "campusId", "scope")
+            VALUES
+              ('missing-content', '${join.tagId}', 'campus-fixture', '${join.scope}')
           `),
         ).rejects.toMatchObject({ code: '23503' });
+        await expect(
+          migrationClient.query(`
+            INSERT INTO "${join.table}"
+              ("${join.contentColumn}", "tagId", "campusId", "scope")
+            VALUES
+              ('${join.contentId}', '${join.otherCampusTagId}', 'campus-other', '${join.scope}')
+          `),
+        ).rejects.toMatchObject({ code: '23514' });
+        await expect(
+          migrationClient.query(`
+            INSERT INTO "${join.table}"
+              ("${join.contentColumn}", "tagId", "campusId", "scope")
+            VALUES
+              ('${join.contentId}', '${join.wrongScopeTagId}', 'campus-fixture', '${join.scope}')
+          `),
+        ).rejects.toMatchObject({ code: '23503' });
+        await expect(
+          migrationClient.query(`
+            INSERT INTO "${join.table}"
+              ("${join.contentColumn}", "tagId", "campusId", "scope")
+            VALUES
+              ('${join.contentId}', '${join.wrongScopeTagId}', 'campus-fixture', '${join.wrongScope}')
+          `),
+        ).rejects.toMatchObject({ code: '23514' });
+        await expect(
+          migrationClient.query(
+            `UPDATE "${join.contentTable}" SET "campusId" = 'campus-other' WHERE "id" = '${join.contentId}'`,
+          ),
+        ).rejects.toMatchObject({ code: '23514' });
         await expect(
           migrationClient.query(
             `DELETE FROM "TagDefinition" WHERE "id" = '${join.tagId}'`,
@@ -863,6 +1070,97 @@ describeWithDatabase('campus-work migration harness', () => {
         );
         expect(remaining.rows).toStrictEqual([{ count: 0 }]);
       }
+    } finally {
+      try {
+        if (schemaCreated) {
+          await migrationClient.query(
+            `DROP SCHEMA "${temporarySchema}" CASCADE`,
+          );
+        }
+      } finally {
+        await migrationClient.end();
+      }
+    }
+  });
+
+  it('rolls back every migration object on a controlled failure', async () => {
+    const databaseUrl = safeIntegrationDatabaseUrl(process.env.DATABASE_URL);
+    const temporarySchema = `campus_work_migration_${randomUUID().replaceAll('-', '')}`;
+    if (!temporarySchemaPattern.test(temporarySchema)) {
+      throw new Error('Generated migration schema name is unsafe.');
+    }
+
+    const migrationClient = new Client({ connectionString: databaseUrl });
+    let schemaCreated = false;
+
+    await migrationClient.connect();
+    try {
+      await migrationClient.query(`CREATE SCHEMA "${temporarySchema}"`);
+      schemaCreated = true;
+      await migrationClient.query(`SET search_path TO "${temporarySchema}"`);
+      await migrationClient.query(legacyCampusWorkSchemaSql);
+
+      const failingMigrationSql = campusWorkMigrationSql.replace(
+        /COMMIT;\s*$/,
+        () =>
+          `DO $$ BEGIN RAISE EXCEPTION 'forced migration rollback'; END $$;\nCOMMIT;`,
+      );
+      expect(failingMigrationSql).not.toBe(campusWorkMigrationSql);
+      await expect(
+        migrationClient.query(failingMigrationSql),
+      ).rejects.toMatchObject({ code: 'P0001' });
+      await migrationClient.query('ROLLBACK');
+
+      const rolledBackObjects = await migrationClient.query(`
+        SELECT
+          to_regtype('"TagScope"') AS "tagScope",
+          to_regclass('"TagDefinition"') AS "tagDefinition",
+          to_regclass('"CampusWorkPost"') AS "campusWorkPost"
+      `);
+      expect(rolledBackObjects.rows).toStrictEqual([
+        {
+          campusWorkPost: null,
+          tagDefinition: null,
+          tagScope: null,
+        },
+      ]);
+
+      const rolledBackCode = await migrationClient.query(
+        `
+          SELECT
+            (
+              SELECT COUNT(*)::int
+              FROM pg_catalog.pg_proc AS procedure
+              JOIN pg_catalog.pg_namespace AS namespace
+                ON namespace.oid = procedure.pronamespace
+              WHERE namespace.nspname = $1
+                AND procedure.proname IN (
+                  '_sync_job_post_to_campus_work',
+                  '_validate_tag_join_campus',
+                  '_protect_tagged_content_campus'
+                )
+            ) AS functions,
+            (
+              SELECT COUNT(*)::int
+              FROM pg_catalog.pg_trigger AS trigger
+              JOIN pg_catalog.pg_class AS relation
+                ON relation.oid = trigger.tgrelid
+              JOIN pg_catalog.pg_namespace AS namespace
+                ON namespace.oid = relation.relnamespace
+              WHERE namespace.nspname = $1
+                AND NOT trigger.tgisinternal
+            ) AS triggers
+        `,
+        [temporarySchema],
+      );
+      expect(rolledBackCode.rows).toStrictEqual([
+        { functions: 0, triggers: 0 },
+      ]);
+
+      const legacyRows = await migrationClient.query(
+        `SELECT COUNT(*)::int AS count FROM "JobPost"`,
+      );
+      expect(legacyRows.rows).toStrictEqual([{ count: 2 }]);
     } finally {
       try {
         if (schemaCreated) {

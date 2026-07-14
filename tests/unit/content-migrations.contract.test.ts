@@ -126,6 +126,48 @@ function sqlForeignKey(table: string, column: string) {
   };
 }
 
+function sqlForeignKeyConstraint(table: string, constraint: string) {
+  const match = tagsMigration.match(
+    new RegExp(
+      `ALTER TABLE "${table}"\\s+ADD CONSTRAINT "${constraint}"\\s+FOREIGN KEY \\(([^)]+)\\)\\s+REFERENCES "([^"]+)"\\(([^)]+)\\)\\s+ON DELETE (CASCADE|RESTRICT|SET NULL) ON UPDATE (CASCADE|RESTRICT|SET NULL)`,
+      'i',
+    ),
+  );
+
+  return {
+    columns: [...(match?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(
+      (column) => column[1],
+    ),
+    onDelete: match?.[4] ?? '',
+    onUpdate: match?.[5] ?? '',
+    referencedColumns: [...(match?.[3] ?? '').matchAll(/"([^"]+)"/g)].map(
+      (column) => column[1],
+    ),
+    referencedTable: match?.[2] ?? '',
+  };
+}
+
+function sqlCheckConstraint(table: string, constraint: string) {
+  return (
+    tagsMigration.match(
+      new RegExp(
+        `ALTER TABLE "${table}"\\s+ADD CONSTRAINT "${constraint}"\\s+CHECK \\(([^;]+)\\);`,
+        'i',
+      ),
+    )?.[1] ?? ''
+  ).trim();
+}
+
+function sqlFunction(name: string) {
+  return (
+    tagsMigration.match(
+      new RegExp(
+        `CREATE FUNCTION "${name}"\\(\\)[\\s\\S]*?AS \\$\\$([\\s\\S]*?)\\$\\$;`,
+      ),
+    )?.[1] ?? ''
+  );
+}
+
 describe('marketplace condition migration', () => {
   const sql = migration(
     '../../prisma/migrations/20260712170000_typed_marketplace_content/migration.sql',
@@ -170,6 +212,15 @@ describe('public discovery trigram migration', () => {
 });
 
 describe('scoped tags and campus-work expand migration', () => {
+  it('wraps every migration operation in one explicit transaction', () => {
+    const effectiveSql = tagsMigration.replace(/^\s*--.*$/gm, '').trim();
+
+    expect(effectiveSql).toMatch(/^BEGIN;\s/);
+    expect(effectiveSql).toMatch(/COMMIT;$/);
+    expect(effectiveSql.match(/\bBEGIN;/g)).toHaveLength(1);
+    expect(effectiveSql.match(/\bCOMMIT;/g)).toHaveLength(1);
+  });
+
   it('uses the first migration number after the published phase-two migration', () => {
     expect(existsSync(tagsMigrationPath)).toBe(true);
 
@@ -320,6 +371,7 @@ describe('scoped tags and campus-work expand migration', () => {
     expect(tagDefinition).toMatch(/label\s+String\s+@db\.VarChar\(32\)/);
     expect(tagDefinition).toMatch(/slug\s+String\s+@db\.VarChar\(40\)/);
     expect(tagDefinition).toContain('@@unique([campusId, scope, slug])');
+    expect(tagDefinition).toContain('@@unique([id, campusId, scope])');
     expect(tagDefinition).toContain(
       '@@index([campusId, scope, isActive, label])',
     );
@@ -340,6 +392,11 @@ describe('scoped tags and campus-work expand migration', () => {
     expect(sqlPrimaryKey('TagDefinition')).toStrictEqual(['id']);
     expect(sqlIndex('TagDefinition_campusId_scope_slug_key')).toStrictEqual({
       columns: ['campusId', 'scope', 'slug'],
+      table: 'TagDefinition',
+      unique: true,
+    });
+    expect(sqlIndex('TagDefinition_id_campusId_scope_key')).toStrictEqual({
+      columns: ['id', 'campusId', 'scope'],
       table: 'TagDefinition',
       unique: true,
     });
@@ -364,18 +421,21 @@ describe('scoped tags and campus-work expand migration', () => {
       {
         contentColumn: 'resourceId',
         contentModel: 'Resource',
+        expectedScope: 'RESOURCE',
         index: 'ResourceTag_tagId_resourceId_idx',
         model: 'ResourceTag',
       },
       {
         contentColumn: 'marketplaceItemId',
         contentModel: 'MarketplaceItem',
+        expectedScope: 'MARKETPLACE',
         index: 'MarketplaceTag_tagId_marketplaceItemId_idx',
         model: 'MarketplaceTag',
       },
       {
         contentColumn: 'campusWorkPostId',
         contentModel: 'CampusWorkPost',
+        expectedScope: 'CAMPUS_WORK',
         index: 'CampusWorkTag_tagId_campusWorkPostId_idx',
         model: 'CampusWorkTag',
       },
@@ -383,8 +443,19 @@ describe('scoped tags and campus-work expand migration', () => {
       const joinModel = prismaBlock('model', join.model);
       expect(joinModel).toContain(`@@id([${join.contentColumn}, tagId])`);
       expect(joinModel).toContain(`@@index([tagId, ${join.contentColumn}])`);
+      expect(joinModel).toMatch(/campusId\s+String/);
+      expect(joinModel).toMatch(
+        new RegExp(`scope\\s+TagScope\\s+@default\\(${join.expectedScope}\\)`),
+      );
+      expect(joinModel).toMatch(
+        /tag\s+TagDefinition\s+@relation\(fields: \[tagId, campusId, scope\], references: \[id, campusId, scope\], onDelete: Restrict\)/,
+      );
       expect(sqlColumn(join.model, join.contentColumn)).toBe('TEXT NOT NULL');
       expect(sqlColumn(join.model, 'tagId')).toBe('TEXT NOT NULL');
+      expect(sqlColumn(join.model, 'campusId')).toBe('TEXT NOT NULL');
+      expect(sqlColumn(join.model, 'scope')).toBe(
+        `"TagScope" NOT NULL DEFAULT '${join.expectedScope}'`,
+      );
       expect(sqlPrimaryKey(join.model)).toStrictEqual([
         join.contentColumn,
         'tagId',
@@ -396,18 +467,50 @@ describe('scoped tags and campus-work expand migration', () => {
         referencedColumn: 'id',
         referencedTable: join.contentModel,
       });
-      expect(sqlForeignKey(join.model, 'tagId')).toStrictEqual({
-        constraint: `${join.model}_tagId_fkey`,
+      expect(
+        sqlForeignKeyConstraint(join.model, `${join.model}_tagId_fkey`),
+      ).toStrictEqual({
+        columns: ['tagId', 'campusId', 'scope'],
         onDelete: 'RESTRICT',
         onUpdate: 'CASCADE',
-        referencedColumn: 'id',
+        referencedColumns: ['id', 'campusId', 'scope'],
         referencedTable: 'TagDefinition',
       });
+      expect(sqlCheckConstraint(join.model, `${join.model}_scope_check`)).toBe(
+        `"scope" = '${join.expectedScope}'::"TagScope"`,
+      );
       expect(sqlIndex(join.index)).toStrictEqual({
         columns: ['tagId', join.contentColumn],
         table: join.model,
         unique: false,
       });
+    }
+  });
+
+  it('enforces join campus equality and protects tagged parent campus updates', () => {
+    const validator = sqlFunction('_validate_tag_join_campus');
+    const parentProtector = sqlFunction('_protect_tagged_content_campus');
+
+    expect(validator).toMatch(/to_jsonb\(NEW\)/);
+    expect(validator).toMatch(/FOR SHARE/);
+    expect(validator).toMatch(/TG_TABLE_SCHEMA/);
+    expect(parentProtector).toMatch(/TG_TABLE_SCHEMA/);
+    expect(parentProtector).toMatch(/to_jsonb\(NEW\)/);
+    for (const [join, parent] of [
+      ['ResourceTag', 'Resource'],
+      ['MarketplaceTag', 'MarketplaceItem'],
+      ['CampusWorkTag', 'CampusWorkPost'],
+    ]) {
+      expect(tagsMigration).toMatch(
+        new RegExp(
+          `CREATE TRIGGER "${join}_campus_guard"[\\s\\S]*BEFORE INSERT OR UPDATE ON "${join}"[\\s\\S]*EXECUTE FUNCTION "_validate_tag_join_campus"`,
+        ),
+      );
+      expect(tagsMigration).toMatch(
+        new RegExp(
+          `CREATE TRIGGER "${parent}_tagged_campus_guard"[\\s\\S]*BEFORE UPDATE OF "campusId" ON "${parent}"[\\s\\S]*EXECUTE FUNCTION "_protect_tagged_content_campus"`,
+        ),
+      );
     }
   });
 
@@ -502,5 +605,56 @@ describe('scoped tags and campus-work expand migration', () => {
     );
     expect(integrationSchemaSource).not.toContain('_prisma_migrations');
     expect(integrationSchemaSource).not.toContain('finishedAt');
+  });
+
+  it('locks legacy writers and installs a safe sync bridge before backfill', () => {
+    const lockIndex = tagsMigration.indexOf(
+      'LOCK TABLE "JobPost" IN SHARE ROW EXCLUSIVE MODE',
+    );
+    const triggerIndex = tagsMigration.indexOf(
+      'CREATE TRIGGER "JobPost_campus_work_sync"',
+    );
+    const backfillIndex = tagsMigration.indexOf('INSERT INTO "CampusWorkPost"');
+    const syncFunction = sqlFunction('_sync_job_post_to_campus_work');
+
+    expect(lockIndex).toBeGreaterThan(-1);
+    expect(triggerIndex).toBeGreaterThan(lockIndex);
+    expect(backfillIndex).toBeGreaterThan(triggerIndex);
+    expect(tagsMigration).toMatch(
+      /CREATE TRIGGER "JobPost_campus_work_sync"[\s\S]*AFTER INSERT OR UPDATE OR DELETE ON "JobPost"/,
+    );
+    expect(tagsMigration).toMatch(/SECURITY INVOKER/);
+    expect(tagsMigration).toMatch(/SET search_path = pg_catalog/);
+    expect(syncFunction).toMatch(/TG_TABLE_SCHEMA/);
+    expect(syncFunction).toMatch(/format\(/);
+    expect(syncFunction).toMatch(/%I/);
+    expect(syncFunction).toMatch(/USING/);
+    expect(syncFunction).toMatch(/TG_OP = 'DELETE'/);
+    expect(syncFunction).toMatch(/ON CONFLICT \("id"\) DO UPDATE/);
+    expect(syncFunction).not.toMatch(/UPDATE SET[\s\S]*"contact"\s*=/);
+  });
+
+  it('requires post-migration legacy writes and a real rollback probe', () => {
+    expect(integrationSchemaSource).toContain(
+      'verifies the legacy JobPost sync bridge',
+    );
+    expect(integrationSchemaSource).toMatch(
+      /UPDATE "CampusWorkPost"[\s\S]*"contact"[\s\S]*UPDATE "JobPost"/,
+    );
+    expect(integrationSchemaSource).toMatch(
+      /INSERT INTO "JobPost"[\s\S]*DELETE FROM "JobPost"/,
+    );
+    expect(integrationSchemaSource).toContain(
+      'rolls back every migration object on a controlled failure',
+    );
+    expect(integrationSchemaSource).toContain('forced migration rollback');
+    expect(integrationSchemaSource).toMatch(/ROLLBACK/);
+    expect(integrationSchemaSource).toMatch(/to_regtype/);
+    expect(integrationSchemaSource).toMatch(/to_regclass/);
+  });
+
+  it('documents the short JobPost write lock and Phase 5 bridge lifetime', () => {
+    expect(phasePlans[0]).toContain('SHARE ROW EXCLUSIVE');
+    expect(phasePlans[0]).toMatch(/sync trigger[\s\S]*Phase 5/i);
   });
 });

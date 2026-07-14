@@ -1,3 +1,5 @@
+BEGIN;
+
 -- CreateEnum
 CREATE TYPE "TagScope" AS ENUM ('RESOURCE', 'MARKETPLACE', 'CAMPUS_WORK');
 
@@ -37,6 +39,8 @@ CREATE TABLE "CampusWorkPost" (
 CREATE TABLE "ResourceTag" (
   "resourceId" TEXT NOT NULL,
   "tagId" TEXT NOT NULL,
+  "campusId" TEXT NOT NULL,
+  "scope" "TagScope" NOT NULL DEFAULT 'RESOURCE',
 
   CONSTRAINT "ResourceTag_pkey" PRIMARY KEY ("resourceId", "tagId")
 );
@@ -45,6 +49,8 @@ CREATE TABLE "ResourceTag" (
 CREATE TABLE "MarketplaceTag" (
   "marketplaceItemId" TEXT NOT NULL,
   "tagId" TEXT NOT NULL,
+  "campusId" TEXT NOT NULL,
+  "scope" "TagScope" NOT NULL DEFAULT 'MARKETPLACE',
 
   CONSTRAINT "MarketplaceTag_pkey" PRIMARY KEY ("marketplaceItemId", "tagId")
 );
@@ -53,6 +59,8 @@ CREATE TABLE "MarketplaceTag" (
 CREATE TABLE "CampusWorkTag" (
   "campusWorkPostId" TEXT NOT NULL,
   "tagId" TEXT NOT NULL,
+  "campusId" TEXT NOT NULL,
+  "scope" "TagScope" NOT NULL DEFAULT 'CAMPUS_WORK',
 
   CONSTRAINT "CampusWorkTag_pkey" PRIMARY KEY ("campusWorkPostId", "tagId")
 );
@@ -60,6 +68,10 @@ CREATE TABLE "CampusWorkTag" (
 -- CreateIndex
 CREATE UNIQUE INDEX "TagDefinition_campusId_scope_slug_key"
   ON "TagDefinition"("campusId", "scope", "slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TagDefinition_id_campusId_scope_key"
+  ON "TagDefinition"("id", "campusId", "scope");
 
 -- CreateIndex
 CREATE INDEX "TagDefinition_campusId_scope_isActive_label_idx"
@@ -112,7 +124,8 @@ ALTER TABLE "ResourceTag"
 -- AddForeignKey
 ALTER TABLE "ResourceTag"
   ADD CONSTRAINT "ResourceTag_tagId_fkey"
-  FOREIGN KEY ("tagId") REFERENCES "TagDefinition"("id")
+  FOREIGN KEY ("tagId", "campusId", "scope")
+  REFERENCES "TagDefinition"("id", "campusId", "scope")
   ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -124,7 +137,8 @@ ALTER TABLE "MarketplaceTag"
 -- AddForeignKey
 ALTER TABLE "MarketplaceTag"
   ADD CONSTRAINT "MarketplaceTag_tagId_fkey"
-  FOREIGN KEY ("tagId") REFERENCES "TagDefinition"("id")
+  FOREIGN KEY ("tagId", "campusId", "scope")
+  REFERENCES "TagDefinition"("id", "campusId", "scope")
   ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -136,8 +150,198 @@ ALTER TABLE "CampusWorkTag"
 -- AddForeignKey
 ALTER TABLE "CampusWorkTag"
   ADD CONSTRAINT "CampusWorkTag_tagId_fkey"
-  FOREIGN KEY ("tagId") REFERENCES "TagDefinition"("id")
+  FOREIGN KEY ("tagId", "campusId", "scope")
+  REFERENCES "TagDefinition"("id", "campusId", "scope")
   ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Enforce fixed content scopes in each explicit join.
+ALTER TABLE "ResourceTag"
+  ADD CONSTRAINT "ResourceTag_scope_check"
+  CHECK ("scope" = 'RESOURCE'::"TagScope");
+
+ALTER TABLE "MarketplaceTag"
+  ADD CONSTRAINT "MarketplaceTag_scope_check"
+  CHECK ("scope" = 'MARKETPLACE'::"TagScope");
+
+ALTER TABLE "CampusWorkTag"
+  ADD CONSTRAINT "CampusWorkTag_scope_check"
+  CHECK ("scope" = 'CAMPUS_WORK'::"TagScope");
+
+-- Validate that every join uses the campus of its content row. FOR SHARE
+-- serializes this check with concurrent parent campus updates.
+CREATE FUNCTION "_validate_tag_join_campus"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  content_id TEXT;
+  parent_campus_id TEXT;
+BEGIN
+  content_id := to_jsonb(NEW) ->> TG_ARGV[1];
+
+  EXECUTE format(
+    'SELECT "campusId" FROM %I.%I WHERE "id" = $1 FOR SHARE',
+    TG_TABLE_SCHEMA,
+    TG_ARGV[0]
+  )
+  INTO parent_campus_id
+  USING content_id;
+
+  IF parent_campus_id IS NOT NULL
+     AND NEW."campusId" IS DISTINCT FROM parent_campus_id THEN
+    RAISE EXCEPTION
+      'Tag join campus % does not match content campus %',
+      NEW."campusId",
+      parent_campus_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "ResourceTag_campus_guard"
+BEFORE INSERT OR UPDATE ON "ResourceTag"
+FOR EACH ROW
+EXECUTE FUNCTION "_validate_tag_join_campus"('Resource', 'resourceId');
+
+CREATE TRIGGER "MarketplaceTag_campus_guard"
+BEFORE INSERT OR UPDATE ON "MarketplaceTag"
+FOR EACH ROW
+EXECUTE FUNCTION "_validate_tag_join_campus"('MarketplaceItem', 'marketplaceItemId');
+
+CREATE TRIGGER "CampusWorkTag_campus_guard"
+BEFORE INSERT OR UPDATE ON "CampusWorkTag"
+FOR EACH ROW
+EXECUTE FUNCTION "_validate_tag_join_campus"('CampusWorkPost', 'campusWorkPostId');
+
+-- Once tags exist, changing a parent campus would invalidate the join.
+-- Concurrent inserts wait on the parent row lock and revalidate afterward.
+CREATE FUNCTION "_protect_tagged_content_campus"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  content_id TEXT;
+  has_tags BOOLEAN;
+BEGIN
+  IF NEW."campusId" IS NOT DISTINCT FROM OLD."campusId" THEN
+    RETURN NEW;
+  END IF;
+
+  content_id := to_jsonb(NEW) ->> 'id';
+  EXECUTE format(
+    'SELECT EXISTS (SELECT 1 FROM %I.%I WHERE %I = $1)',
+    TG_TABLE_SCHEMA,
+    TG_ARGV[0],
+    TG_ARGV[1]
+  )
+  INTO has_tags
+  USING content_id;
+
+  IF has_tags THEN
+    RAISE EXCEPTION
+      'Cannot change campus for tagged % row %',
+      TG_TABLE_NAME,
+      content_id
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "Resource_tagged_campus_guard"
+BEFORE UPDATE OF "campusId" ON "Resource"
+FOR EACH ROW
+EXECUTE FUNCTION "_protect_tagged_content_campus"('ResourceTag', 'resourceId');
+
+CREATE TRIGGER "MarketplaceItem_tagged_campus_guard"
+BEFORE UPDATE OF "campusId" ON "MarketplaceItem"
+FOR EACH ROW
+EXECUTE FUNCTION "_protect_tagged_content_campus"('MarketplaceTag', 'marketplaceItemId');
+
+CREATE TRIGGER "CampusWorkPost_tagged_campus_guard"
+BEFORE UPDATE OF "campusId" ON "CampusWorkPost"
+FOR EACH ROW
+EXECUTE FUNCTION "_protect_tagged_content_campus"('CampusWorkTag', 'campusWorkPostId');
+
+-- Prevent a legacy write from crossing the backfill snapshot before the
+-- synchronization trigger becomes visible at commit.
+LOCK TABLE "JobPost" IN SHARE ROW EXCLUSIVE MODE;
+
+CREATE FUNCTION "_sync_job_post_to_campus_work"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    EXECUTE format(
+      'DELETE FROM %I.%I WHERE "id" = $1',
+      TG_TABLE_SCHEMA,
+      'CampusWorkPost'
+    )
+    USING OLD."id";
+    RETURN OLD;
+  END IF;
+
+  EXECUTE format(
+    $statement$
+      INSERT INTO %I.%I (
+        "id",
+        "authorId",
+        "campusId",
+        "company",
+        "title",
+        "description",
+        "location",
+        "payText",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT ("id") DO UPDATE SET
+        "authorId" = EXCLUDED."authorId",
+        "campusId" = EXCLUDED."campusId",
+        "company" = EXCLUDED."company",
+        "title" = EXCLUDED."title",
+        "description" = EXCLUDED."description",
+        "location" = EXCLUDED."location",
+        "payText" = EXCLUDED."payText",
+        "status" = EXCLUDED."status",
+        "createdAt" = EXCLUDED."createdAt",
+        "updatedAt" = EXCLUDED."updatedAt"
+    $statement$,
+    TG_TABLE_SCHEMA,
+    'CampusWorkPost'
+  )
+  USING
+    NEW."id",
+    NEW."authorId",
+    NEW."campusId",
+    NEW."company",
+    NEW."title",
+    NEW."description",
+    NEW."location",
+    NEW."payText",
+    NEW."status",
+    NEW."createdAt",
+    NEW."updatedAt";
+
+  RETURN NEW;
+END
+$$;
+
+CREATE TRIGGER "JobPost_campus_work_sync"
+AFTER INSERT OR UPDATE OR DELETE ON "JobPost"
+FOR EACH ROW
+EXECUTE FUNCTION "_sync_job_post_to_campus_work"();
 
 -- Copy legacy jobs into the compatibility model without changing source data.
 INSERT INTO "CampusWorkPost" (
@@ -206,3 +410,5 @@ BEGIN
   END IF;
 END
 $$;
+
+COMMIT;

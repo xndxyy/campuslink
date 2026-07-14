@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { loadAnonymousIdentityKeyring } from './anonymous-identity';
+
 function required(environment: NodeJS.ProcessEnv, name: string): string {
   const value = environment[name]?.trim();
   if (!value) throw new Error(`${name} is required in production.`);
@@ -18,6 +20,7 @@ export function validateProductionConfig(environment = process.env) {
   if (environment.NODE_ENV !== 'production') {
     return { scannerRequired: false, trustedProxy: false };
   }
+  loadAnonymousIdentityKeyring(environment);
   const appUrl = new URL(required(environment, 'APP_URL'));
   if (appUrl.protocol !== 'https:' || appUrl.username || appUrl.password) {
     throw new Error('APP_URL must be an HTTPS origin in production.');

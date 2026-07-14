@@ -22,6 +22,10 @@ import {
   ModerationValidationError,
 } from './moderation';
 import { TagConflictError, TagForbiddenError } from './tags';
+import {
+  TreeHoleIdentityForbiddenError,
+  TreeHoleIdentityValidationError,
+} from './tree-hole-identity';
 import { TagValidationError } from '../validation/tags';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
@@ -46,7 +50,8 @@ export function adminErrorResponse(error: unknown) {
     error instanceof AnnouncementForbiddenError ||
     error instanceof ModerationForbiddenError ||
     error instanceof AdminForbiddenError ||
-    error instanceof TagForbiddenError
+    error instanceof TagForbiddenError ||
+    error instanceof TreeHoleIdentityForbiddenError
   ) {
     return adminJson({ message: 'Insufficient permissions.' }, { status: 403 });
   }
@@ -54,7 +59,8 @@ export function adminErrorResponse(error: unknown) {
     error instanceof ModerationValidationError ||
     error instanceof AnnouncementValidationError ||
     error instanceof AdminValidationError ||
-    error instanceof TagValidationError
+    error instanceof TagValidationError ||
+    error instanceof TreeHoleIdentityValidationError
   ) {
     return adminJson(
       { message: 'Invalid administration request.' },

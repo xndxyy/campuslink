@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { validateProductionConfig } from '@/lib/security/runtime-config';
 
 const production = {
+  ANONYMOUS_FINGERPRINT_KEY: Buffer.alloc(32, 0x32).toString('base64'),
+  ANONYMOUS_IDENTITY_KEY_V1: Buffer.alloc(32, 0x31).toString('base64'),
   NODE_ENV: 'production',
   APP_URL: 'https://campus.example',
   DATABASE_URL:
@@ -60,6 +62,8 @@ describe('production runtime configuration', () => {
 
   it('requires HTTPS, database, storage, SMTP, cleanup, and explicit proxy policy', () => {
     for (const name of [
+      'ANONYMOUS_FINGERPRINT_KEY',
+      'ANONYMOUS_IDENTITY_KEY_V1',
       'APP_URL',
       'DATABASE_URL',
       'S3_ACCESS_KEY_ID',
@@ -99,5 +103,27 @@ describe('production runtime configuration', () => {
         DATABASE_URL: 'postgresql://user:secret@db.example/campuslink',
       }),
     ).toThrow(/TLS/);
+  });
+
+  it('rejects malformed or reused anonymous identity key material', () => {
+    expect(() =>
+      validateProductionConfig({
+        ...production,
+        ANONYMOUS_IDENTITY_KEY_V1: Buffer.alloc(31).toString('base64'),
+      }),
+    ).toThrow(/32 bytes/i);
+    expect(() =>
+      validateProductionConfig({
+        ...production,
+        ANONYMOUS_FINGERPRINT_KEY: production.ANONYMOUS_IDENTITY_KEY_V1,
+      }),
+    ).toThrow(/different/i);
+  });
+
+  it('keeps anonymous keys lazy outside production startup validation', () => {
+    expect(validateProductionConfig({ NODE_ENV: 'development' })).toEqual({
+      scannerRequired: false,
+      trustedProxy: false,
+    });
   });
 });

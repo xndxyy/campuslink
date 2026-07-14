@@ -15,6 +15,28 @@ const cleanupHelperSource = existsSync(cleanupHelperPath)
 const cleanupSource = `${source}\n${cleanupHelperSource}`;
 
 describe('publish content live E2E navigation contract', () => {
+  it('fails closed before constructing destructive database or storage clients', () => {
+    const sharedGate = source.indexOf(
+      'const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);',
+    );
+    const conditionalGuard = source.indexOf('if (runSharedAccountE2e) {');
+    const safetyAssertion = source.indexOf(
+      'assertSafeDestructiveE2eEnvironment(process.env);',
+    );
+    const skip = source.indexOf('test.skip(');
+    const firstPool = source.indexOf('new Pool');
+    const firstStorageClient = source.indexOf('new S3Client');
+
+    expect(source).toContain("from '../helpers/e2e-database-safety'");
+    expect(sharedGate).toBeGreaterThan(-1);
+    expect(conditionalGuard).toBeGreaterThan(sharedGate);
+    expect(safetyAssertion).toBeGreaterThan(conditionalGuard);
+    expect(skip).toBeGreaterThan(safetyAssertion);
+    expect(firstPool).toBeGreaterThan(safetyAssertion);
+    expect(firstStorageClient).toBeGreaterThan(safetyAssertion);
+    expect(source).toContain('isolated destructive test database');
+  });
+
   it('extracts publisher cleanup behind an injectable orchestrator', () => {
     expect(cleanupHelperSource).toContain(
       'export async function cleanupRunScopedPublisher',
@@ -79,5 +101,45 @@ describe('publish content live E2E navigation contract', () => {
     expect(source).toContain('UPDATE "Resource"');
     expect(source).toMatch(/status = \$6::"ContentStatus"/);
     expect(source).toContain('finally');
+  });
+
+  it('publishes run-scoped campus work and verifies audited non-owner contact reveal', () => {
+    expect(source).toContain('SELECT id, contact');
+    expect(source).toContain('FROM "CampusWorkPost"');
+    expect(source).toContain('"authorId" = $1');
+    expect(source).toContain('title = $2');
+    expect(source).toContain('publisher.runId');
+    expect(source).toContain('UPDATE "JobPost"');
+    expect(source).toContain("status = 'PUBLISHED'");
+    expect(source).toContain('page.context().clearCookies()');
+    expect(source).toContain('process.env.E2E_OTHER_EMAIL!');
+    expect(source).toContain('process.env.E2E_OTHER_PASSWORD!');
+    expect(source).toContain('`/campus-work/${campusWork.id}`');
+    expect(source).toMatch(
+      /getByRole\(\s*'button',\s*\{\s*name:\s*'查看联系方式',?\s*\},?\s*\)/,
+    );
+    expect(source).toContain(
+      "'联系方式访问已记录，请注意线下见面与付款安全。'",
+    );
+    expect(source).toContain('FROM "AuditLog"');
+    expect(source).toContain("'CAMPUS_WORK_CONTACT_VIEWED'");
+    expect(source).toContain("'JOB_POST'");
+    expect(source).toContain('toHaveLength(1)');
+    expect(source).toMatch(
+      /JSON\.stringify\([^)]*audit[^)]*\)\)\.not\.toContain\(campusWork\.contact\)/,
+    );
+  });
+
+  it('deletes only exact run-scoped contact audit rows inside cleanup', () => {
+    expect(cleanupHelperSource).toContain('auditSubjects?: Array');
+    expect(cleanupHelperSource).toContain('DELETE FROM "AuditLog"');
+    expect(cleanupHelperSource).toContain('"campusId" = $1');
+    expect(cleanupHelperSource).toContain('action = $2');
+    expect(cleanupHelperSource).toContain(
+      '"subjectType" = $3::"ModerationSubjectType"',
+    );
+    expect(cleanupHelperSource).toContain('"subjectId" = $4');
+    expect(cleanupHelperSource).toContain('"actorId" = $5');
+    expect(cleanupHelperSource).toContain('deletedAudit.rowCount > 1');
   });
 });

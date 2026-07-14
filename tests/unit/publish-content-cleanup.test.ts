@@ -16,7 +16,20 @@ function result(
   return { rowCount, rows };
 }
 
-function cleanupHarness(storageKeys = ['asset/a.pdf']) {
+type AuditSubject = {
+  action: string;
+  actorId: string;
+  subjectId: string;
+  subjectType: string;
+};
+
+function cleanupHarness(
+  storageKeys = ['asset/a.pdf'],
+  options: {
+    auditDeleteCount?: number;
+    auditSubjects?: AuditSubject[];
+  } = {},
+) {
   const events: string[] = [];
   const clientQuery = vi.fn(
     async (sql: string, values?: unknown[]): Promise<CleanupQueryResult> => {
@@ -37,6 +50,10 @@ function cleanupHarness(storageKeys = ['asset/a.pdf']) {
       if (normalized.includes('DELETE FROM "User"')) {
         events.push('client:delete-user');
         return result([], 1);
+      }
+      if (normalized.includes('DELETE FROM "AuditLog"')) {
+        events.push(`client:delete-audit:${values?.join(':')}`);
+        return result([], options.auditDeleteCount ?? 0);
       }
       if (normalized.includes('SELECT COUNT(*)::int AS count')) {
         return result([{ count: 0 }], 1);
@@ -87,6 +104,7 @@ function cleanupHarness(storageKeys = ['asset/a.pdf']) {
     }),
   };
   const publisher = {
+    ...(options.auditSubjects ? { auditSubjects: options.auditSubjects } : {}),
     campusId: 'campus_1',
     customTags: createPublishContentRunTags(
       '12345678-abcd-4abc-8abc-1234567890ab',
@@ -112,6 +130,13 @@ function cleanupHarness(storageKeys = ['asset/a.pdf']) {
 }
 
 describe('run-scoped publisher cleanup', () => {
+  const auditSubject = {
+    action: 'CAMPUS_WORK_CONTACT_VIEWED',
+    actorId: 'viewer_1',
+    subjectId: 'work_1',
+    subjectType: 'JOB_POST',
+  };
+
   it('queues keys in the transaction and deletes objects only after commit', async () => {
     const harness = cleanupHarness();
 
@@ -200,5 +225,42 @@ describe('run-scoped publisher cleanup', () => {
     );
     expect(harness.storage.destroy).toHaveBeenCalledOnce();
     expect(harness.db.end).toHaveBeenCalledOnce();
+  });
+
+  it.each([0, 1])(
+    'accepts %i exact audit rows during partial or completed E2E cleanup',
+    async (auditDeleteCount) => {
+      const harness = cleanupHarness([], {
+        auditDeleteCount,
+        auditSubjects: [auditSubject],
+      });
+
+      await harness.cleanup();
+
+      expect(harness.clientQuery).toHaveBeenCalledWith(
+        expect.stringMatching(/DELETE FROM "AuditLog"/),
+        [
+          'campus_1',
+          auditSubject.action,
+          auditSubject.subjectType,
+          auditSubject.subjectId,
+          auditSubject.actorId,
+        ],
+      );
+      expect(harness.events).toContain('client:COMMIT');
+    },
+  );
+
+  it('rolls back when exact audit cleanup would delete more than one row', async () => {
+    const harness = cleanupHarness([], {
+      auditDeleteCount: 2,
+      auditSubjects: [auditSubject],
+    });
+
+    await expect(harness.cleanup()).rejects.toBeInstanceOf(AggregateError);
+
+    expect(harness.events).toContain('client:ROLLBACK');
+    expect(harness.events).not.toContain('client:COMMIT');
+    expect(harness.storage.deleteObject).not.toHaveBeenCalled();
   });
 });

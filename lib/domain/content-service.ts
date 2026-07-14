@@ -519,7 +519,10 @@ function publicWhere(
     ...(kind === 'resource' && query.courseCode
       ? { courseCode: query.courseCode }
       : {}),
-    ...((kind === 'resource' || kind === 'campus-work') && query.tag
+    ...((kind === 'resource' ||
+      kind === 'marketplace' ||
+      kind === 'campus-work') &&
+    query.tag
       ? {
           tagAssignments: {
             some: {

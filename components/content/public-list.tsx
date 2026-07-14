@@ -88,6 +88,7 @@ export function PublicList({
                   <option value="FAIR">有使用痕迹</option>
                   <option value="POOR">明显磨损</option>
                 </select>
+                <input defaultValue={query.tag} name="tag" placeholder="标签" />
                 <input
                   defaultValue={query.minPriceCents}
                   inputMode="numeric"

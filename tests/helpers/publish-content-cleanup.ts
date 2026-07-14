@@ -26,7 +26,15 @@ export interface PublisherCleanupStorage {
   destroy(): Promise<void> | void;
 }
 
+export interface RunScopedAuditSubject {
+  action: string;
+  actorId: string;
+  subjectId: string;
+  subjectType: string;
+}
+
 export interface RunScopedPublisherCleanup {
+  auditSubjects?: Array<RunScopedAuditSubject>;
   campusId: string;
   customTags: PublishContentRunTags;
   id: string;
@@ -85,7 +93,7 @@ export async function cleanupRunScopedPublisher(
     storage: PublisherCleanupStorage;
   },
 ) {
-  const { campusId, customTags, id: userId } = publisher;
+  const { auditSubjects = [], campusId, customTags, id: userId } = publisher;
   const { db, storage } = dependencies;
   const createId = dependencies.createId ?? randomUUID;
   const errors: unknown[] = [];
@@ -135,6 +143,29 @@ export async function cleanupRunScopedPublisher(
             id: String(job.id),
             storageKey: String(job.storageKey),
           });
+        }
+
+        for (const auditSubject of auditSubjects) {
+          const deletedAudit = await client.query(
+            `DELETE FROM "AuditLog"
+             WHERE "campusId" = $1
+               AND action = $2
+               AND "subjectType" = $3::"ModerationSubjectType"
+               AND "subjectId" = $4
+               AND "actorId" = $5`,
+            [
+              campusId,
+              auditSubject.action,
+              auditSubject.subjectType,
+              auditSubject.subjectId,
+              auditSubject.actorId,
+            ],
+          );
+          if (deletedAudit.rowCount !== null && deletedAudit.rowCount > 1) {
+            throw new Error(
+              'Run-scoped audit cleanup exceeded its exact target.',
+            );
+          }
         }
 
         const deletedUser = await client.query(

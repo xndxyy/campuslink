@@ -4,15 +4,19 @@ import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { expect, test } from '@playwright/test';
 import { hash } from 'bcryptjs';
 import { Pool } from 'pg';
+import { assertSafeDestructiveE2eEnvironment } from '../helpers/e2e-database-safety';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
 import { cleanupRunScopedPublisher } from '../helpers/publish-content-cleanup';
 import { createPublishContentRunTags } from '../helpers/publish-content-run-tags';
 
 const runSharedAccountE2e = shouldRunSharedAccountE2e(process.env);
+if (runSharedAccountE2e) {
+  assertSafeDestructiveE2eEnvironment(process.env);
+}
 
 test.skip(
   !runSharedAccountE2e,
-  'Requires complete live E2E services and provisioned accounts.',
+  'Requires complete live E2E services, provisioned accounts, and an isolated destructive test database.',
 );
 
 function required(name: string) {
@@ -62,6 +66,12 @@ async function createRunScopedPublisher() {
       ],
     );
     return {
+      auditSubjects: [] as Array<{
+        action: string;
+        actorId: string;
+        subjectId: string;
+        subjectType: string;
+      }>,
       campusId: campus.rows[0].campusId,
       customTags,
       db,
@@ -157,6 +167,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
   const resourceTitle = `E2E algorithms notes ${publisher.runId}`;
   const marketplaceTitle = `E2E textbook ${publisher.runId}`;
   const campusWorkTitle = `E2E campus event assistant ${publisher.runId}`;
+  const campusWorkContact = 'Campus inbox only';
   try {
     await signIn(page, publisher.email, publisher.password);
 
@@ -205,7 +216,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
       .fill('Help serve students during the E2E weekend lunch shift.');
     await page.locator('input[name="location"]').fill('Student centre');
     await page.locator('input[name="payText"]').fill('$20/hour');
-    await page.locator('textarea[name="contact"]').fill('Campus inbox only');
+    await page.locator('textarea[name="contact"]').fill(campusWorkContact);
     await page
       .getByLabel('自定义标签 1')
       .fill(publisher.customTags.campusWork.label);
@@ -218,6 +229,106 @@ test('verified student publishes resource, marketplace item, and campus work thr
       await expect(row).toBeVisible();
       await expect(row).toContainText('PENDING');
     }
+
+    const campusWorkRows = await publisher.db.query<{
+      contact: string | null;
+      id: string;
+    }>(
+      `SELECT id, contact
+       FROM "CampusWorkPost"
+       WHERE "authorId" = $1 AND title = $2 AND title LIKE $3`,
+      [publisher.id, campusWorkTitle, `%${publisher.runId}%`],
+    );
+    expect(campusWorkRows.rows).toHaveLength(1);
+    const campusWork = campusWorkRows.rows[0];
+    if (!campusWork?.contact) {
+      throw new Error('Run-scoped campus work contact is unavailable.');
+    }
+    expect(campusWork.contact).toBe(campusWorkContact);
+
+    const published = await publisher.db.query<{ id: string }>(
+      `UPDATE "JobPost"
+       SET status = 'PUBLISHED'
+       WHERE id = $1 AND "authorId" = $2 AND title = $3
+         AND status = 'PENDING'
+       RETURNING id`,
+      [campusWork.id, publisher.id, campusWorkTitle],
+    );
+    expect(published.rows).toEqual([{ id: campusWork.id }]);
+
+    const otherActors = await publisher.db.query<{
+      campusId: string;
+      id: string;
+    }>(
+      `SELECT id, "campusId"
+       FROM "User"
+       WHERE email = $1`,
+      [process.env.E2E_OTHER_EMAIL],
+    );
+    expect(otherActors.rows).toHaveLength(1);
+    const otherActor = otherActors.rows[0];
+    if (!otherActor) throw new Error('E2E non-owner actor is unavailable.');
+    expect(otherActor.campusId).toBe(publisher.campusId);
+    publisher.auditSubjects.push({
+      action: 'CAMPUS_WORK_CONTACT_VIEWED',
+      actorId: otherActor.id,
+      subjectId: campusWork.id,
+      subjectType: 'JOB_POST',
+    });
+
+    await page.context().clearCookies();
+    await signIn(
+      page,
+      process.env.E2E_OTHER_EMAIL!,
+      process.env.E2E_OTHER_PASSWORD!,
+    );
+    await page.goto(`/campus-work/${campusWork.id}`);
+    const revealContact = page.getByRole('button', {
+      name: '查看联系方式',
+    });
+    await expect(revealContact).toBeVisible();
+    await revealContact.click();
+    await expect(
+      page.getByText(campusWork.contact, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('联系方式访问已记录，请注意线下见面与付款安全。', {
+        exact: true,
+      }),
+    ).toBeVisible();
+
+    const auditRows = await publisher.db.query<{
+      action: string;
+      actorId: string | null;
+      campusId: string;
+      details: unknown;
+      id: string;
+      subjectId: string | null;
+      subjectType: string | null;
+    }>(
+      `SELECT id, "campusId", "actorId", action, "subjectId",
+              "subjectType"::text AS "subjectType", details
+       FROM "AuditLog"
+       WHERE "campusId" = $1 AND action = $2
+         AND "subjectType" = $3::"ModerationSubjectType"
+         AND "subjectId" = $4 AND "actorId" = $5`,
+      [
+        publisher.campusId,
+        'CAMPUS_WORK_CONTACT_VIEWED',
+        'JOB_POST',
+        campusWork.id,
+        otherActor.id,
+      ],
+    );
+    expect(auditRows.rows).toHaveLength(1);
+    expect(auditRows.rows[0]).toMatchObject({
+      action: 'CAMPUS_WORK_CONTACT_VIEWED',
+      actorId: otherActor.id,
+      campusId: otherActor.campusId,
+      subjectId: campusWork.id,
+      subjectType: 'JOB_POST',
+    });
+    expect(JSON.stringify(auditRows.rows[0])).not.toContain(campusWork.contact);
   } finally {
     await cleanupPublisher(publisher);
   }

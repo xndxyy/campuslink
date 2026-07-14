@@ -64,6 +64,8 @@ function createAdapter(assets: Asset[] = []) {
       })),
     },
     marketplaceItem: {
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         const record = { ...data, id: 'market_1' };
@@ -613,6 +615,27 @@ describe('content service', () => {
           tagAssignments: {
             some: {
               tag: { label: { equals: '算法', mode: 'insensitive' } },
+            },
+          },
+        }),
+      }),
+    );
+  });
+
+  it('filters public marketplace items through tag relations instead of legacy string tags', async () => {
+    const { adapter, serviceAdapter } = createAdapter();
+    await listPublicContent(serviceAdapter, 'marketplace', {
+      page: 1,
+      pageSize: 12,
+      tag: '教材',
+    });
+
+    expect(adapter.marketplaceItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tagAssignments: {
+            some: {
+              tag: { label: { equals: '教材', mode: 'insensitive' } },
             },
           },
         }),

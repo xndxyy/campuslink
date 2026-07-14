@@ -8,18 +8,25 @@ import {
 } from '@/lib/domain/tags';
 import type {
   ContentListQuery,
+  CreateCampusWorkInput,
   CreateJobInput,
   CreateMarketplaceItemInput,
   CreateResourceInput,
+  UpdateCampusWorkInput,
   UpdateJobInput,
   UpdateMarketplaceItemInput,
   UpdateResourceInput,
 } from '@/lib/validation/content';
 
 type Role = 'STUDENT' | 'MODERATOR' | 'ADMIN';
-export type ContentKind = 'resource' | 'marketplace' | 'job';
+export type ContentKind = 'resource' | 'marketplace' | 'campus-work' | 'job';
 export type UpdateContentInput =
-  UpdateResourceInput | UpdateMarketplaceItemInput | UpdateJobInput;
+  | UpdateResourceInput
+  | UpdateMarketplaceItemInput
+  | UpdateCampusWorkInput
+  | UpdateJobInput;
+
+export const LEGACY_CAMPUS_WORK_COMPANY = 'CampusLink 校园工作';
 
 export interface ContentActor {
   campusId: string;
@@ -116,6 +123,8 @@ export interface ContentAdapter {
       where: Record<string, unknown>;
     }): Promise<{ count: number }>;
   };
+  campusWorkPost: Delegate;
+  campusWorkTag: TagJoinDelegate;
   jobPost: Delegate;
   marketplaceItem: Delegate;
   marketplaceTag: TagJoinDelegate;
@@ -188,20 +197,33 @@ async function serializableContentTransaction<T>(
 async function writeResolvedTagJoins(
   transaction: ContentAdapter,
   actor: VerifiedContentActor,
-  kind: 'resource' | 'marketplace',
+  kind: 'resource' | 'marketplace' | 'campus-work',
   contentId: string,
   tagIds: string[],
   replace: boolean,
 ) {
   const delegate =
-    kind === 'resource' ? transaction.resourceTag : transaction.marketplaceTag;
+    kind === 'resource'
+      ? transaction.resourceTag
+      : kind === 'marketplace'
+        ? transaction.marketplaceTag
+        : transaction.campusWorkTag;
   const contentIdField =
-    kind === 'resource' ? 'resourceId' : 'marketplaceItemId';
+    kind === 'resource'
+      ? 'resourceId'
+      : kind === 'marketplace'
+        ? 'marketplaceItemId'
+        : 'campusWorkPostId';
   if (replace) {
     await delegate.deleteMany({ where: { [contentIdField]: contentId } });
   }
   if (tagIds.length === 0) return;
-  const scope = kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE';
+  const scope =
+    kind === 'resource'
+      ? 'RESOURCE'
+      : kind === 'marketplace'
+        ? 'MARKETPLACE'
+        : 'CAMPUS_WORK';
   const created = await delegate.createMany({
     data: tagIds.map((tagId) => ({
       campusId: actor.campusId,
@@ -218,7 +240,9 @@ function delegateFor(adapter: ContentAdapter, kind: ContentKind): Delegate {
     ? adapter.resource
     : kind === 'marketplace'
       ? adapter.marketplaceItem
-      : adapter.jobPost;
+      : kind === 'campus-work'
+        ? adapter.campusWorkPost
+        : adapter.jobPost;
 }
 
 function validateAssets(
@@ -397,6 +421,74 @@ export async function createJobPost(
   });
 }
 
+function sharedCampusWorkData(input: CreateCampusWorkInput) {
+  return {
+    company: LEGACY_CAMPUS_WORK_COMPANY,
+    description: input.description,
+    location: input.location,
+    payText: input.payText,
+    title: input.title,
+  };
+}
+
+export async function createCampusWorkPost(
+  adapter: ContentAdapter,
+  actor: VerifiedContentActor,
+  input: CreateCampusWorkInput,
+) {
+  const preparedTags = await prepareContentTagSelection(actor, 'CAMPUS_WORK', {
+    customTags: input.customTags,
+    presetTagIds: input.presetTagIds,
+  });
+  return serializableContentTransaction(adapter, async (tx) => {
+    const created = await tx.campusWorkPost.create({
+      data: {
+        authorId: actor.id,
+        campusId: actor.campusId,
+        ...sharedCampusWorkData(input),
+        contact: input.contact,
+        status: ContentStatus.DRAFT,
+      },
+    });
+    await tx.jobPost.create({
+      data: {
+        authorId: actor.id,
+        campusId: actor.campusId,
+        ...sharedCampusWorkData(input),
+        ...(created.createdAt instanceof Date
+          ? { createdAt: created.createdAt }
+          : {}),
+        id: created.id,
+        status: ContentStatus.DRAFT,
+        ...(created.updatedAt instanceof Date
+          ? { updatedAt: created.updatedAt }
+          : {}),
+      },
+    });
+    const resolvedTagIds = await resolveContentTagsInTransaction(
+      tx,
+      preparedTags,
+    );
+    await writeResolvedTagJoins(
+      tx,
+      actor,
+      'campus-work',
+      created.id,
+      resolvedTagIds,
+      false,
+    );
+    const updated = await tx.campusWorkPost.update({
+      data: { status: ContentStatus.PENDING },
+      where: { id: created.id },
+    });
+    await tx.jobPost.update({
+      data: { status: ContentStatus.PENDING },
+      where: { id: created.id },
+    });
+    return updated;
+  });
+}
+
 function publicWhere(
   kind: ContentKind,
   query: Partial<ContentListQuery> & { campusId?: string },
@@ -406,7 +498,9 @@ function publicWhere(
       ? ['title', 'summary', 'courseCode']
       : kind === 'marketplace'
         ? ['title', 'description', 'pickupArea']
-        : ['title', 'company', 'description', 'location'];
+        : kind === 'campus-work'
+          ? ['title', 'description', 'location', 'payText']
+          : ['title', 'company', 'description', 'location'];
   const search = query.search
     ? {
         OR: searchableFields.map((field) => ({
@@ -418,13 +512,17 @@ function publicWhere(
       }
     : {};
   return {
-    campusId: query.campusId,
+    ...(kind === 'campus-work' && !query.campusId
+      ? {
+          campus: { isActive: true, slug: getDefaultCampusSlug() },
+        }
+      : { campusId: query.campusId }),
     status: ContentStatus.PUBLISHED,
     ...search,
     ...(kind === 'resource' && query.courseCode
       ? { courseCode: query.courseCode }
       : {}),
-    ...(kind === 'resource' && query.tag
+    ...((kind === 'resource' || kind === 'campus-work') && query.tag
       ? {
           tagAssignments: {
             some: {
@@ -450,7 +548,7 @@ function publicWhere(
     ...(kind === 'job' && query.company
       ? { company: { contains: query.company, mode: 'insensitive' } }
       : {}),
-    ...(kind === 'job' && query.location
+    ...((kind === 'job' || kind === 'campus-work') && query.location
       ? { location: { contains: query.location, mode: 'insensitive' } }
       : {}),
   };
@@ -515,6 +613,28 @@ function publicSelect(kind: ContentKind) {
       // Contact is deliberately absent until the audited request-contact flow.
     };
   }
+  if (kind === 'campus-work') {
+    return {
+      ...shared,
+      author: { select: { name: true } },
+      description: true,
+      location: true,
+      payText: true,
+      tagAssignments: {
+        select: {
+          tag: {
+            select: {
+              id: true,
+              isActive: true,
+              isPreset: true,
+              label: true,
+            },
+          },
+        },
+      },
+      // Contact is deliberately absent from the public campus-work presenter.
+    };
+  }
   return {
     ...shared,
     company: true,
@@ -560,6 +680,12 @@ function presentContentRecord(record: ContentRecord) {
   return { ...content, tags };
 }
 
+function presentPublicContentRecord(record: ContentRecord) {
+  const content = { ...presentContentRecord(record) };
+  delete content.contact;
+  return content;
+}
+
 export async function listPublicContent(
   adapter: ContentAdapter,
   kind: ContentKind,
@@ -584,7 +710,7 @@ export async function listPublicContent(
     delegate.count({ where }),
   ]);
   return {
-    items: items.map(presentContentRecord),
+    items: items.map(presentPublicContentRecord),
     page,
     pageSize,
     total,
@@ -600,9 +726,15 @@ export async function getPublicContent(
   if (!delegate.findFirst) throw new Error('Unsupported adapter');
   const item = await delegate.findFirst({
     select: publicSelect(kind),
-    where: { id, status: ContentStatus.PUBLISHED },
+    where: {
+      ...(kind === 'campus-work'
+        ? { campus: { isActive: true, slug: getDefaultCampusSlug() } }
+        : {}),
+      id,
+      status: ContentStatus.PUBLISHED,
+    },
   });
-  return item ? presentContentRecord(item) : null;
+  return item ? presentPublicContentRecord(item) : null;
 }
 
 export async function listOwnedContent(
@@ -624,7 +756,9 @@ export async function listOwnedContent(
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: {
       ...publicSelect(kind),
-      ...(kind === 'marketplace' ? { contact: true } : {}),
+      ...(kind === 'marketplace' || kind === 'campus-work'
+        ? { contact: true }
+        : {}),
     },
     where: { [ownerField]: actor.id },
   });
@@ -692,6 +826,23 @@ export async function archiveOwnedContent(
   kind: ContentKind,
   id: string,
 ) {
+  if (kind === 'campus-work') {
+    return serializableContentTransaction(adapter, async (tx) => {
+      for (const delegate of [tx.campusWorkPost, tx.jobPost]) {
+        if (!delegate.updateMany) throw new Error('Unsupported adapter');
+        const changed = await delegate.updateMany({
+          data: { status: ContentStatus.ARCHIVED },
+          where: {
+            authorId: actor.id,
+            id,
+            status: { in: [ContentStatus.PENDING, ContentStatus.PUBLISHED] },
+          },
+        });
+        if (changed.count !== 1) throw new ContentConflictError();
+      }
+      return { id, status: ContentStatus.ARCHIVED };
+    });
+  }
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
@@ -714,6 +865,23 @@ export async function submitOwnedDraft(
   id: string,
   policy?: DocumentScanPolicy,
 ) {
+  if (kind === 'campus-work') {
+    return serializableContentTransaction(adapter, async (tx) => {
+      for (const delegate of [tx.campusWorkPost, tx.jobPost]) {
+        if (!delegate.updateMany) throw new Error('Unsupported adapter');
+        const changed = await delegate.updateMany({
+          data: { status: ContentStatus.PENDING },
+          where: {
+            authorId: actor.id,
+            id,
+            status: ContentStatus.DRAFT,
+          },
+        });
+        if (changed.count !== 1) throw new ContentConflictError();
+      }
+      return { id, status: ContentStatus.PENDING };
+    });
+  }
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
@@ -779,7 +947,12 @@ export async function editOwnedContent(
       throw new ContentConflictError();
     }
     const { customTags, presetTagIds } = input;
-    const scope = kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE';
+    const scope =
+      kind === 'resource'
+        ? 'RESOURCE'
+        : kind === 'marketplace'
+          ? 'MARKETPLACE'
+          : 'CAMPUS_WORK';
     const updateData =
       kind === 'resource'
         ? 'summary' in input
@@ -789,7 +962,7 @@ export async function editOwnedContent(
               title: input.title,
             }
           : null
-        : 'condition' in input
+        : kind === 'marketplace' && 'condition' in input
           ? {
               condition: input.condition,
               contact: input.contact,
@@ -799,7 +972,16 @@ export async function editOwnedContent(
               status: ContentStatus.DRAFT,
               title: input.title,
             }
-          : null;
+          : kind === 'campus-work' && 'location' in input && 'contact' in input
+            ? {
+                contact: input.contact,
+                description: input.description,
+                location: input.location,
+                payText: input.payText,
+                status: ContentStatus.DRAFT,
+                title: input.title,
+              }
+            : null;
     if (!updateData) throw new ContentConflictError();
     const preparedTags = await prepareContentTagSelection(actor, scope, {
       customTags,
@@ -818,6 +1000,26 @@ export async function editOwnedContent(
         },
       });
       if (changed.count !== 1) throw new ContentConflictError();
+      if (kind === 'campus-work') {
+        if (!tx.jobPost.updateMany) throw new Error('Unsupported adapter');
+        const campusWorkInput = input as UpdateCampusWorkInput;
+        const legacy = await tx.jobPost.updateMany({
+          data: {
+            company: LEGACY_CAMPUS_WORK_COMPANY,
+            description: campusWorkInput.description,
+            location: campusWorkInput.location,
+            payText: campusWorkInput.payText,
+            status: ContentStatus.DRAFT,
+            title: campusWorkInput.title,
+          },
+          where: {
+            authorId: actor.id,
+            id,
+            status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
+          },
+        });
+        if (legacy.count !== 1) throw new ContentConflictError();
+      }
       const resolvedTagIds = await resolveContentTagsInTransaction(
         tx,
         preparedTags,
@@ -850,7 +1052,9 @@ export async function getOwnedContent(
   const item = await delegate.findFirst({
     select: {
       ...publicSelect(kind),
-      ...(kind === 'marketplace' ? { contact: true } : {}),
+      ...(kind === 'marketplace' || kind === 'campus-work'
+        ? { contact: true }
+        : {}),
     },
     where: { id, [ownerField]: actor.id },
   });

@@ -1,31 +1,21 @@
-import { notFound } from 'next/navigation';
-import { PublicDetail } from '@/components/content/public-detail';
-import { loadPublicDetail } from '@/lib/domain/public-content';
-import { loadEngagementViewerState } from '@/lib/domain/engagement-view';
+import { permanentRedirect } from 'next/navigation';
 
 export default async function JobDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  let item = null;
-  try {
-    item = await loadPublicDetail('job', id);
-  } catch {
-    return (
-      <main className="page-shell">
-        <p className="notice error-state">招聘数据库暂时不可用。</p>
-      </main>
-    );
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(await searchParams)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item !== undefined) query.append(key, item);
+    }
   }
-  if (!item) notFound();
-  return (
-    <PublicDetail
-      canDownloadDocuments={false}
-      engagement={await loadEngagementViewerState('job', id)}
-      item={item}
-      kind="job"
-    />
+  const destination = `/campus-work/${id}`;
+  permanentRedirect(
+    query.size > 0 ? `${destination}?${query.toString()}` : destination,
   );
 }

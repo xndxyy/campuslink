@@ -9,7 +9,7 @@ import type {
   TagSelection,
 } from '@/components/content/tag-selector';
 
-type FormKind = 'resource' | 'marketplace' | 'job';
+type FormKind = 'resource' | 'marketplace' | 'campus-work';
 
 const emptyTagSelection = (): TagSelection => ({
   customTags: ['', ''],
@@ -38,19 +38,17 @@ export function SubmissionForm({
     setMessage('');
     const values = Object.fromEntries(new FormData(form));
     const body: Record<string, unknown> = { ...values };
-    if (kind !== 'job') body.assetIds = assetIds;
-    if (kind !== 'job') {
-      body.presetTagIds = tagSelection.presetTagIds;
-      body.customTags = tagSelection.customTags
-        .map((tag) => tag.trim())
-        .filter(Boolean);
-    }
+    if (kind === 'resource' || kind === 'marketplace') body.assetIds = assetIds;
+    body.presetTagIds = tagSelection.presetTagIds;
+    body.customTags = tagSelection.customTags
+      .map((tag) => tag.trim())
+      .filter(Boolean);
     const endpoint =
       kind === 'resource'
         ? 'resources'
         : kind === 'marketplace'
           ? 'marketplace'
-          : 'jobs';
+          : 'campus-work';
     try {
       const response = await fetch(`/api/${endpoint}`, {
         body: JSON.stringify(body),
@@ -82,12 +80,6 @@ export function SubmissionForm({
 
   return (
     <form className="submission-form" onSubmit={submit}>
-      {kind === 'job' ? (
-        <label>
-          发布单位
-          <input name="company" required minLength={2} maxLength={200} />
-        </label>
-      ) : null}
       <label>
         标题
         <input name="title" required minLength={3} maxLength={200} />
@@ -108,13 +100,11 @@ export function SubmissionForm({
           <FileUploader kind="RESOURCE_IMAGE" onReady={rememberAsset} />
         </>
       ) : null}
-      {kind !== 'job' ? (
-        <TagSelector
-          availableTags={availableTags}
-          onChange={setTagSelection}
-          value={tagSelection}
-        />
-      ) : null}
+      <TagSelector
+        availableTags={availableTags}
+        onChange={setTagSelection}
+        value={tagSelection}
+      />
       {kind === 'marketplace' ? (
         <>
           <div className="form-grid">
@@ -155,7 +145,7 @@ export function SubmissionForm({
           <FileUploader kind="MARKETPLACE_IMAGE" onReady={rememberAsset} />
         </>
       ) : null}
-      {kind === 'job' ? (
+      {kind === 'campus-work' ? (
         <div className="form-grid">
           <label>
             地点
@@ -166,6 +156,18 @@ export function SubmissionForm({
             <input name="payText" required minLength={2} maxLength={200} />
           </label>
         </div>
+      ) : null}
+      {kind === 'campus-work' ? (
+        <label>
+          联系方式（仅向符合条件的已验证同校用户揭示）
+          <textarea
+            name="contact"
+            required
+            minLength={3}
+            maxLength={300}
+            rows={3}
+          />
+        </label>
       ) : null}
       <div className="form-footer">
         <button disabled={state === 'pending'} type="submit">

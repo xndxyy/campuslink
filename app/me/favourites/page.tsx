@@ -17,7 +17,7 @@ function targetHref(
     ? `/resources/${id}`
     : targetType === 'MARKETPLACE_ITEM'
       ? `/marketplace/${id}`
-      : `/jobs/${id}`;
+      : `/campus-work/${id}`;
 }
 
 export default async function FavouritesPage({
@@ -56,7 +56,7 @@ export default async function FavouritesPage({
       {result.items.length === 0 ? (
         <section className="empty-state">
           <h2>No saved content yet</h2>
-          <p>Use “Add favourite” on a published resource, listing, or job.</p>
+          <p>在已发布的学习资源、二手物品或校园工作详情中添加收藏。</p>
           <Link href="/resources">Browse resources</Link>
         </section>
       ) : (

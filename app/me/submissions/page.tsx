@@ -13,15 +13,15 @@ async function loadGroups() {
     const user = await requireVerifiedUser();
     const adapter = getDb() as unknown as ContentAdapter;
     const actor = { campusId: user.campusId, id: user.id, role: user.role };
-    const [resources, marketplace, jobs] = await Promise.all([
+    const [resources, marketplace, campusWork] = await Promise.all([
       listOwnedContent(adapter, actor, 'resource'),
       listOwnedContent(adapter, actor, 'marketplace'),
-      listOwnedContent(adapter, actor, 'job'),
+      listOwnedContent(adapter, actor, 'campus-work'),
     ]);
     return [
       ['学习资源', 'resource', resources],
       ['二手物品', 'marketplace', marketplace],
-      ['校园工作', 'job', jobs],
+      ['校园工作', 'campus-work', campusWork],
     ] as const;
   } catch {
     return null;

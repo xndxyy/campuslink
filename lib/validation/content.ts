@@ -136,6 +136,18 @@ export const createJobSchema = z
   })
   .strict();
 
+export const createCampusWorkSchema = z
+  .object({
+    contact: plainText(3, 300, 'Contact preference'),
+    ...tagSelectionShape,
+    description: plainText(20, 5_000, 'Description'),
+    location: plainText(2, 200, 'Location'),
+    payText: plainText(2, 200, 'Pay'),
+    title: plainText(3, 200, 'Title'),
+  })
+  .strict()
+  .superRefine(enforceTagLimit);
+
 export const updateResourceSchema = z
   .object({
     ...tagSelectionShape,
@@ -158,6 +170,7 @@ export const updateMarketplaceItemSchema = z
   .superRefine(enforceTagLimit)
   .transform(({ price, ...value }) => ({ ...value, priceCents: price }));
 export const updateJobSchema = createJobSchema;
+export const updateCampusWorkSchema = createCampusWorkSchema;
 
 export const contentListQuerySchema = z
   .object({
@@ -189,9 +202,11 @@ export type CreateMarketplaceItemInput = z.output<
   typeof createMarketplaceItemSchema
 >;
 export type CreateJobInput = z.output<typeof createJobSchema>;
+export type CreateCampusWorkInput = z.output<typeof createCampusWorkSchema>;
 export type UpdateResourceInput = z.output<typeof updateResourceSchema>;
 export type UpdateMarketplaceItemInput = z.output<
   typeof updateMarketplaceItemSchema
 >;
 export type UpdateJobInput = z.output<typeof updateJobSchema>;
+export type UpdateCampusWorkInput = z.output<typeof updateCampusWorkSchema>;
 export type ContentListQuery = z.output<typeof contentListQuerySchema>;

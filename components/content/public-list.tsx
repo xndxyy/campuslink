@@ -8,7 +8,7 @@ import {
 import type { ContentListQuery } from '@/lib/validation/content';
 
 const labels = {
-  job: { eyebrow: '机会公示', title: '校园工作' },
+  'campus-work': { eyebrow: '校园互助', title: '校园工作' },
   marketplace: { eyebrow: '循环市集', title: '二手交换' },
   resource: { eyebrow: '知识共享', title: '学习资源' },
 };
@@ -18,7 +18,7 @@ function routeFor(kind: PublicContentKind) {
     ? '/resources'
     : kind === 'marketplace'
       ? '/marketplace'
-      : '/jobs';
+      : '/campus-work';
 }
 
 export function PublicList({
@@ -102,13 +102,9 @@ export function PublicList({
                 />
               </>
             ) : null}
-            {kind === 'job' ? (
+            {kind === 'campus-work' ? (
               <>
-                <input
-                  defaultValue={query.company}
-                  name="company"
-                  placeholder="单位"
-                />
+                <input defaultValue={query.tag} name="tag" placeholder="标签" />
                 <input
                   defaultValue={query.location}
                   name="location"
@@ -124,9 +120,7 @@ export function PublicList({
         <section className="empty-state">
           <p className="eyebrow">暂无公示</p>
           <h2>这一栏还在等待第一份通过审核的内容。</h2>
-          <Link href={`/submit/${kind === 'job' ? 'job' : kind}`}>
-            提交内容
-          </Link>
+          <Link href={`/submit/${kind}`}>提交内容</Link>
         </section>
       ) : null}
       <section className="editorial-list" aria-label={`${copy.title}列表`}>
@@ -138,7 +132,7 @@ export function PublicList({
               ? String(item.courseCode ?? '跨学科')
               : kind === 'marketplace'
                 ? `¥${(Number(item.priceCents ?? 0) / 100).toFixed(2)} · ${String(item.condition ?? '')}`
-                : `${String(item.company ?? '')} · ${String(item.location ?? '')}`;
+                : `${String(item.location ?? '')} · ${String(item.payText ?? '')}`;
           return (
             <article className="notice-card" key={item.id}>
               <span className="issue-number">

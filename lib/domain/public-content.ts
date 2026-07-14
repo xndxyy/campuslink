@@ -7,7 +7,7 @@ import {
 } from '@/lib/domain/content-service';
 import { contentListQuerySchema } from '@/lib/validation/content';
 
-export type PublicContentKind = 'resource' | 'marketplace' | 'job';
+export type PublicContentKind = 'resource' | 'marketplace' | 'campus-work';
 
 export interface PresentedContentTag {
   id: string;

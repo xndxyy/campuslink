@@ -11,13 +11,14 @@ import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import {
   archiveOwnedContent,
   type ContentAdapter,
+  type ContentKind,
   ContentConflictError,
   ContentNotFoundError,
   editOwnedContent,
   submitOwnedDraft,
 } from './content-service';
-import type { PublicContentKind } from './public-content';
 import {
+  updateCampusWorkSchema,
   updateJobSchema,
   updateMarketplaceItemSchema,
   updateResourceSchema,
@@ -32,7 +33,7 @@ export interface ContentActionDependencies {
 
 export async function handleContentAction(
   request: Request,
-  kind: PublicContentKind,
+  kind: ContentKind,
   id: string,
   dependencies: ContentActionDependencies = {},
 ) {
@@ -69,7 +70,9 @@ export async function handleContentAction(
         ? updateResourceSchema
         : kind === 'marketplace'
           ? updateMarketplaceItemSchema
-          : updateJobSchema;
+          : kind === 'campus-work'
+            ? updateCampusWorkSchema
+            : updateJobSchema;
     const parsedEdit =
       body?.action === 'edit' ? editSchema.safeParse(body.data) : null;
     if (parsedEdit && !parsedEdit.success) {

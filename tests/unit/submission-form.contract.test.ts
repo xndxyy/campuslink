@@ -29,6 +29,9 @@ const resourcePageSource = readSource('../../app/submit/resource/page.tsx');
 const marketplacePageSource = readSource(
   '../../app/submit/marketplace/page.tsx',
 );
+const campusWorkPageSource = readSource(
+  '../../app/submit/campus-work/page.tsx',
+);
 
 describe('submission form async event safety', () => {
   it('captures the form before awaiting and resets the captured element', () => {
@@ -46,7 +49,7 @@ describe('submission form async event safety', () => {
 });
 
 describe('publishing tag selection contract', () => {
-  it('uses one accessible reusable selector for resource and marketplace tags', () => {
+  it('uses one accessible reusable selector for every supported publishing form', () => {
     expect(tagSelectorSource).toContain('export function TagSelector');
     expect(tagSelectorSource).toContain('<fieldset');
     expect(tagSelectorSource).toContain('<legend>');
@@ -54,7 +57,10 @@ describe('publishing tag selection contract', () => {
     expect(tagSelectorSource).toContain('最多选择 5 个标签');
     expect(tagSelectorSource).toContain('最多添加 2 个自定义标签');
     expect(source).toContain('import { TagSelector }');
-    expect(source).toContain("kind !== 'job'");
+    expect(source).toMatch(
+      /type FormKind\s*=\s*[^;]*'resource'[^;]*'marketplace'[^;]*'campus-work'[^;]*;/,
+    );
+    expect(source).not.toContain("'job'");
     expect(source).toContain('<TagSelector');
     expect(editSource).toContain('import { TagSelector }');
     expect(editSource).toContain('<TagSelector');
@@ -71,14 +77,19 @@ describe('publishing tag selection contract', () => {
     }
   });
 
-  it('loads campus-scoped presets on both publishing pages', () => {
-    for (const pageSource of [resourcePageSource, marketplacePageSource]) {
+  it('loads campus-scoped presets on every publishing page', () => {
+    for (const pageSource of [
+      resourcePageSource,
+      marketplacePageSource,
+      campusWorkPageSource,
+    ]) {
       expect(pageSource).toContain('requireVerifiedPageUser');
       expect(pageSource).toContain('listAvailableTags');
       expect(pageSource).toContain('availableTags={availableTags}');
     }
     expect(resourcePageSource).toContain("'RESOURCE'");
     expect(marketplacePageSource).toContain("'MARKETPLACE'");
+    expect(campusWorkPageSource).toContain("'CAMPUS_WORK'");
   });
 });
 

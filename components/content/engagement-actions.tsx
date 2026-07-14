@@ -2,9 +2,9 @@
 
 import { type FormEvent, useRef, useState } from 'react';
 
-type Kind = 'resource' | 'marketplace' | 'job';
+type Kind = 'resource' | 'marketplace' | 'campus-work';
 const targetTypes = {
-  job: 'JOB_POST',
+  'campus-work': 'JOB_POST',
   marketplace: 'MARKETPLACE_ITEM',
   resource: 'RESOURCE',
 } as const;
@@ -103,8 +103,10 @@ export function EngagementActions({
     setPending('contact');
     setMessage(null);
     try {
+      const contactKind =
+        kind === 'campus-work' ? 'campus-work' : 'marketplace';
       const response = await fetch(
-        `/api/marketplace/${encodeURIComponent(id)}/contact`,
+        `/api/${contactKind}/${encodeURIComponent(id)}/contact`,
         { method: 'POST' },
       );
       const body = (await response.json().catch(() => null)) as {
@@ -119,7 +121,11 @@ export function EngagementActions({
         );
       }
       setContact(body.contact);
-      setMessage('Contact access was recorded for community safety.');
+      setMessage(
+        kind === 'campus-work'
+          ? '联系方式访问已记录，请注意线下见面与付款安全。'
+          : 'Contact access was recorded for community safety.',
+      );
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : 'Unable to request contact.',
@@ -151,22 +157,28 @@ export function EngagementActions({
         >
           Report content
         </button>
-        {kind === 'marketplace' ? (
+        {kind === 'marketplace' || kind === 'campus-work' ? (
           isOwner ? (
             <span className="owner-marker">Owner listing</span>
           ) : contact ? (
             <p className="revealed-contact" role="status">
               Seller contact: <strong>{contact}</strong>
             </p>
-          ) : (
+          ) : kind === 'marketplace' || signedIn ? (
             <button
               disabled={pending !== null}
               onClick={revealContact}
               type="button"
             >
-              {pending === 'contact' ? 'Requesting…' : 'Request contact'}
+              {pending === 'contact'
+                ? kind === 'campus-work'
+                  ? '正在获取…'
+                  : 'Requesting…'
+                : kind === 'campus-work'
+                  ? '查看联系方式'
+                  : 'Request contact'}
             </button>
-          )
+          ) : null
         ) : null}
       </div>
       {!signedIn ? (

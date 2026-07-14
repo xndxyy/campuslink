@@ -44,7 +44,7 @@ export function PublicDetail({
             ? '/resources'
             : kind === 'marketplace'
               ? '/marketplace'
-              : '/jobs'
+              : '/campus-work'
         }
       >
         ← 返回公示列表
@@ -60,8 +60,8 @@ export function PublicDetail({
             {kind === 'marketplace'
               ? `¥${(Number(item.priceCents) / 100).toFixed(2)} · ${String(item.condition)} · ${String(item.pickupArea)}`
               : null}
-            {kind === 'job'
-              ? `${String(item.company)} · ${String(item.location)} · ${String(item.payText)}`
+            {kind === 'campus-work'
+              ? `${String(item.location)} · ${String(item.payText)}`
               : null}
           </p>
           <p className="author-line">
@@ -124,6 +124,13 @@ export function PublicDetail({
         {kind === 'marketplace' && !engagement ? (
           <aside className="privacy-note">
             为保护发布者隐私，联系方式不会公开展示。联系请求功能将在受审计流程中开放。
+          </aside>
+        ) : null}
+        {kind === 'campus-work' ? (
+          <aside className="privacy-note" aria-label="校园工作安全提示">
+            <p>建议在公共场所见面。</p>
+            <p>不要提前付款。</p>
+            <p>平台不提供资金托管或担保。</p>
           </aside>
         ) : null}
       </article>

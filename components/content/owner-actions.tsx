@@ -10,7 +10,7 @@ export function OwnerActions({
   status,
 }: {
   id: string;
-  kind: 'resource' | 'marketplace' | 'job';
+  kind: 'resource' | 'marketplace' | 'campus-work';
   status: string;
 }) {
   const router = useRouter();
@@ -21,7 +21,7 @@ export function OwnerActions({
       ? 'resources'
       : kind === 'marketplace'
         ? 'marketplace'
-        : 'jobs';
+        : 'campus-work';
   async function act(action: 'archive' | 'submit') {
     setPending(true);
     setMessage('');

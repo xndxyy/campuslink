@@ -5,7 +5,9 @@ import { hasFavourite, type FavouritesAdapter } from './favourites';
 import type { PublicContentKind } from './public-content';
 
 interface OwnerLookupAdapter {
-  jobPost: { findFirst(args: Record<string, unknown>): Promise<unknown> };
+  campusWorkPost: {
+    findFirst(args: Record<string, unknown>): Promise<unknown>;
+  };
   marketplaceItem: {
     findFirst(args: Record<string, unknown>): Promise<unknown>;
   };
@@ -33,7 +35,7 @@ export async function loadEngagementViewerState(
       ? lookup.resource
       : kind === 'marketplace'
         ? lookup.marketplaceItem
-        : lookup.jobPost;
+        : lookup.campusWorkPost;
   const [initialFavourited, owned] = await Promise.all([
     hasFavourite(
       db as unknown as FavouritesAdapter,

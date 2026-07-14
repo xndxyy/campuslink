@@ -1,33 +1,23 @@
-import { PublicList } from '@/components/content/public-list';
-import { loadPublicList } from '@/lib/domain/public-content';
+import { permanentRedirect } from 'next/navigation';
+
+function withSearchParams(
+  path: string,
+  searchParams: Record<string, string | string[] | undefined>,
+) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (item !== undefined) query.append(key, item);
+    }
+  }
+  const serialized = query.toString();
+  return serialized ? `${path}?${serialized}` : path;
+}
 
 export default async function JobsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  let result;
-  try {
-    result = await loadPublicList('job', await searchParams);
-  } catch {
-    result = {
-      error: '招聘数据库暂时不可用，请稍后再来。',
-      items: [],
-      page: 1,
-      pageSize: 12,
-      query: {},
-      total: 0,
-    };
-  }
-  return (
-    <PublicList
-      error={'error' in result ? result.error : undefined}
-      items={result.items}
-      kind="job"
-      page={result.page}
-      pageSize={result.pageSize}
-      query={result.query}
-      total={result.total}
-    />
-  );
+  permanentRedirect(withSearchParams('/campus-work', await searchParams));
 }

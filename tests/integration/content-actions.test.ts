@@ -1,12 +1,24 @@
 import { randomUUID } from 'node:crypto';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  type TestContext,
+} from 'vitest';
 
 import { handleCreateJob } from '@/app/api/jobs/route';
 import { createDbClient } from '@/lib/db';
 import {
+  requestCampusWorkContact,
+  type CampusWorkContactAdapter,
+} from '@/lib/domain/campus-work-contact';
+import {
   type ContentAdapter,
   ContentConflictError,
+  createCampusWorkPost,
   createJobPost,
   createMarketplaceItem,
   createResource,
@@ -22,9 +34,32 @@ describeWithDatabase('content publishing actions', () => {
   let campusId = '';
   let studentId = '';
   let otherId = '';
+  let hasCampusWorkCapabilities = false;
+
+  function requireCampusWorkCapabilities(context: TestContext) {
+    if (hasCampusWorkCapabilities) return true;
+    context.skip();
+    return false;
+  }
 
   beforeAll(async () => {
     db = createDbClient();
+    const capabilities = await db.$queryRaw<
+      Array<{ hasCampusWorkCapabilities: boolean }>
+    >`
+      SELECT
+        to_regclass('public."CampusWorkPost"') IS NOT NULL
+        AND to_regclass('public."CampusWorkTag"') IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_trigger
+          WHERE tgname = 'JobPost_campus_work_sync'
+            AND tgrelid = to_regclass('public."JobPost"')
+            AND NOT tgisinternal
+        ) AS "hasCampusWorkCapabilities"
+    `;
+    hasCampusWorkCapabilities =
+      capabilities[0]?.hasCampusWorkCapabilities === true;
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
@@ -58,6 +93,7 @@ describeWithDatabase('content publishing actions', () => {
 
   afterAll(async () => {
     if (campusId) {
+      await db.auditLog.deleteMany({ where: { campusId } });
       await db.user.deleteMany({ where: { campusId } });
       await db.tagDefinition.deleteMany({ where: { campusId } });
       await db.campus.delete({ where: { id: campusId } });
@@ -132,6 +168,189 @@ describeWithDatabase('content publishing actions', () => {
     await expect(
       db.asset.findUnique({ where: { id: image.id } }),
     ).resolves.toMatchObject({ marketplaceItemId: marketplace.id });
+  });
+
+  it('dual-writes campus work and preserves contact and tags through a legacy trigger update', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const customTag = `现场协助 ${randomUUID().slice(0, 6)}`;
+    const contact = `contact-${randomUUID()}@example.test`;
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: studentId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const created = await createCampusWorkPost(
+      db as unknown as ContentAdapter,
+      actor,
+      {
+        contact,
+        customTags: [customTag],
+        description:
+          'This campus work record verifies atomic legacy compatibility.',
+        location: 'Student centre',
+        payText: '30 CNY per hour',
+        presetTagIds: [],
+        title: `Campus work ${randomUUID()}`,
+      },
+    );
+
+    const [campusWork, legacy] = await Promise.all([
+      db.campusWorkPost.findUniqueOrThrow({ where: { id: created.id } }),
+      db.jobPost.findUniqueOrThrow({ where: { id: created.id } }),
+    ]);
+    expect(campusWork).toMatchObject({
+      authorId: legacy.authorId,
+      campusId: legacy.campusId,
+      description: legacy.description,
+      location: legacy.location,
+      payText: legacy.payText,
+      status: legacy.status,
+      title: legacy.title,
+    });
+    expect(campusWork.company).toBe('CampusLink 校园工作');
+    expect(legacy.company).toBe('CampusLink 校园工作');
+    expect(campusWork.createdAt).toEqual(legacy.createdAt);
+    expect(campusWork.updatedAt).toEqual(legacy.updatedAt);
+
+    const revisedTitle = `Legacy revised ${randomUUID()}`;
+    await db.jobPost.update({
+      data: { status: 'PUBLISHED', title: revisedTitle },
+      where: { id: created.id },
+    });
+    await expect(
+      db.campusWorkPost.findUnique({
+        include: { tagAssignments: { include: { tag: true } } },
+        where: { id: created.id },
+      }),
+    ).resolves.toMatchObject({
+      contact,
+      status: 'PUBLISHED',
+      tagAssignments: [
+        expect.objectContaining({
+          tag: expect.objectContaining({ label: customTag }),
+        }),
+      ],
+      title: revisedTitle,
+    });
+  });
+
+  it('rolls back campus work, legacy, custom tag, and join when a join write fails', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const title = `Rollback campus work ${randomUUID()}`;
+    const customTag = `Rollback work ${randomUUID().slice(0, 6)}`;
+    const failingAdapter = {
+      ...db,
+      $transaction: <T>(
+        operation: (tx: ContentAdapter) => Promise<T>,
+        options?: { isolationLevel: 'Serializable' },
+      ) =>
+        db.$transaction(async (tx) => {
+          const transactionalAdapter = {
+            campusWorkPost: tx.campusWorkPost,
+            campusWorkTag: {
+              createMany: async (args: {
+                data: Array<{
+                  campusId: string;
+                  campusWorkPostId: string;
+                  scope: 'CAMPUS_WORK';
+                  tagId: string;
+                }>;
+              }) => {
+                await tx.campusWorkTag.createMany(args);
+                return { count: 0 };
+              },
+              deleteMany: (args: Record<string, unknown>) =>
+                tx.campusWorkTag.deleteMany(args as never),
+            },
+            jobPost: tx.jobPost,
+            tagDefinition: tx.tagDefinition,
+          } as unknown as ContentAdapter;
+          return operation(transactionalAdapter);
+        }, options),
+    } as unknown as ContentAdapter;
+
+    await expect(
+      createCampusWorkPost(
+        failingAdapter,
+        {
+          campusId,
+          emailVerifiedAt: new Date(),
+          id: studentId,
+          role: 'STUDENT',
+          status: 'ACTIVE',
+        },
+        {
+          contact: 'rollback@example.test',
+          customTags: [customTag],
+          description:
+            'This controlled failure verifies full dual-write rollback.',
+          location: 'Student centre',
+          payText: '30 CNY per hour',
+          presetTagIds: [],
+          title,
+        },
+      ),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+
+    await expect(
+      db.campusWorkPost.findFirst({ where: { title } }),
+    ).resolves.toBeNull();
+    await expect(
+      db.jobPost.findFirst({ where: { title } }),
+    ).resolves.toBeNull();
+    await expect(
+      db.tagDefinition.findFirst({
+        where: { campusId, label: customTag, scope: 'CAMPUS_WORK' },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('returns contact only after persisting the minimal audit event', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const contact = `audited-${randomUUID()}@example.test`;
+    const created = await createCampusWorkPost(
+      db as unknown as ContentAdapter,
+      {
+        campusId,
+        emailVerifiedAt: new Date(),
+        id: studentId,
+        role: 'STUDENT',
+        status: 'ACTIVE',
+      },
+      {
+        contact,
+        customTags: [],
+        description: 'This published work verifies audited contact disclosure.',
+        location: 'Student centre',
+        payText: '30 CNY per hour',
+        presetTagIds: [],
+        title: `Audited campus work ${randomUUID()}`,
+      },
+    );
+    await db.jobPost.update({
+      data: { status: 'PUBLISHED' },
+      where: { id: created.id },
+    });
+
+    await expect(
+      requestCampusWorkContact(
+        db as unknown as CampusWorkContactAdapter,
+        { campusId, id: otherId },
+        created.id,
+      ),
+    ).resolves.toEqual({ contact });
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: {
+        action: 'CAMPUS_WORK_CONTACT_VIEWED',
+        actorId: otherId,
+        subjectId: created.id,
+        subjectType: 'JOB_POST',
+      },
+    });
+    expect(audit.details).toBeNull();
+    expect(JSON.stringify(audit)).not.toContain(contact);
   });
 
   it('denies unverified route actors and assets owned by another user', async () => {

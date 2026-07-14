@@ -16,6 +16,13 @@ import { getDb } from '@/lib/db';
 import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 
 import {
+  type CampusWorkContactActor,
+  type CampusWorkContactAdapter,
+  CampusWorkContactNotFoundError,
+  CampusWorkContactOwnListingError,
+  requestCampusWorkContact,
+} from './campus-work-contact';
+import {
   addFavourite,
   type FavouriteActor,
   FavouriteNotFoundError,
@@ -66,7 +73,7 @@ const reportSchema = z
   })
   .strict();
 
-const noStoreHeaders = { 'Cache-Control': 'no-store, max-age=0' };
+const noStoreHeaders = { 'Cache-Control': 'private, no-store, max-age=0' };
 function json(
   body: unknown,
   status: number,
@@ -241,5 +248,58 @@ export async function handleMarketplaceContactPost(
     if (error instanceof MarketplaceContactNotFoundError)
       return json({ message: error.message }, 404);
     return json({ message: 'Unable to request marketplace contact.' }, 500);
+  }
+}
+
+export interface CampusWorkContactRouteDependencies {
+  contact?: (actor: CampusWorkContactActor, id: string) => Promise<unknown>;
+  limiter?: RateLimiter;
+  resolveUser?: CurrentUserResolver;
+}
+
+export async function handleCampusWorkContactPost(
+  request: Request,
+  id: string,
+  dependencies: CampusWorkContactRouteDependencies = {},
+) {
+  if (!isSameOriginAuthRequest(request)) {
+    return json({ message: '请求来源无效。' }, 403);
+  }
+  if (!targetId.safeParse(id).success) {
+    return json({ message: '校园工作记录无效。' }, 400);
+  }
+  try {
+    const user = await requireVerifiedUser(dependencies.resolveUser);
+    const rate = await (dependencies.limiter ?? contactLimiter).consume(
+      `email:${user.email.toLowerCase()}`,
+    );
+    if (!rate.allowed) {
+      return json({ message: '请求过于频繁，请稍后再试。' }, 429, {
+        'Retry-After': String(rate.retryAfterSeconds),
+      });
+    }
+    const actor = { campusId: user.campusId, id: user.id };
+    const result = dependencies.contact
+      ? await dependencies.contact(actor, id)
+      : await requestCampusWorkContact(
+          getDb() as unknown as CampusWorkContactAdapter,
+          actor,
+          id,
+        );
+    return json(result, 200);
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError) {
+      return json({ message: '请先登录。' }, 401);
+    }
+    if (error instanceof VerificationRequiredError) {
+      return json({ message: '需要已验证的校园账号。' }, 403);
+    }
+    if (error instanceof CampusWorkContactOwnListingError) {
+      return json({ message: '不能查看自己发布内容的联系方式。' }, 403);
+    }
+    if (error instanceof CampusWorkContactNotFoundError) {
+      return json({ message: '未找到可联系的已发布校园工作。' }, 404);
+    }
+    return json({ message: '暂时无法获取联系方式，请稍后重试。' }, 500);
   }
 }

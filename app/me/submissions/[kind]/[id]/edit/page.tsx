@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { EditContentForm } from '@/components/content/edit-content-form';
 import { requireVerifiedPageUser } from '@/lib/auth/page-access';
 import { getDb } from '@/lib/db';
@@ -15,8 +15,13 @@ export default async function EditSubmissionPage({
   params: Promise<{ id: string; kind: string }>;
 }) {
   const { id, kind: rawKind } = await params;
-  if (!['resource', 'marketplace', 'job'].includes(rawKind)) notFound();
-  const kind = rawKind as ContentKind;
+  if (rawKind === 'job') {
+    permanentRedirect(`/me/submissions/campus-work/${id}/edit`);
+  }
+  if (!['resource', 'marketplace', 'campus-work'].includes(rawKind)) {
+    notFound();
+  }
+  const kind = rawKind as Exclude<ContentKind, 'job'>;
   const user = await requireVerifiedPageUser();
   const database = getDb();
   const actor = {
@@ -28,13 +33,15 @@ export default async function EditSubmissionPage({
   };
   const [item, availableTags] = await Promise.all([
     getOwnedContent(database as unknown as ContentAdapter, actor, kind, id),
-    kind === 'job'
-      ? Promise.resolve([])
-      : listAvailableTags(
-          database as unknown as TagAdapter,
-          actor,
-          kind === 'resource' ? 'RESOURCE' : 'MARKETPLACE',
-        ),
+    listAvailableTags(
+      database as unknown as TagAdapter,
+      actor,
+      kind === 'resource'
+        ? 'RESOURCE'
+        : kind === 'marketplace'
+          ? 'MARKETPLACE'
+          : 'CAMPUS_WORK',
+    ),
   ]);
   if (!item || !['DRAFT', 'REJECTED'].includes(String(item.status))) notFound();
   return (

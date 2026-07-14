@@ -31,7 +31,7 @@ export function EditContentForm({
 }: {
   availableTags?: AvailableTag[];
   item: ContentRecord;
-  kind: 'resource' | 'marketplace' | 'job';
+  kind: 'resource' | 'marketplace' | 'campus-work';
 }) {
   const router = useRouter();
   const historicalTags = contentTags(item);
@@ -52,18 +52,16 @@ export function EditContentForm({
     const values: Record<string, unknown> = Object.fromEntries(
       new FormData(event.currentTarget),
     );
-    if (kind !== 'job') {
-      values.presetTagIds = tagSelection.presetTagIds;
-      values.customTags = tagSelection.customTags
-        .map((value) => value.trim())
-        .filter(Boolean);
-    }
+    values.presetTagIds = tagSelection.presetTagIds;
+    values.customTags = tagSelection.customTags
+      .map((value) => value.trim())
+      .filter(Boolean);
     const endpoint =
       kind === 'resource'
         ? 'resources'
         : kind === 'marketplace'
           ? 'marketplace'
-          : 'jobs';
+          : 'campus-work';
     const response = await fetch(`/api/${endpoint}/${item.id}`, {
       body: JSON.stringify({ action: 'edit', data: values }),
       headers: { 'Content-Type': 'application/json' },
@@ -82,12 +80,12 @@ export function EditContentForm({
   }
   return (
     <form className="submission-form" onSubmit={submit}>
-      {kind === 'job' ? (
+      {kind === 'campus-work' ? (
         <label>
-          发布单位
-          <input
-            defaultValue={String(item.company ?? '')}
-            name="company"
+          联系方式
+          <textarea
+            defaultValue={String(item.contact ?? '')}
+            name="contact"
             required
           />
         </label>
@@ -143,15 +141,13 @@ export function EditContentForm({
           </label>
         </>
       ) : null}
-      {kind !== 'job' ? (
-        <TagSelector
-          availableTags={availableTags}
-          historicalTags={historicalTags}
-          onChange={setTagSelection}
-          value={tagSelection}
-        />
-      ) : null}
-      {kind === 'job' ? (
+      <TagSelector
+        availableTags={availableTags}
+        historicalTags={historicalTags}
+        onChange={setTagSelection}
+        value={tagSelection}
+      />
+      {kind === 'campus-work' ? (
         <>
           <label>
             地点

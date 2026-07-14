@@ -26,7 +26,7 @@ async function loadReports() {
 function targetHref(targetType: string, targetId: string) {
   if (targetType === 'RESOURCE') return `/resources/${targetId}`;
   if (targetType === 'MARKETPLACE_ITEM') return `/marketplace/${targetId}`;
-  if (targetType === 'JOB_POST') return `/jobs/${targetId}`;
+  if (targetType === 'JOB_POST') return `/campus-work/${targetId}`;
   return '#';
 }
 

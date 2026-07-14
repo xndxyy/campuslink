@@ -20,6 +20,11 @@ describe('release contract', () => {
     );
   });
 
+  it('bounds Next build workers for constrained release hosts', () => {
+    const config = read('next.config.ts');
+    expect(config).toMatch(/experimental:\s*{\s*cpus:\s*2\s*}/);
+  });
+
   it('routes every JSON mutation through the bounded reader', () => {
     const paths = [
       'lib/domain/content-routes.ts',

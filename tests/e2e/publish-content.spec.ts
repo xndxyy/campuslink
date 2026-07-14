@@ -125,13 +125,13 @@ async function signIn(
   await expect(page).not.toHaveURL(/auth\/sign-in/);
 }
 
-test('verified student publishes resource, marketplace item, and job through real forms', async ({
+test('verified student publishes resource, marketplace item, and campus work through real forms', async ({
   page,
 }) => {
   const publisher = await createRunScopedPublisher();
   const resourceTitle = `E2E algorithms notes ${publisher.runId}`;
   const marketplaceTitle = `E2E textbook ${publisher.runId}`;
-  const jobTitle = `E2E weekend assistant ${publisher.runId}`;
+  const campusWorkTitle = `E2E campus event assistant ${publisher.runId}`;
   try {
     await signIn(page, publisher.email, publisher.password);
 
@@ -140,7 +140,7 @@ test('verified student publishes resource, marketplace item, and job through rea
     await page
       .locator('textarea[name="summary"]')
       .fill('Complete E2E lecture notes with worked examples and exercises.');
-    await page.locator('input[name="tags"]').fill('e2e, algorithms');
+    await page.getByLabel('自定义标签 1').fill('E2E algorithms');
     await page
       .locator('input[type="file"]')
       .first()
@@ -159,6 +159,7 @@ test('verified student publishes resource, marketplace item, and job through rea
     await page.locator('input[name="price"]').fill('19.99');
     await page.locator('input[name="pickupArea"]').fill('North library');
     await page.locator('textarea[name="contact"]').fill('Private campus inbox');
+    await page.getByLabel('自定义标签 1').fill('E2E marketplace');
     await page
       .locator('input[type="file"]')
       .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
@@ -168,19 +169,20 @@ test('verified student publishes resource, marketplace item, and job through rea
       '审核',
     );
 
-    await page.goto('/submit/job');
-    await page.locator('input[name="company"]').fill('E2E Campus Cafe');
-    await page.locator('input[name="title"]').fill(jobTitle);
+    await page.goto('/submit/campus-work');
+    await page.locator('input[name="title"]').fill(campusWorkTitle);
     await page
       .locator('textarea[name="description"]')
       .fill('Help serve students during the E2E weekend lunch shift.');
     await page.locator('input[name="location"]').fill('Student centre');
     await page.locator('input[name="payText"]').fill('$20/hour');
+    await page.locator('textarea[name="contact"]').fill('Campus inbox only');
+    await page.getByLabel('自定义标签 1').fill('E2E event help');
     await page.locator('button[type="submit"]').click();
     await expect(page.locator('[aria-live="polite"]')).toContainText('审核');
 
     await page.goto('/me/submissions');
-    for (const title of [resourceTitle, marketplaceTitle, jobTitle]) {
+    for (const title of [resourceTitle, marketplaceTitle, campusWorkTitle]) {
       const row = page.locator('article').filter({ hasText: title }).first();
       await expect(row).toBeVisible();
       await expect(row).toContainText('PENDING');

@@ -17,6 +17,25 @@ export interface TagSelection {
   presetTagIds: string[];
 }
 
+export function mergeAvailablePresetTags(
+  availableTags: AvailableTag[],
+  historicalTags: ContentTag[],
+) {
+  const merged: AvailableTag[] = [];
+  const seen = new Set<string>();
+  for (const tag of availableTags) {
+    if (seen.has(tag.id)) continue;
+    seen.add(tag.id);
+    merged.push(tag);
+  }
+  for (const tag of historicalTags) {
+    if (!tag.isActive || !tag.isPreset || seen.has(tag.id)) continue;
+    seen.add(tag.id);
+    merged.push({ id: tag.id, label: tag.label });
+  }
+  return merged;
+}
+
 export function TagSelector({
   availableTags,
   historicalTags = [],
@@ -32,6 +51,7 @@ export function TagSelector({
   const customValues = [value.customTags[0] ?? '', value.customTags[1] ?? ''];
   const customCount = customValues.filter((tag) => tag.trim()).length;
   const selectedCount = value.presetTagIds.length + customCount;
+  const presetOptions = mergeAvailablePresetTags(availableTags, historicalTags);
 
   function togglePreset(tagId: string) {
     const selected = value.presetTagIds.includes(tagId);
@@ -58,9 +78,9 @@ export function TagSelector({
         <p>预设标签</p>
         <span aria-live="polite">已选择 {selectedCount} / 5</span>
       </div>
-      {availableTags.length > 0 ? (
+      {presetOptions.length > 0 ? (
         <div className="tag-swatches">
-          {availableTags.map((tag) => {
+          {presetOptions.map((tag) => {
             const checked = value.presetTagIds.includes(tag.id);
             return (
               <label className="tag-swatch" key={tag.id}>

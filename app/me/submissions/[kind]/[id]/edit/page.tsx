@@ -1,6 +1,6 @@
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { EditContentForm } from '@/components/content/edit-content-form';
-import { requireVerifiedUser } from '@/lib/auth/guards';
+import { requireVerifiedPageUser } from '@/lib/auth/page-access';
 import { getDb } from '@/lib/db';
 import {
   type ContentAdapter,
@@ -17,12 +17,7 @@ export default async function EditSubmissionPage({
   const { id, kind: rawKind } = await params;
   if (!['resource', 'marketplace', 'job'].includes(rawKind)) notFound();
   const kind = rawKind as ContentKind;
-  let user;
-  try {
-    user = await requireVerifiedUser();
-  } catch {
-    redirect('/auth/sign-in');
-  }
+  const user = await requireVerifiedPageUser();
   const database = getDb();
   const actor = {
     campusId: user.campusId,

@@ -1,16 +1,10 @@
 import { SubmissionForm } from '@/components/content/submission-form';
-import { requireVerifiedUser } from '@/lib/auth/guards';
+import { requireVerifiedPageUser } from '@/lib/auth/page-access';
 import { getDb } from '@/lib/db';
 import { listAvailableTags, type TagAdapter } from '@/lib/domain/tags';
-import { redirect } from 'next/navigation';
 
 export default async function SubmitResourcePage() {
-  let user;
-  try {
-    user = await requireVerifiedUser();
-  } catch {
-    redirect('/auth/sign-in');
-  }
+  const user = await requireVerifiedPageUser();
   const availableTags = await listAvailableTags(
     getDb() as unknown as TagAdapter,
     {

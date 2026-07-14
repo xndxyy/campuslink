@@ -73,7 +73,7 @@ describe('publishing tag selection contract', () => {
 
   it('loads campus-scoped presets on both publishing pages', () => {
     for (const pageSource of [resourcePageSource, marketplacePageSource]) {
-      expect(pageSource).toContain('requireVerifiedUser');
+      expect(pageSource).toContain('requireVerifiedPageUser');
       expect(pageSource).toContain('listAvailableTags');
       expect(pageSource).toContain('availableTags={availableTags}');
     }

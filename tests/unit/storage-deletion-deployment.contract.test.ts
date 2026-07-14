@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  extractStorageMaintenanceArtifacts,
+  type MaintenanceArtifacts,
+  validateStorageMaintenanceContract,
+} from '../helpers/storage-maintenance-contract';
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
@@ -12,22 +17,145 @@ function section(source: string, start: string, end?: string) {
   return source.slice(startIndex, endIndex >= 0 ? endIndex : undefined);
 }
 
-function codeBlocks(source: string, language: string) {
-  const marker = `\`\`\`${language}\n`;
-  const blocks: string[] = [];
-  let offset = 0;
-  while (true) {
-    const start = source.indexOf(marker, offset);
-    if (start < 0) return blocks;
-    const bodyStart = start + marker.length;
-    const end = source.indexOf('\n```', bodyStart);
-    if (end < 0) return blocks;
-    blocks.push(source.slice(bodyStart, end));
-    offset = end + 4;
-  }
+function maintenanceArtifacts(): MaintenanceArtifacts {
+  return extractStorageMaintenanceArtifacts(
+    read('docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md'),
+  );
+}
+
+function replaceRequired(source: string, current: string, replacement: string) {
+  expect(source).toContain(current);
+  return source.replace(current, replacement);
+}
+
+function expectRejected(artifacts: MaintenanceArtifacts, issue: RegExp): void {
+  expect(validateStorageMaintenanceContract(artifacts)).toEqual(
+    expect.arrayContaining([expect.stringMatching(issue)]),
+  );
 }
 
 describe('queued storage deletion deployment contract', () => {
+  describe('maintenance artifact validator', () => {
+    it('accepts the real 7.10 Bash and systemd artifacts', () => {
+      expect(
+        validateStorageMaintenanceContract(maintenanceArtifacts()),
+      ).toEqual([]);
+    });
+
+    it('rejects removal of curl non-2xx handling', () => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.script = replaceRequired(
+        artifacts.script,
+        '--fail-with-body',
+        '',
+      );
+      expectRejected(artifacts, /fail-with-body/);
+    });
+
+    it.each(['--connect-timeout 5', '--max-time 20'])(
+      'rejects removal of curl timeout flag %s',
+      (flag) => {
+        const artifacts = maintenanceArtifacts();
+        artifacts.script = replaceRequired(artifacts.script, flag, '');
+        expectRejected(artifacts, new RegExp(flag.split(' ')[0].slice(2)));
+      },
+    );
+
+    it.each(['--retry 2', '--retry-delay 2', '--retry-all-errors'])(
+      'rejects removal of curl retry flag %s',
+      (flag) => {
+        const artifacts = maintenanceArtifacts();
+        artifacts.script = replaceRequired(artifacts.script, flag, '');
+        expectRejected(artifacts, new RegExp(flag.split(' ')[0].slice(2)));
+      },
+    );
+
+    it('rejects bypassing run_endpoint for either endpoint', () => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.script = replaceRequired(
+        artifacts.script,
+        'if ! run_endpoint "queued object deletions"',
+        'if ! unvalidated_endpoint "queued object deletions"',
+      );
+      expectRejected(artifacts, /both endpoints.*run_endpoint/i);
+    });
+
+    it('rejects jq parsing without exit-status semantics', () => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.script = replaceRequired(
+        artifacts.script,
+        'jq -cer "$filter"',
+        'jq -cr "$filter"',
+      );
+      expectRejected(artifacts, /jq.*exit status/i);
+    });
+
+    it('rejects returning success after JSON or field parsing fails', () => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.script = replaceRequired(
+        artifacts.script,
+        'printf \'%s returned invalid JSON\\n\' "$name" >&2\n    return 1',
+        'printf \'%s returned invalid JSON\\n\' "$name" >&2\n    return 0',
+      );
+      expectRejected(artifacts, /parse.*nonzero/i);
+    });
+
+    it('rejects removal of strict response field validation', () => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.script = replaceRequired(
+        artifacts.script,
+        'pending: (.pending | nonnegint)',
+        'pending: .pending',
+      );
+      expectRejected(artifacts, /field validation.*pending/i);
+    });
+
+    it.each([
+      ['removes the failure assignment', 'status=1', ''],
+      ['weakens the failed predicate', '.failed == 0', '.failed >= 0'],
+    ])('rejects upload failed control flow that %s', (_name, current, next) => {
+      const artifacts = maintenanceArtifacts();
+      const uploadCheck = artifacts.script.match(
+        /if \[\[ -n "\$upload_json" \]\][\s\S]*?\nfi/,
+      )?.[0];
+      expect(uploadCheck).toBeDefined();
+      artifacts.script = replaceRequired(
+        artifacts.script,
+        uploadCheck!,
+        replaceRequired(uploadCheck!, current, next),
+      );
+      expectRejected(artifacts, /upload.*failed.*service failure/i);
+    });
+
+    it.each([
+      ['retried alert', '.retried > 0', '.retried < 0', /retried/],
+      ['deferred alert', '.deferred > 0', '.deferred < 0', /deferred/],
+      [
+        'one-hour backlog alert',
+        '>= 3600',
+        '>= 7200',
+        /pending.*oldestPendingAgeSeconds.*3600/,
+      ],
+    ])('rejects a weakened storage %s', (_name, current, next, issue) => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.script = replaceRequired(artifacts.script, current, next);
+      expectRejected(artifacts, issue);
+    });
+
+    it.each([
+      ['below the two-endpoint retry budget', 127],
+      ['without the required 30-second margin', 157],
+    ])('rejects TimeoutStartSec %s', (_name, timeout) => {
+      const artifacts = maintenanceArtifacts();
+      artifacts.service = replaceRequired(
+        artifacts.service,
+        'TimeoutStartSec=180',
+        `TimeoutStartSec=${timeout}`,
+      );
+      expectRejected(artifacts, /TimeoutStartSec.*158/);
+    });
+  });
+
   it('documents one 15-minute maintenance schedule for both authenticated endpoints', () => {
     const documents = [
       ['docs/operations.md', '## Scheduled jobs'],
@@ -49,13 +177,7 @@ describe('queued storage deletion deployment contract', () => {
   });
 
   it('attempts both endpoints independently before returning failure', () => {
-    const guide = read('docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md');
-    const maintenance = section(guide, '### 7.10', '\n## 8.');
-    const script = codeBlocks(maintenance, 'bash').find((block) =>
-      block.includes('#!/usr/bin/env bash'),
-    );
-    expect(script).toBeDefined();
-    const source = script!;
+    const source = maintenanceArtifacts().script;
     expect(source).not.toMatch(/(?:^|\n)\s*(?:source|\.)\s+/);
     expect(source).not.toMatch(/printf[^\n]*UPLOAD_CLEANUP_SECRET/);
     expect(source).toMatch(/status=0/);
@@ -84,10 +206,7 @@ describe('queued storage deletion deployment contract', () => {
 
   it('binds the flocked oneshot to the timer and maintenance lifecycle', () => {
     const guide = read('docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md');
-    const maintenance = section(guide, '### 7.10', '\n## 8.');
-    const ini = codeBlocks(maintenance, 'ini');
-    const service = ini.find((block) => block.includes('[Service]')) ?? '';
-    const timer = ini.find((block) => block.includes('[Timer]')) ?? '';
+    const { service, timer } = maintenanceArtifacts();
     expect(service).toMatch(/Description=.*uploads.*queued object deletions/i);
     expect(service).toMatch(
       /ExecStart=\/usr\/bin\/flock --nonblock \S+ \S*\/campuslink-upload-cleanup/,

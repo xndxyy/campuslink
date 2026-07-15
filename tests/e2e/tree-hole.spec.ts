@@ -145,13 +145,20 @@ test('verified users publish and manage a private tree-hole surface without comm
       [id, value.users[0]!.id],
     );
     expect(likes.rows).toEqual([{ postId: id, userId: value.users[0]!.id }]);
+    const origin = new URL(page.url()).origin;
     const knownTreeComment = await page.request.post(
       `/api/forum/posts/${id}/comments`,
-      { data: { body: '不应允许发布的树洞评论。' } },
+      {
+        data: { body: '不应允许发布的树洞评论。' },
+        headers: { Origin: origin },
+      },
     );
     const unknownComment = await page.request.post(
       `/api/forum/posts/missing_${value.runId}/comments`,
-      { data: { body: '不应允许发布的未知评论。' } },
+      {
+        data: { body: '不应允许发布的未知评论。' },
+        headers: { Origin: origin },
+      },
     );
     expect(knownTreeComment.status()).toBe(404);
     expect(unknownComment.status()).toBe(404);

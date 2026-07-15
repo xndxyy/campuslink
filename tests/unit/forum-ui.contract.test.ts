@@ -124,6 +124,12 @@ describe('forum UI contract', () => {
     expect(layout).toContain("layoutUrl || '/forum'");
   });
 
+  it('exercises tree-hole comment rejection through same-origin requests', () => {
+    const treeHoleE2e = source('tests/e2e/tree-hole.spec.ts');
+    expect(treeHoleE2e).toContain('new URL(page.url()).origin');
+    expect(treeHoleE2e.match(/headers: \{ Origin: origin \}/g)).toHaveLength(2);
+  });
+
   it('adds dense responsive forum styling without horizontal overflow hazards', () => {
     const css = source('app/globals.css');
     expect(css).toContain('.forum-shell');

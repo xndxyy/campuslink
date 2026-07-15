@@ -86,8 +86,8 @@ describe('release contract', () => {
     expect(envExample).toMatch(/^DEFAULT_CAMPUS_SLUG=campuslink$/m);
     expect(guide).toContain('DEFAULT_CAMPUS_SLUG=campuslink');
     expect(guide).not.toContain('CAMPUS_EMAIL_DOMAIN');
-    expect(guide).toContain('11 个 Prisma 迁移');
-    expect(guide).not.toMatch(/10\s*个[^\n]*迁移/);
+    expect(guide).toContain('19 个 Prisma 迁移');
+    expect(guide).not.toMatch(/18\s*个[^\n]*迁移/);
     expect(guide).toMatch(
       /'campuslink',\s*\n\s*'西大同学 CampusLink',\s*\n\s*NULL,/,
     );

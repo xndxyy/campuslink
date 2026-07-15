@@ -16,7 +16,7 @@ CampusLink 是一个面向单校区的校园内容平台，覆盖学习资料、
 - PostgreSQL/MinIO 集成测试：本机未提供 live 服务；默认门禁失败关闭，显式本地 skip 模式确认 66 项待执行，结果为 `UNKNOWN`。
 - Playwright 真实业务流程：本机未提供 live 服务；默认门禁失败关闭，显式本地 skip 模式确认 20 项待执行，结果为 `UNKNOWN`。
 - 论坛桌面和手机几何回归：2 项通过，人工截图复核无重叠或横向溢出。
-- Prisma 迁移：18 个前向迁移；Schema validate 和 Client generate 通过，目标环境部署仍须执行 live 迁移验收。
+- Prisma 迁移：19 个前向迁移；Schema validate 和 Client generate 通过，目标环境部署仍须执行 live 迁移验收。
 - ESLint、TypeScript、Prettier、Prisma Schema 校验和密钥扫描通过。
 - Next.js production build 通过，39/39 个页面完成构建。
 - 论坛与匿名树洞阶段的独立规格审查、代码质量审查通过，无 Critical 或 Important 问题。
@@ -126,7 +126,7 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 项目包含：
 
 - TypeScript 严格类型检查。
-- Prisma Schema 和 18 个前向迁移。
+- Prisma Schema 和 19 个前向迁移。
 - 927 项单元测试。
 - 66 项 PostgreSQL/MinIO 集成测试定义，缺少 live 服务时失败关闭。
 - 20 项 Playwright 端到端测试定义，缺少 live 服务时失败关闭。
@@ -1115,7 +1115,7 @@ sudo journalctl -u campuslink-upload-cleanup.service -n 50 --no-pager
 
 不要在生产运行开发 Seed，也不要直接插入带明文或临时密码的管理员。注册逻辑在创建用户前会查找 `slug` 与 `DEFAULT_CAMPUS_SLUG` 匹配的启用 Campus，因此初始化顺序必须是“创建启用的默认 Campus → 使用任意普通邮箱注册 → 完成邮箱验证 → 提升管理员”。所有 SQL 使用数据库迁移账号或云厂商受审计控制台执行，应用数据库账号不应拥有这些权限。
 
-本节的前置条件是 18 个 Prisma 迁移已经成功执行。全新部署应先完成第 7.4 节，并按第 9.1 节执行迁移、切换 `current` 和启动应用；首次业务烟雾测试可以等首管创建完成后再补做，然后回到本节。
+本节的前置条件是 19 个 Prisma 迁移已经成功执行。全新部署应先完成第 7.4 节，并按第 9.1 节执行迁移、切换 `current` 和启动应用；首次业务烟雾测试可以等首管创建完成后再补做，然后回到本节。
 
 ### 8.1 在开放注册前创建首个 Campus
 
@@ -1395,7 +1395,7 @@ sudo systemctl start campuslink-upload-cleanup.timer
 
 ### 9.2 代码回滚与数据库灾难恢复必须分开
 
-Phase 4 的已审核代码回滚点是 `community-expansion-phase-4`，解引用后应得到 `b3fd618ff999d45a2661b80d30091bc8f0d5a26e`。部署前可用 `git fetch --tags` 和 `git rev-parse community-expansion-phase-4^{}` 核对。该标签只固定代码，不会自动回滚数据库；只有在 18 个前向迁移与旧代码保持兼容时才能直接切回。
+Phase 4 的已审核代码回滚点是 `community-expansion-phase-4`，解引用后应得到 `b3fd618ff999d45a2661b80d30091bc8f0d5a26e`。部署前可用 `git fetch --tags` 和 `git rev-parse community-expansion-phase-4^{}` 核对。该标签只固定代码，不会自动回滚数据库；只有在 19 个前向迁移与旧代码保持兼容时才能直接切回。
 
 **代码回滚**只在数据库迁移对旧代码仍然兼容时执行：
 

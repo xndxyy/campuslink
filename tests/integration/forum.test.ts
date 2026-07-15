@@ -4,6 +4,26 @@ import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createDbClient } from '@/lib/db';
+import { getDefaultCampusSlug } from '@/lib/config';
+import {
+  createForumComment,
+  createForumPost,
+  deleteForumPost,
+  type ForumAdapter,
+  ForumConflictError,
+  ForumNotFoundError,
+  ForumVerificationRequiredError,
+  listForumPosts,
+  toggleForumLike,
+  updateForumPost,
+} from '@/lib/domain/forum';
+import {
+  createReport,
+  ReportDuplicateError,
+  ReportNotFoundError,
+  ReportOwnContentError,
+  type ReportsAdapter,
+} from '@/lib/domain/reports';
 import {
   revealTreeHoleAuthor,
   TreeHoleIdentityForbiddenError,
@@ -483,4 +503,213 @@ describeWithDatabase('forum anonymous identity persistence', () => {
       await Promise.all([closer.end(), revealDb.$disconnect()]);
     }
   }, 10_000);
+
+  it('supports public discussion discovery and verified-only tree-hole discovery', async () => {
+    const forumDb = db as unknown as ForumAdapter;
+    const owner = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: anonymousUserId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const discussion = await createForumPost(forumDb, owner, {
+      body: 'Run-scoped public discussion body for forum integration.',
+      category: categorySlug,
+      kind: 'DISCUSSION',
+      title: 'Run-scoped public discussion',
+    });
+    const publicAdapter = {
+      campus: {
+        findFirst: async () => ({
+          id: campusId,
+          isActive: true,
+          slug: getDefaultCampusSlug(),
+        }),
+      },
+      forumPost: db.forumPost,
+    } as unknown as ForumAdapter;
+    const publicList = await listForumPosts(publicAdapter, null, {
+      page: 1,
+      pageSize: 20,
+      query: 'public discussion',
+      view: 'discussion',
+    });
+    expect(publicList.items.some(({ id }) => id === discussion.id)).toBe(true);
+
+    await expect(
+      listForumPosts(
+        forumDb,
+        { ...owner, emailVerifiedAt: null },
+        { page: 1, pageSize: 20, view: 'tree-hole' },
+      ),
+    ).rejects.toBeInstanceOf(ForumVerificationRequiredError);
+    const treeHoles = await listForumPosts(forumDb, owner, {
+      page: 1,
+      pageSize: 20,
+      view: 'tree-hole',
+    });
+    const ordinaryJson = JSON.stringify(treeHoles);
+    expect(treeHoles.items.some(({ id }) => id === treeHoleId)).toBe(true);
+    expect(ordinaryJson).not.toContain(anonymousUserId);
+    expect(ordinaryJson).not.toContain('anonymousCiphertext');
+    expect(ordinaryJson).not.toContain('anonymousFingerprint');
+    expect(ordinaryJson).not.toContain('anonymousKeyVersion');
+  });
+
+  it('enforces owner edit/delete and preserves cross-user ownership', async () => {
+    const forumDb = db as unknown as ForumAdapter;
+    const owner = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: anonymousUserId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const other = { ...owner, id: moderatorId, role: 'MODERATOR' as const };
+    const created = await createForumPost(forumDb, owner, {
+      body: 'Run-scoped owner lifecycle discussion body.',
+      category: categorySlug,
+      kind: 'DISCUSSION',
+      title: 'Run-scoped owner lifecycle',
+    });
+    await expect(
+      updateForumPost(forumDb, other, {
+        changes: { title: 'Cross-user edit must fail' },
+        id: created.id,
+        view: 'discussion',
+      }),
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
+    await expect(
+      updateForumPost(forumDb, owner, {
+        changes: { title: 'Owner-updated lifecycle title' },
+        id: created.id,
+        view: 'discussion',
+      }),
+    ).resolves.toMatchObject({ title: 'Owner-updated lifecycle title' });
+    await expect(
+      deleteForumPost(forumDb, owner, {
+        id: created.id,
+        view: 'discussion',
+      }),
+    ).resolves.toMatchObject({ archived: false, deleted: true });
+    await expect(
+      db.forumPost.findUnique({ where: { id: created.id } }),
+    ).resolves.toBeNull();
+  });
+
+  it('keeps tree-hole creation private and rejects all tree-hole comments', async () => {
+    const forumDb = db as unknown as ForumAdapter;
+    const owner = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: anonymousUserId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const tree = await createForumPost(
+      forumDb,
+      owner,
+      {
+        body: 'Run-scoped anonymous tree-hole privacy body.',
+        category: categorySlug,
+        kind: 'TREE_HOLE',
+        title: 'Run-scoped anonymous privacy',
+      },
+      testKeys,
+    );
+    const json = JSON.stringify(tree);
+    expect(json).not.toContain(anonymousUserId);
+    expect(json).not.toContain('anonymous');
+    await expect(
+      createForumComment(forumDb, owner, {
+        body: 'Tree-hole comments must remain disabled.',
+        postId: tree.id,
+      }),
+    ).rejects.toBeInstanceOf(ForumConflictError);
+  });
+
+  it('serializes concurrent like toggles to one unique final state', async () => {
+    const forumDb = db as unknown as ForumAdapter;
+    const owner = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: anonymousUserId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const discussion = await createForumPost(forumDb, owner, {
+      body: 'Run-scoped concurrent like discussion body.',
+      category: categorySlug,
+      kind: 'DISCUSSION',
+      title: 'Run-scoped concurrent likes',
+    });
+    const outcomes = await Promise.all([
+      toggleForumLike(forumDb, owner, { postId: discussion.id }),
+      toggleForumLike(forumDb, owner, { postId: discussion.id }),
+    ]);
+    expect(outcomes.map(({ liked }) => liked).sort()).toStrictEqual([
+      false,
+      true,
+    ]);
+    await expect(
+      db.forumLike.count({
+        where: { postId: discussion.id, userId: anonymousUserId },
+      }),
+    ).resolves.toBe(0);
+  });
+
+  it('enforces forum report self, duplicate, target, and hidden-content rules', async () => {
+    const forumDb = db as unknown as ForumAdapter;
+    const reportsDb = db as unknown as ReportsAdapter;
+    const owner = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: anonymousUserId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const reporter = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: moderatorId,
+      role: 'MODERATOR' as const,
+      status: 'ACTIVE' as const,
+    };
+    const discussion = await createForumPost(forumDb, owner, {
+      body: 'Run-scoped report target discussion body.',
+      category: categorySlug,
+      kind: 'DISCUSSION',
+      title: 'Run-scoped report target',
+    });
+    const target = {
+      reason: 'SPAM' as const,
+      targetId: discussion.id,
+      targetType: 'FORUM_POST' as const,
+    };
+    await expect(
+      createReport(reportsDb, owner, target, testKeys),
+    ).rejects.toBeInstanceOf(ReportOwnContentError);
+    await createReport(reportsDb, reporter, target, testKeys);
+    await expect(
+      createReport(reportsDb, reporter, target, testKeys),
+    ).rejects.toBeInstanceOf(ReportDuplicateError);
+
+    await db.forumPost.update({
+      data: { status: 'HIDDEN' },
+      where: { id: discussion.id },
+    });
+    await expect(
+      toggleForumLike(forumDb, reporter, { postId: discussion.id }),
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
+    await expect(
+      createForumComment(forumDb, reporter, {
+        body: 'Hidden posts cannot receive comments.',
+        postId: discussion.id,
+      }),
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
+    await expect(
+      createReport(reportsDb, { ...reporter, id: adminId }, target, testKeys),
+    ).rejects.toBeInstanceOf(ReportNotFoundError);
+  });
 });

@@ -203,4 +203,60 @@ describe('engagement routes', () => {
     expect(body).not.toContain('secret');
     expect(body).not.toContain('seller@campus.example');
   });
+
+  it.each(['FORUM_POST', 'FORUM_COMMENT'] as const)(
+    'accepts strict %s reports and passes a verified ACTIVE actor',
+    async (targetType) => {
+      const create = vi.fn(async () => ({ id: 'report_1', status: 'OPEN' }));
+      const response = await handleReportPost(
+        request('/api/reports', {
+          reason: 'HARASSMENT',
+          targetId: targetType === 'FORUM_POST' ? 'post_1' : 'comment_1',
+          targetType,
+        }),
+        { create, resolveUser: async () => user },
+      );
+      expect(response.status).toBe(201);
+      expect(create).toHaveBeenCalledWith(
+        {
+          campusId: user.campusId,
+          emailVerifiedAt: user.emailVerifiedAt,
+          id: user.id,
+          status: 'ACTIVE',
+        },
+        expect.objectContaining({ targetType }),
+      );
+    },
+  );
+
+  it('checks report origin before auth and rejects unknown forum report fields', async () => {
+    const resolveUser = vi.fn(async () => user);
+    const create = vi.fn();
+    const crossOrigin = await handleReportPost(
+      request(
+        '/api/reports',
+        {
+          reason: 'SPAM',
+          targetId: 'post_1',
+          targetType: 'FORUM_POST',
+        },
+        'https://attacker.example',
+      ),
+      { create, resolveUser },
+    );
+    expect(crossOrigin.status).toBe(403);
+    expect(resolveUser).not.toHaveBeenCalled();
+
+    const unknown = await handleReportPost(
+      request('/api/reports', {
+        anonymousFingerprint: 'secret',
+        reason: 'SPAM',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      }),
+      { create, resolveUser: async () => user },
+    );
+    expect(unknown.status).toBe(400);
+    expect(create).not.toHaveBeenCalled();
+  });
 });

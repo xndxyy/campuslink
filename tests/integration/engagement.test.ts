@@ -121,17 +121,22 @@ describeWithDatabase('engagement persistence', () => {
 
   it('rejects duplicate and self reports', async () => {
     const adapter = db as unknown as ReportsAdapter;
+    const verified = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      status: 'ACTIVE' as const,
+    };
     const input = {
       reason: 'SPAM' as const,
       targetId: marketplaceId,
       targetType: 'MARKETPLACE_ITEM' as const,
     };
-    await createReport(adapter, { campusId, id: memberId }, input);
+    await createReport(adapter, { ...verified, id: memberId }, input);
     await expect(
-      createReport(adapter, { campusId, id: memberId }, input),
+      createReport(adapter, { ...verified, id: memberId }, input),
     ).rejects.toBeInstanceOf(ReportDuplicateError);
     await expect(
-      createReport(adapter, { campusId, id: ownerId }, input),
+      createReport(adapter, { ...verified, id: ownerId }, input),
     ).rejects.toBeInstanceOf(ReportOwnContentError);
   });
 

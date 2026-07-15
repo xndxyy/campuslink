@@ -8,8 +8,22 @@ import {
   ReportOwnContentError,
   type ReportsAdapter,
 } from '@/lib/domain/reports';
+import {
+  fingerprintAnonymousUser,
+  type AnonymousIdentityKeyring,
+} from '@/lib/security/anonymous-identity';
 
-const actor = { campusId: 'campus_1', id: 'user_1' };
+const actor = {
+  campusId: 'campus_1',
+  emailVerifiedAt: new Date('2026-07-14T08:00:00Z'),
+  id: 'user_1',
+  status: 'ACTIVE' as const,
+};
+const keys: AnonymousIdentityKeyring = {
+  currentVersion: 1,
+  encryptionKeys: new Map([[1, Buffer.alloc(32, 0x41)]]),
+  fingerprintKey: Buffer.alloc(32, 0x42),
+};
 const input = {
   details: 'This listing redirects students to a suspicious payment page.',
   reason: 'PROHIBITED' as const,
@@ -22,6 +36,8 @@ function adapter(ownerId = 'seller_1') {
     $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
       operation(value),
     ),
+    forumComment: { findFirst: vi.fn(async () => null) },
+    forumPost: { findFirst: vi.fn(async () => null) },
     jobPost: { findFirst: vi.fn(async () => null) },
     marketplaceItem: {
       findFirst: vi.fn(async () => ({ sellerId: ownerId })),
@@ -119,5 +135,165 @@ describe('reports domain', () => {
         }),
       }),
     );
+  });
+
+  it('defensively rejects report writes from an unverified or inactive actor', async () => {
+    const db = adapter();
+    await expect(
+      createReport(db, { ...actor, emailVerifiedAt: null }, input),
+    ).rejects.toThrow('A verified active account is required');
+    await expect(
+      createReport(db, { ...actor, status: 'SUSPENDED' }, input),
+    ).rejects.toThrow('A verified active account is required');
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('allows a visible discussion report while selecting no author email', async () => {
+    const db = adapter();
+    const resolveKeys = vi.fn(() => keys);
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue({
+      anonymousFingerprint: null,
+      authorId: 'other_user',
+      campusId: actor.campusId,
+      id: 'post_1',
+      kind: 'DISCUSSION',
+      status: 'PUBLISHED',
+    });
+    await createReport(
+      db,
+      actor,
+      {
+        reason: 'SPAM',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      },
+      resolveKeys,
+    );
+    expect(resolveKeys).not.toHaveBeenCalled();
+    const calls = vi.mocked(db.forumPost.findFirst).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0]).toHaveProperty('select', {
+      campusId: true,
+      id: true,
+      kind: true,
+      status: true,
+    });
+    const call = calls[1]?.[0];
+    expect(call).toHaveProperty('where', {
+      campusId: actor.campusId,
+      id: 'post_1',
+      kind: 'DISCUSSION',
+      status: 'PUBLISHED',
+    });
+    expect(call).toHaveProperty('select.authorId', true);
+    expect(JSON.stringify(call)).not.toContain('email');
+    expect(JSON.stringify(call)).not.toContain('anonymousFingerprint');
+    expect(JSON.stringify(call)).not.toContain('anonymousCiphertext');
+    expect(JSON.stringify(call)).not.toContain('anonymousKeyVersion');
+  });
+
+  it('blocks a tree-hole self-report by fingerprint without decrypting identity', async () => {
+    const db = adapter();
+    const resolveKeys = vi.fn(() => keys);
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue({
+      anonymousFingerprint: fingerprintAnonymousUser(actor.id, keys),
+      authorId: null,
+      campusId: actor.campusId,
+      id: 'tree_1',
+      kind: 'TREE_HOLE',
+      status: 'PUBLISHED',
+    });
+    await expect(
+      createReport(
+        db,
+        actor,
+        {
+          reason: 'OTHER',
+          targetId: 'tree_1',
+          targetType: 'FORUM_POST',
+        },
+        resolveKeys,
+      ),
+    ).rejects.toBeInstanceOf(ReportOwnContentError);
+    expect(resolveKeys).toHaveBeenCalledTimes(1);
+    expect(db.report.create).not.toHaveBeenCalled();
+    const calls = vi.mocked(db.forumPost.findFirst).mock.calls;
+    expect(calls).toHaveLength(2);
+    const serialized = JSON.stringify(calls[1]?.[0]);
+    expect(serialized).toContain('anonymousFingerprint');
+    expect(serialized).not.toContain('authorId');
+    expect(serialized).not.toContain('anonymousCiphertext');
+    expect(serialized).not.toContain('anonymousKeyVersion');
+  });
+
+  it('rejects a defensive cross-campus, hidden, or wrong-kind forum post record', async () => {
+    const db = adapter();
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue({
+      anonymousFingerprint: null,
+      authorId: 'other_user',
+      campusId: 'campus_2',
+      id: 'post_1',
+      kind: 'DISCUSSION',
+      status: 'PUBLISHED',
+    });
+    await expect(
+      createReport(
+        db,
+        actor,
+        {
+          reason: 'SPAM',
+          targetId: 'post_1',
+          targetType: 'FORUM_POST',
+        },
+        keys,
+      ),
+    ).rejects.toBeInstanceOf(ReportNotFoundError);
+  });
+
+  it('validates a forum comment belongs to a visible discussion and blocks self-report', async () => {
+    const db = adapter();
+    vi.mocked(db.forumComment.findFirst).mockResolvedValue({
+      authorId: actor.id,
+      id: 'comment_1',
+      post: {
+        campusId: actor.campusId,
+        id: 'post_1',
+        kind: 'DISCUSSION',
+        status: 'PUBLISHED',
+      },
+      postId: 'post_1',
+      status: 'PUBLISHED',
+    });
+    await expect(
+      createReport(db, actor, {
+        reason: 'HARASSMENT',
+        targetId: 'comment_1',
+        targetType: 'FORUM_COMMENT',
+      }),
+    ).rejects.toBeInstanceOf(ReportOwnContentError);
+    expect(db.report.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forum comment attached to a tree-hole post', async () => {
+    const db = adapter();
+    vi.mocked(db.forumComment.findFirst).mockResolvedValue({
+      authorId: 'other_user',
+      id: 'comment_1',
+      post: {
+        campusId: actor.campusId,
+        id: 'tree_1',
+        kind: 'TREE_HOLE',
+        status: 'PUBLISHED',
+      },
+      postId: 'tree_1',
+      status: 'PUBLISHED',
+    });
+    await expect(
+      createReport(db, actor, {
+        reason: 'HARASSMENT',
+        targetId: 'comment_1',
+        targetType: 'FORUM_COMMENT',
+      }),
+    ).rejects.toBeInstanceOf(ReportNotFoundError);
   });
 });

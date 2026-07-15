@@ -44,8 +44,10 @@ import {
   ReportDuplicateError,
   ReportNotFoundError,
   ReportOwnContentError,
+  ReportVerificationRequiredError,
   type ReportsAdapter,
 } from './reports';
+import { loadAnonymousIdentityKeyring } from '@/lib/security/anonymous-identity';
 
 const targetId = z
   .string()
@@ -69,7 +71,13 @@ const reportSchema = z
       .optional(),
     reason: z.enum(['SPAM', 'MISLEADING', 'HARASSMENT', 'PROHIBITED', 'OTHER']),
     targetId,
-    targetType: z.enum(['RESOURCE', 'MARKETPLACE_ITEM', 'JOB_POST']),
+    targetType: z.enum([
+      'RESOURCE',
+      'MARKETPLACE_ITEM',
+      'JOB_POST',
+      'FORUM_POST',
+      'FORUM_COMMENT',
+    ]),
   })
   .strict();
 
@@ -174,13 +182,21 @@ export async function handleReportPost(
     const parsed = reportSchema.safeParse(body);
     if (!parsed.success)
       return json({ message: 'Invalid report details.' }, 400);
-    const actor = { campusId: user.campusId, id: user.id };
+    const actor = {
+      campusId: user.campusId,
+      emailVerifiedAt: user.emailVerifiedAt,
+      id: user.id,
+      status: user.status,
+    };
     const created = dependencies.create
       ? await dependencies.create(actor, parsed.data)
       : await createReport(
           getDb() as unknown as ReportsAdapter,
           actor,
           parsed.data,
+          parsed.data.targetType === 'FORUM_POST'
+            ? loadAnonymousIdentityKeyring
+            : undefined,
         );
     return json(created, 201);
   } catch (error) {
@@ -188,6 +204,8 @@ export async function handleReportPost(
       return json({ message: error.message }, 401);
     if (error instanceof VerificationRequiredError)
       return json({ message: error.message }, 403);
+    if (error instanceof ReportVerificationRequiredError)
+      return json({ message: 'A verified account is required.' }, 403);
     if (error instanceof ReportOwnContentError)
       return json({ message: error.message }, 403);
     if (error instanceof ReportNotFoundError)

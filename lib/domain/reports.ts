@@ -1,10 +1,21 @@
-export type ReportTargetType = 'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST';
+import {
+  fingerprintAnonymousUser,
+  type AnonymousIdentityKeyring,
+} from '@/lib/security/anonymous-identity';
+
+export type ReportTargetType =
+  'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST' | 'FORUM_POST' | 'FORUM_COMMENT';
 export type ReportReason =
   'SPAM' | 'MISLEADING' | 'HARASSMENT' | 'PROHIBITED' | 'OTHER';
 
-export interface ReportActor {
+export interface ReportReaderActor {
   campusId: string;
   id: string;
+}
+
+export interface ReportActor extends ReportReaderActor {
+  emailVerifiedAt: Date | null;
+  status: 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED' | 'BANNED';
 }
 
 export interface CreateReportInput {
@@ -14,6 +25,9 @@ export interface CreateReportInput {
   targetType: ReportTargetType;
 }
 
+type AnonymousIdentityKeySource =
+  AnonymousIdentityKeyring | (() => AnonymousIdentityKeyring);
+
 interface TargetDelegate {
   findFirst(
     args: Record<string, unknown>,
@@ -22,6 +36,8 @@ interface TargetDelegate {
 
 export interface ReportsAdapter {
   $transaction<T>(operation: (tx: ReportsAdapter) => Promise<T>): Promise<T>;
+  forumComment: TargetDelegate;
+  forumPost: TargetDelegate;
   jobPost: TargetDelegate;
   marketplaceItem: TargetDelegate;
   report: {
@@ -49,15 +65,163 @@ export class ReportDuplicateError extends Error {
   }
 }
 
+export class ReportVerificationRequiredError extends Error {
+  constructor() {
+    super('A verified active account is required');
+  }
+}
+
 function targetPolicy(targetType: ReportTargetType) {
   if (targetType === 'MARKETPLACE_ITEM') {
     return { delegate: 'marketplaceItem' as const, ownerField: 'sellerId' };
+  }
+  if (targetType === 'FORUM_POST' || targetType === 'FORUM_COMMENT') {
+    throw new ReportNotFoundError();
   }
   return {
     delegate:
       targetType === 'RESOURCE' ? ('resource' as const) : ('jobPost' as const),
     ownerField: 'authorId',
   };
+}
+
+function requireVerifiedReportActor(actor: ReportActor) {
+  if (actor.status !== 'ACTIVE' || !(actor.emailVerifiedAt instanceof Date)) {
+    throw new ReportVerificationRequiredError();
+  }
+}
+
+async function validateForumTarget(
+  tx: ReportsAdapter,
+  actor: ReportActor,
+  input: CreateReportInput,
+  keySource?: AnonymousIdentityKeySource,
+) {
+  if (input.targetType === 'FORUM_POST') {
+    const post = await tx.forumPost.findFirst({
+      select: {
+        campusId: true,
+        id: true,
+        kind: true,
+        status: true,
+      },
+      where: {
+        campusId: actor.campusId,
+        id: input.targetId,
+        status: 'PUBLISHED',
+      },
+    });
+    if (
+      !post ||
+      post.campusId !== actor.campusId ||
+      post.id !== input.targetId ||
+      post.status !== 'PUBLISHED' ||
+      (post.kind !== 'DISCUSSION' && post.kind !== 'TREE_HOLE')
+    ) {
+      throw new ReportNotFoundError();
+    }
+    if (post.kind === 'DISCUSSION') {
+      const ownership = await tx.forumPost.findFirst({
+        select: {
+          authorId: true,
+          campusId: true,
+          id: true,
+          kind: true,
+          status: true,
+        },
+        where: {
+          campusId: actor.campusId,
+          id: input.targetId,
+          kind: 'DISCUSSION',
+          status: 'PUBLISHED',
+        },
+      });
+      if (
+        !ownership ||
+        ownership.campusId !== actor.campusId ||
+        ownership.id !== input.targetId ||
+        ownership.kind !== 'DISCUSSION' ||
+        ownership.status !== 'PUBLISHED' ||
+        typeof ownership.authorId !== 'string'
+      ) {
+        throw new ReportNotFoundError();
+      }
+      if (ownership.authorId === actor.id) throw new ReportOwnContentError();
+      return;
+    }
+    const ownership = await tx.forumPost.findFirst({
+      select: {
+        anonymousFingerprint: true,
+        campusId: true,
+        id: true,
+        kind: true,
+        status: true,
+      },
+      where: {
+        campusId: actor.campusId,
+        id: input.targetId,
+        kind: 'TREE_HOLE',
+        status: 'PUBLISHED',
+      },
+    });
+    const keys = typeof keySource === 'function' ? keySource() : keySource;
+    if (
+      !ownership ||
+      ownership.campusId !== actor.campusId ||
+      ownership.id !== input.targetId ||
+      ownership.kind !== 'TREE_HOLE' ||
+      ownership.status !== 'PUBLISHED' ||
+      typeof ownership.anonymousFingerprint !== 'string' ||
+      ownership.anonymousFingerprint.length !== 64 ||
+      !keys
+    ) {
+      throw new ReportNotFoundError();
+    }
+    if (
+      ownership.anonymousFingerprint ===
+      fingerprintAnonymousUser(actor.id, keys)
+    ) {
+      throw new ReportOwnContentError();
+    }
+    return;
+  }
+
+  const comment = await tx.forumComment.findFirst({
+    select: {
+      authorId: true,
+      id: true,
+      post: {
+        select: { campusId: true, id: true, kind: true, status: true },
+      },
+      postId: true,
+      status: true,
+    },
+    where: {
+      id: input.targetId,
+      post: {
+        campusId: actor.campusId,
+        kind: 'DISCUSSION',
+        status: 'PUBLISHED',
+      },
+      status: 'PUBLISHED',
+    },
+  });
+  const post = comment?.post as Record<string, unknown> | undefined;
+  if (
+    !comment ||
+    comment.id !== input.targetId ||
+    comment.status !== 'PUBLISHED' ||
+    typeof comment.postId !== 'string' ||
+    !post ||
+    post.id !== comment.postId ||
+    post.campusId !== actor.campusId ||
+    post.kind !== 'DISCUSSION' ||
+    post.status !== 'PUBLISHED' ||
+    typeof comment.authorId !== 'string'
+  ) {
+    throw new ReportNotFoundError();
+  }
+  if (comment.authorId === actor.id) throw new ReportOwnContentError();
 }
 
 function isUniqueConflict(error: unknown) {
@@ -70,21 +234,30 @@ export async function createReport(
   adapter: ReportsAdapter,
   actor: ReportActor,
   input: CreateReportInput,
+  keySource?: AnonymousIdentityKeySource,
 ) {
+  requireVerifiedReportActor(actor);
   try {
     return await adapter.$transaction(async (tx) => {
-      const policy = targetPolicy(input.targetType);
-      const target = await tx[policy.delegate].findFirst({
-        select: { [policy.ownerField]: true },
-        where: {
-          campusId: actor.campusId,
-          id: input.targetId,
-          status: 'PUBLISHED',
-        },
-      });
-      if (!target) throw new ReportNotFoundError();
-      if (target[policy.ownerField] === actor.id)
-        throw new ReportOwnContentError();
+      if (
+        input.targetType === 'FORUM_POST' ||
+        input.targetType === 'FORUM_COMMENT'
+      ) {
+        await validateForumTarget(tx, actor, input, keySource);
+      } else {
+        const policy = targetPolicy(input.targetType);
+        const target = await tx[policy.delegate].findFirst({
+          select: { [policy.ownerField]: true },
+          where: {
+            campusId: actor.campusId,
+            id: input.targetId,
+            status: 'PUBLISHED',
+          },
+        });
+        if (!target) throw new ReportNotFoundError();
+        if (target[policy.ownerField] === actor.id)
+          throw new ReportOwnContentError();
+      }
       return tx.report.create({
         data: {
           campusId: actor.campusId,
@@ -119,7 +292,7 @@ const neutralOutcome = {
 
 export async function listReporterReports(
   adapter: ReportsAdapter,
-  actor: ReportActor,
+  actor: ReportReaderActor,
   query: { page?: number; pageSize?: number } = {},
 ) {
   const page = Math.max(1, Math.min(query.page ?? 1, 50));

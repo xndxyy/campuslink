@@ -233,6 +233,40 @@ describe('forum routes', () => {
     expect(createComment).not.toHaveBeenCalled();
   });
 
+  it('returns the same 404 for tree-hole and unknown comment discovery without resolving auth', async () => {
+    const resolveUser = vi.fn(async () => user);
+    const listComments = vi.fn(async () => {
+      throw new ForumNotFoundError();
+    });
+
+    const anonymousTree = await handleForumCommentsGet(
+      get('/api/forum/posts/tree_1/comments'),
+      'tree_1',
+      { listComments, resolveUser },
+    );
+    const verifiedTree = await handleForumCommentsGet(
+      get('/api/forum/posts/tree_1/comments'),
+      'tree_1',
+      { listComments, resolveUser },
+    );
+    const unknown = await handleForumCommentsGet(
+      get('/api/forum/posts/missing_1/comments'),
+      'missing_1',
+      { listComments, resolveUser },
+    );
+
+    expect(anonymousTree.status).toBe(404);
+    expect(verifiedTree.status).toBe(404);
+    expect(unknown.status).toBe(404);
+    await expect(anonymousTree.json()).resolves.toStrictEqual(
+      await verifiedTree.clone().json(),
+    );
+    await expect(unknown.json()).resolves.toStrictEqual(
+      await verifiedTree.json(),
+    );
+    expect(resolveUser).not.toHaveBeenCalled();
+  });
+
   it('uses strict PATCH/DELETE comment collection bodies', async () => {
     const updateComment = vi.fn(async () => ({ id: 'comment_1' }));
     const patched = await handleForumCommentsPatch(

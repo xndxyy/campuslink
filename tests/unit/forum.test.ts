@@ -784,6 +784,35 @@ describe('forum owner management', () => {
 });
 
 describe('forum comments', () => {
+  it('discovers comments through a discussion-only query and hides forged tree-hole records', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue(treeHoleRecord());
+
+    await expect(
+      listForumComments(db, null, {
+        page: 1,
+        pageSize: 20,
+        postId: 'tree_1',
+      }),
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
+
+    expect(db.forumPost.findFirst).toHaveBeenCalledWith({
+      select: {
+        campusId: true,
+        id: true,
+        kind: true,
+        status: true,
+      },
+      where: {
+        campusId: actor.campusId,
+        id: 'tree_1',
+        kind: 'DISCUSSION',
+        status: 'PUBLISHED',
+      },
+    });
+    expect(db.forumComment.findMany).not.toHaveBeenCalled();
+  });
+
   it('lists one-level public discussion comments with author id/name only', async () => {
     const db = forumAdapter();
     const result = await listForumComments(db, null, {

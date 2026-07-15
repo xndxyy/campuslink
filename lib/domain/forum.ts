@@ -694,6 +694,31 @@ async function findVisibleInteractionPost(
   return record as Record<string, unknown> & { kind: ForumPostKind };
 }
 
+async function findVisibleDiscussionPost(
+  adapter: ForumAdapter,
+  campusId: string,
+  postId: string,
+) {
+  const record = await adapter.forumPost.findFirst({
+    select: visiblePostSelect,
+    where: {
+      campusId,
+      id: postId,
+      kind: 'DISCUSSION',
+      status: 'PUBLISHED',
+    },
+  });
+  if (
+    !record ||
+    record.campusId !== campusId ||
+    record.id !== postId ||
+    record.kind !== 'DISCUSSION' ||
+    record.status !== 'PUBLISHED'
+  ) {
+    throw new ForumNotFoundError();
+  }
+}
+
 const publicCommentSelect = {
   author: { select: { id: true, name: true } },
   body: true,
@@ -758,15 +783,7 @@ export async function listForumComments(
     throw new ForumValidationError();
   }
   const campusId = await resolveCampusId(adapter, actor);
-  const post = await findVisibleInteractionPost(
-    adapter,
-    campusId,
-    input.postId,
-  );
-  if (post.kind === 'TREE_HOLE') {
-    requireVerifiedForumActor(actor);
-    throw new ForumConflictError();
-  }
+  await findVisibleDiscussionPost(adapter, campusId, input.postId);
   const where = {
     postId: input.postId,
     status: 'PUBLISHED',

@@ -108,7 +108,7 @@ describe('unified publish navigation contract', () => {
       ['/submit/resource', '学习资源'],
       ['/submit/marketplace', '二手交易'],
       ['/submit/campus-work', '校园工作'],
-      ['/submit/forum', '论坛帖子'],
+      ['/submit/forum', '普通论坛'],
       ['/submit/tree-hole', '匿名树洞'],
     ]);
   });

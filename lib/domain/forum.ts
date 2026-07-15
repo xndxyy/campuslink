@@ -583,6 +583,95 @@ export async function getForumPost(
   return presentPublishedPost(record, campusId, kind);
 }
 
+function ownedSummarySelect(kind: ForumPostKind) {
+  return kind === 'TREE_HOLE'
+    ? { ...sharedPostSelect, publicCode: true }
+    : sharedPostSelect;
+}
+
+function presentOwnedSummary(
+  record: Record<string, unknown>,
+  campusId: string,
+  kind: ForumPostKind,
+) {
+  const count = record._count as Record<string, unknown> | undefined;
+  if (
+    record.campusId !== campusId ||
+    record.kind !== kind ||
+    typeof record.status !== 'string' ||
+    !ownedStatuses.has(record.status) ||
+    typeof record.id !== 'string' ||
+    typeof record.title !== 'string' ||
+    typeof record.body !== 'string' ||
+    typeof record.category !== 'string' ||
+    !(record.createdAt instanceof Date) ||
+    !(record.updatedAt instanceof Date) ||
+    !count ||
+    !validCount(count.comments) ||
+    !validCount(count.likes)
+  ) {
+    throw new ForumNotFoundError();
+  }
+  const summary = {
+    _count: { comments: Number(count.comments), likes: Number(count.likes) },
+    body: record.body as string,
+    category: record.category as string,
+    createdAt: record.createdAt as Date,
+    id: record.id as string,
+    kind,
+    status: record.status,
+    title: record.title as string,
+    updatedAt: record.updatedAt as Date,
+  };
+  if (kind === 'DISCUSSION') return summary;
+  if (
+    typeof record.publicCode !== 'string' ||
+    !/^[A-Za-z0-9_-]{12}$/.test(record.publicCode)
+  ) {
+    throw new ForumNotFoundError();
+  }
+  return { ...summary, publicCode: record.publicCode };
+}
+
+export async function listOwnedForumPosts(
+  adapter: ForumAdapter,
+  actor: ForumActor,
+  keys: AnonymousIdentityKeyring,
+) {
+  requireVerifiedForumActor(actor);
+  const fingerprint = ownerFingerprint(actor, keys);
+  const [discussions, treeHoles] = await Promise.all([
+    adapter.forumPost.findMany({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: ownedSummarySelect('DISCUSSION'),
+      take: 100,
+      where: {
+        authorId: actor.id,
+        campusId: actor.campusId,
+        kind: 'DISCUSSION',
+      },
+    }),
+    adapter.forumPost.findMany({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: ownedSummarySelect('TREE_HOLE'),
+      take: 100,
+      where: {
+        anonymousFingerprint: fingerprint,
+        campusId: actor.campusId,
+        kind: 'TREE_HOLE',
+      },
+    }),
+  ]);
+  return {
+    discussions: discussions.map((record) =>
+      presentOwnedSummary(record, actor.campusId, 'DISCUSSION'),
+    ),
+    treeHoles: treeHoles.map((record) =>
+      presentOwnedSummary(record, actor.campusId, 'TREE_HOLE'),
+    ),
+  };
+}
+
 function ownerFingerprint(
   actor: ForumActor,
   keys: AnonymousIdentityKeyring | undefined,

@@ -13,6 +13,7 @@ import {
   ForumVerificationRequiredError,
   getForumPost,
   listForumComments,
+  listOwnedForumPosts,
   listForumPosts,
   toggleForumLike,
   updateForumComment,
@@ -605,6 +606,44 @@ describe('forum creation', () => {
 });
 
 describe('forum owner management', () => {
+  it('lists owned discussion and tree-hole posts without selecting anonymous secrets', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.forumPost.findMany)
+      .mockResolvedValueOnce([
+        discussionRecord({ authorId: undefined, status: 'HIDDEN' }),
+      ])
+      .mockResolvedValueOnce([
+        treeHoleRecord({ anonymousFingerprint: undefined, status: 'ARCHIVED' }),
+      ]);
+
+    const result = await listOwnedForumPosts(db, actor, keys);
+
+    expect(result.discussions[0]).toMatchObject({
+      id: 'post_1',
+      status: 'HIDDEN',
+    });
+    expect(result.treeHoles[0]).toMatchObject({
+      id: 'tree_1',
+      publicCode: 'AbCdEf123_-x',
+      status: 'ARCHIVED',
+    });
+    const calls = vi.mocked(db.forumPost.findMany).mock.calls;
+    expect(calls[0]?.[0]).toHaveProperty('where.authorId', actor.id);
+    expect(calls[1]?.[0]).toHaveProperty(
+      'where.anonymousFingerprint',
+      expect.stringMatching(/^[a-f0-9]{64}$/),
+    );
+    for (const call of calls) {
+      const serialized = JSON.stringify(call);
+      expect(serialized).not.toContain('anonymousCiphertext');
+      expect(serialized).not.toContain('anonymousKeyVersion');
+      expect(call[0]).not.toHaveProperty('select.authorId');
+      expect(call[0]).not.toHaveProperty('select.anonymousFingerprint');
+    }
+    expect(JSON.stringify(result)).not.toContain(actor.id);
+    expect(JSON.stringify(result)).not.toContain('anonymous');
+  });
+
   it('rejects an invalid direct domain view before database access', async () => {
     const db = forumAdapter();
     await expect(

@@ -18,7 +18,7 @@ export const publishTypes = [
   },
   {
     href: '/submit/forum',
-    label: '论坛帖子',
+    label: '普通论坛',
     description: '话题讨论与校园互助',
   },
   {

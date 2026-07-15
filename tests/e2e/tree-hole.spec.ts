@@ -122,6 +122,7 @@ test('verified users publish and manage a private tree-hole surface without comm
     await page.getByRole('button', { name: '发布树洞' }).click();
     await expect(page).toHaveURL(/\/forum\/[^?]+\?view=tree-hole&owner=true/);
     await expect(page.getByRole('button', { name: /评论/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '举报' })).toHaveCount(0);
     await page
       .locator('.forum-owner-editor input[name="title"]')
       .fill(`${title} 已修改`);

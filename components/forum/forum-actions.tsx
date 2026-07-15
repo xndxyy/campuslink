@@ -1,33 +1,78 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useState } from 'react';
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
+import { parseForumDeleteResult } from './forum-action-result';
 import type { ForumView } from './forum-tabs';
 import { forumStatusLabel } from './forum-status';
 
 export function ForumActions({
   id,
+  initialLiked,
   initialLikeCount,
   owner,
   status,
   view,
 }: {
   id: string;
+  initialLiked: boolean;
   initialLikeCount: number;
   owner: boolean;
   status: string;
   view: ForumView;
 }) {
   const router = useRouter();
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState(initialLiked);
   const [likeCount, setLikeCount] = useState(initialLikeCount);
   const [message, setMessage] = useState('');
   const [pending, setPending] = useState<'delete' | 'like' | 'report' | null>(
     null,
   );
   const [reportOpen, setReportOpen] = useState(false);
+  const reportDialogRef = useRef<HTMLDivElement>(null);
+  const reportInitialFocusRef = useRef<HTMLSelectElement>(null);
+  const reportTriggerRef = useRef<HTMLButtonElement>(null);
   const interactive = status === 'PUBLISHED';
+
+  useEffect(() => {
+    if (reportOpen) reportInitialFocusRef.current?.focus();
+  }, [reportOpen]);
+
+  function closeReport() {
+    setReportOpen(false);
+    requestAnimationFrame(() => reportTriggerRef.current?.focus());
+  }
+
+  function handleReportKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeReport();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(
+      reportDialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), select:not(:disabled), textarea:not(:disabled)',
+      ) ?? [],
+    );
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   async function toggleLike() {
     setPending('like');
@@ -87,7 +132,7 @@ export function ForumActions({
       });
       if (!response.ok) throw new Error('举报提交失败，请稍后重试。');
       formElement.reset();
-      setReportOpen(false);
+      closeReport();
       setMessage('举报已提交。');
     } catch {
       setMessage('举报提交失败，请稍后重试。');
@@ -121,11 +166,12 @@ export function ForumActions({
             ? result.message
             : '删除失败，请稍后重试。',
         );
-      if (result?.archived === true) {
-        setMessage('帖子存在处理中举报，已转为归档并停止互动。');
+      const outcome = parseForumDeleteResult(result);
+      setMessage(outcome.message);
+      if (outcome.kind === 'archived') {
         router.refresh();
       } else {
-        router.push(`/forum?view=${view}`);
+        window.setTimeout(() => router.push(`/forum?view=${view}`), 350);
       }
     } catch (error) {
       setMessage(
@@ -156,13 +202,16 @@ export function ForumActions({
                 ? `取消点赞 ${likeCount}`
                 : `点赞 ${likeCount}`}
           </button>
-          <button
-            disabled={pending !== null}
-            onClick={() => setReportOpen(true)}
-            type="button"
-          >
-            举报
-          </button>
+          {!owner ? (
+            <button
+              disabled={pending !== null}
+              onClick={() => setReportOpen(true)}
+              ref={reportTriggerRef}
+              type="button"
+            >
+              举报
+            </button>
+          ) : null}
         </div>
       )}
       {owner ? (
@@ -175,18 +224,27 @@ export function ForumActions({
           {pending === 'delete' ? '删除中...' : '删除帖子'}
         </button>
       ) : null}
-      {reportOpen ? (
+      {!owner && reportOpen ? (
         <div
+          aria-describedby="forum-report-description"
           aria-labelledby="forum-report-title"
           aria-modal="true"
           className="forum-report-dialog"
+          onKeyDown={handleReportKeyDown}
+          ref={reportDialogRef}
           role="dialog"
         >
           <form onSubmit={report}>
             <h2 id="forum-report-title">举报帖子</h2>
+            <p id="forum-report-description">举报将由校园审核团队私下处理。</p>
             <label>
               举报原因
-              <select defaultValue="" name="reason" required>
+              <select
+                defaultValue=""
+                name="reason"
+                ref={reportInitialFocusRef}
+                required
+              >
                 <option disabled value="">
                   请选择原因
                 </option>
@@ -205,7 +263,7 @@ export function ForumActions({
               <button disabled={pending === 'report'} type="submit">
                 {pending === 'report' ? '提交中...' : '提交举报'}
               </button>
-              <button onClick={() => setReportOpen(false)} type="button">
+              <button onClick={closeReport} type="button">
                 取消
               </button>
             </div>

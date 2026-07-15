@@ -1,7 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
+
+import { commentPageHref, lastCommentPage } from './comment-pagination';
+import type { ForumView } from './forum-tabs';
 
 export interface PresentedComment {
   authorName: string;
@@ -13,10 +17,20 @@ export interface PresentedComment {
 
 export function CommentList({
   comments,
+  owner,
+  page,
+  pageSize,
   postId,
+  total,
+  view,
 }: {
   comments: PresentedComment[];
+  owner: boolean;
+  page: number;
+  pageSize: number;
   postId: string;
+  total: number;
+  view: ForumView;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<string | null>(null);
@@ -55,35 +69,52 @@ export function CommentList({
             ? '评论已更新。'
             : '评论已删除。',
       );
-      router.refresh();
+      return true;
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : '评论操作失败，请稍后重试。',
       );
+      return false;
     } finally {
       setPending(false);
     }
   }
 
-  function create(event: FormEvent<HTMLFormElement>) {
+  async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    void mutate('POST', { body: String(data.get('body') ?? '') }).then(() =>
-      form.reset(),
-    );
+    if (await mutate('POST', { body: String(data.get('body') ?? '') })) {
+      form.reset();
+      const destination = lastCommentPage(total + 1, pageSize);
+      router.push(commentPageHref({ owner, page: destination, postId, view }));
+      router.refresh();
+    }
   }
-  function update(event: FormEvent<HTMLFormElement>, commentId: string) {
+  async function update(event: FormEvent<HTMLFormElement>, commentId: string) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    void mutate('PATCH', { body: String(data.get('body') ?? ''), commentId });
+    if (
+      await mutate('PATCH', {
+        body: String(data.get('body') ?? ''),
+        commentId,
+      })
+    ) {
+      router.refresh();
+    }
   }
+
+  async function removeComment(commentId: string) {
+    if (await mutate('DELETE', { commentId })) router.refresh();
+  }
+
+  const pageCount = lastCommentPage(total, pageSize);
 
   return (
     <section className="comment-section">
       <header>
         <h2>评论</h2>
-        <span>{comments.length} 条</span>
+        <span>{total} 条</span>
       </header>
       <form className="comment-form" onSubmit={create}>
         <label htmlFor="new-comment">发表评论</label>
@@ -113,7 +144,7 @@ export function CommentList({
                 </time>
               </div>
               {editing === comment.id ? (
-                <form onSubmit={(event) => update(event, comment.id)}>
+                <form onSubmit={(event) => void update(event, comment.id)}>
                   <label
                     className="visually-hidden"
                     htmlFor={`comment-${comment.id}`}
@@ -150,9 +181,7 @@ export function CommentList({
                   </button>
                   <button
                     disabled={pending}
-                    onClick={() =>
-                      void mutate('DELETE', { commentId: comment.id })
-                    }
+                    onClick={() => void removeComment(comment.id)}
                     type="button"
                   >
                     删除
@@ -163,6 +192,37 @@ export function CommentList({
           ))}
         </ol>
       )}
+      <nav aria-label="评论分页" className="pagination comment-pagination">
+        {page > 1 ? (
+          <Link
+            href={commentPageHref({
+              owner,
+              page: page - 1,
+              postId,
+              view,
+            })}
+          >
+            上一页
+          </Link>
+        ) : (
+          <span />
+        )}
+        <span>
+          第 {page} / {pageCount} 页
+        </span>
+        {page < pageCount ? (
+          <Link
+            href={commentPageHref({
+              owner,
+              page: page + 1,
+              postId,
+              view,
+            })}
+          >
+            下一页
+          </Link>
+        ) : null}
+      </nav>
       <p aria-live="polite" className="forum-action-message">
         {message}
       </p>

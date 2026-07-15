@@ -130,6 +130,54 @@ describe('forum UI contract', () => {
     expect(treeHoleE2e.match(/headers: \{ Origin: origin \}/g)).toHaveLength(2);
   });
 
+  it('keeps integration coverage aligned with tree-hole comment privacy', () => {
+    const integration = source('tests/integration/forum.test.ts');
+    const treeComment = integration.slice(
+      integration.indexOf('Tree-hole comments must remain disabled.'),
+      integration.indexOf('Tree-hole comments must remain disabled.') + 220,
+    );
+    expect(treeComment).toContain('ForumNotFoundError');
+    expect(treeComment).not.toContain('ForumConflictError');
+  });
+
+  it('hydrates likes and paginated discussion comments from viewer-safe server state', () => {
+    const detail = source('app/forum/[id]/page.tsx');
+    const actions = source('components/forum/forum-actions.tsx');
+    const comments = source('components/forum/comment-list.tsx');
+    expect(detail).toContain('commentPage');
+    expect(detail).toContain('pageSize: 20');
+    expect(detail).toContain('forumLike.findUnique');
+    expect(detail).toContain('initialLiked');
+    expect(actions).toContain('initialLiked');
+    expect(actions).toContain('useState(initialLiked)');
+    expect(comments).toContain('total} 条');
+    expect(comments).toContain('commentPageHref');
+    expect(comments).toContain('lastCommentPage');
+  });
+
+  it('resets comment forms only after success and validates delete outcomes', () => {
+    const comments = source('components/forum/comment-list.tsx');
+    const actions = source('components/forum/forum-actions.tsx');
+    expect(comments).toContain('return true');
+    expect(comments).toContain('return false');
+    expect(comments).toMatch(
+      /if \(await mutate\('POST',[\s\S]*?form\.reset\(\)/,
+    );
+    expect(comments).not.toMatch(/mutate\('POST'[\s\S]{0,120}\.then/);
+    expect(actions).toContain('parseForumDeleteResult');
+    expect(actions).toContain("outcome.kind === 'archived'");
+  });
+
+  it('hides owner reports and provides keyboard-safe modal focus management', () => {
+    const actions = source('components/forum/forum-actions.tsx');
+    expect(actions).toContain('reportTriggerRef');
+    expect(actions).toContain('reportInitialFocusRef');
+    expect(actions).toContain("event.key === 'Escape'");
+    expect(actions).toContain("event.key !== 'Tab'");
+    expect(actions).toContain('reportTriggerRef.current?.focus()');
+    expect(actions).toMatch(/!owner[\s\S]{0,180}setReportOpen\(true\)/);
+  });
+
   it('adds dense responsive forum styling without horizontal overflow hazards', () => {
     const css = source('app/globals.css');
     expect(css).toContain('.forum-shell');

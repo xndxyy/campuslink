@@ -95,16 +95,26 @@ test('discussion publish, comment, like and report use the real product flow', a
     await page.getByLabel('发表评论').fill('这是一条端到端评论。');
     await page.getByRole('button', { name: '发表评论' }).click();
     await expect(page.getByText('这是一条端到端评论。')).toBeVisible();
-    await page.getByRole('button', { name: '点赞' }).click();
-
-    await page.context().clearCookies();
-    await signIn(page, value.users[1]!.email, value.users[1]!.password);
     const row = await value.db.query<{ id: string }>(
       `SELECT id FROM "ForumPost" WHERE "authorId"=$1 AND title=$2`,
       [value.users[0]!.id, title],
     );
     const id = row.rows[0]?.id;
     if (!id) throw new Error('Run-scoped forum post unavailable.');
+    await page.getByRole('button', { name: '点赞' }).click();
+    await expect(page.getByText('已点赞。', { exact: true })).toBeVisible();
+    const likes = await value.db.query<{ postId: string; userId: string }>(
+      `SELECT "postId", "userId" FROM "ForumLike" WHERE "postId"=$1 AND "userId"=$2`,
+      [id, value.users[0]!.id],
+    );
+    expect(likes.rows).toEqual([{ postId: id, userId: value.users[0]!.id }]);
+    await page.reload();
+    const likedButton = page.getByRole('button', { name: /^取消点赞/ });
+    await expect(likedButton).toBeVisible();
+    await expect(likedButton).toHaveAttribute('aria-pressed', 'true');
+
+    await page.context().clearCookies();
+    await signIn(page, value.users[1]!.email, value.users[1]!.password);
     await page.goto(`/forum/${id}?view=discussion`);
     await page.getByRole('button', { name: '举报' }).click();
     await page.locator('select[name="reason"]').selectOption('OTHER');

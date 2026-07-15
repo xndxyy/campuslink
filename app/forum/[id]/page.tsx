@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { CommentList } from '@/components/forum/comment-list';
+import { parseCommentPage } from '@/components/forum/comment-pagination';
 import { ForumActions } from '@/components/forum/forum-actions';
 import { ForumPostForm } from '@/components/forum/forum-post-form';
 import { forumStatusLabel } from '@/components/forum/forum-status';
@@ -36,12 +37,18 @@ export default async function ForumDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ owner?: string; view?: string }>;
+  searchParams: Promise<{
+    commentPage?: string | string[];
+    owner?: string;
+    view?: string;
+  }>;
 }) {
   const [{ id }, query] = await Promise.all([params, searchParams]);
   const view: ForumView =
     query.view === 'tree-hole' ? 'tree-hole' : 'discussion';
   const owner = query.owner === 'true';
+  const commentPage = parseCommentPage(query.commentPage);
+  const commentPageSize = 20;
   let actor: ForumActor | null = null;
   if (view === 'tree-hole' || owner) {
     const user = await requireVerifiedPageUser();
@@ -74,21 +81,40 @@ export default async function ForumDetailPage({
     createdAt: string;
     id: string;
   }> = [];
-  if (view === 'discussion' && post.status === 'PUBLISHED') {
-    let viewerId: string | null = actor?.id ?? null;
-    if (!viewerId) {
-      try {
-        viewerId = (await requireVerifiedUser()).id;
-      } catch {
-        viewerId = null;
-      }
+  let commentPagination = {
+    page: commentPage,
+    pageSize: commentPageSize,
+    total: 0,
+  };
+  let viewerId: string | null = actor?.id ?? null;
+  if (!viewerId && post.status === 'PUBLISHED') {
+    try {
+      viewerId = (await requireVerifiedUser()).id;
+    } catch {
+      viewerId = null;
     }
+  }
+  const initialLiked =
+    viewerId && post.status === 'PUBLISHED'
+      ? Boolean(
+          await db.forumLike.findUnique({
+            select: { id: true },
+            where: { userId_postId: { postId: id, userId: viewerId } },
+          }),
+        )
+      : false;
+  if (view === 'discussion' && post.status === 'PUBLISHED') {
     try {
       const result = await listForumComments(
         db as unknown as ForumAdapter,
         null,
-        { page: 1, pageSize: 50, postId: id },
+        { page: commentPage, pageSize: 20, postId: id },
       );
+      commentPagination = {
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+      };
       comments = result.items.map((comment) => ({
         authorName: comment.author.name ?? '校园同学',
         body: comment.body,
@@ -132,6 +158,7 @@ export default async function ForumDetailPage({
       </article>
       <ForumActions
         id={post.id}
+        initialLiked={initialLiked}
         initialLikeCount={post._count.likes}
         owner={owner}
         status={post.status}
@@ -153,7 +180,15 @@ export default async function ForumDetailPage({
         </section>
       ) : null}
       {view === 'discussion' && post.status === 'PUBLISHED' ? (
-        <CommentList comments={comments} postId={post.id} />
+        <CommentList
+          comments={comments}
+          owner={owner}
+          page={commentPagination.page}
+          pageSize={commentPagination.pageSize}
+          postId={post.id}
+          total={commentPagination.total}
+          view={view}
+        />
       ) : null}
     </main>
   );

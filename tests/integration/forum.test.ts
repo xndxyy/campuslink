@@ -11,7 +11,6 @@ import {
   deleteForumComment,
   deleteForumPost,
   type ForumAdapter,
-  ForumConflictError,
   ForumNotFoundError,
   ForumVerificationRequiredError,
   listForumPosts,
@@ -756,7 +755,7 @@ describeWithDatabase('forum anonymous identity persistence', () => {
         body: 'Tree-hole comments must remain disabled.',
         postId: tree.id,
       }),
-    ).rejects.toBeInstanceOf(ForumConflictError);
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
   });
 
   it('serializes concurrent like toggles to one unique final state', async () => {

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -38,8 +40,14 @@ function adapter(ownerId = 'seller_1') {
         ? [{ campusId: values[1], id: values[0] }]
         : [{ id: values[0], postId: values[1] }],
     ),
-    $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
-      operation(value),
+    $transaction: vi.fn(
+      async (
+        operation: (tx: unknown) => Promise<unknown>,
+        options?: { isolationLevel: 'Serializable' },
+      ) => {
+        void options;
+        return operation(value);
+      },
     ),
     forumComment: { findFirst: vi.fn(async () => null) },
     forumPost: { findFirst: vi.fn(async () => null) },
@@ -94,6 +102,9 @@ describe('reports domain', () => {
       },
       select: { createdAt: true, id: true, status: true },
     });
+    expect(db.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: 'Serializable',
+    });
   });
 
   it.each([
@@ -105,6 +116,98 @@ describe('reports domain', () => {
     await expect(createReport(db, actor, input)).rejects.toBeInstanceOf(
       ReportDuplicateError,
     );
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ code: 'P2034' }, { code: '40001' }, { meta: { code: '40001' } }])(
+    'retries the complete locked report transaction after %#',
+    async (failure) => {
+      const db = adapter();
+      vi.mocked(db.forumPost.findFirst).mockResolvedValue({
+        authorId: 'other_user',
+        campusId: actor.campusId,
+        id: 'post_1',
+        kind: 'DISCUSSION',
+        status: 'PUBLISHED',
+      });
+      vi.mocked(db.$transaction)
+        .mockImplementationOnce(async (operation) => {
+          await operation(db);
+          throw failure;
+        })
+        .mockImplementationOnce(async (operation) => operation(db));
+
+      await createReport(db, actor, {
+        reason: 'SPAM',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      });
+
+      expect(db.$transaction).toHaveBeenCalledTimes(2);
+      expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+      expect(db.forumPost.findFirst).toHaveBeenCalledTimes(4);
+      expect(db.report.create).toHaveBeenCalledTimes(2);
+      for (const [, options] of vi.mocked(db.$transaction).mock.calls) {
+        expect(options).toStrictEqual({ isolationLevel: 'Serializable' });
+      }
+    },
+  );
+
+  it('revalidates locks after conflict and returns NotFound when the target disappeared', async () => {
+    const db = adapter();
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue({
+      authorId: 'other_user',
+      campusId: actor.campusId,
+      id: 'post_1',
+      kind: 'DISCUSSION',
+      status: 'PUBLISHED',
+    });
+    vi.mocked(db.$queryRawUnsafe)
+      .mockResolvedValueOnce([{ campusId: actor.campusId, id: 'post_1' }])
+      .mockResolvedValueOnce([]);
+    vi.mocked(db.$transaction)
+      .mockImplementationOnce(async (operation) => {
+        await operation(db);
+        throw { code: 'P2034' };
+      })
+      .mockImplementationOnce(async (operation) => operation(db));
+
+    await expect(
+      createReport(db, actor, {
+        reason: 'SPAM',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      }),
+    ).rejects.toBeInstanceOf(ReportNotFoundError);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(2);
+    expect(db.report.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows the third serialization failure after reacquiring every lock', async () => {
+    const db = adapter();
+    const finalFailure = { code: 'P2034', marker: 'third-attempt' };
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue({
+      authorId: 'other_user',
+      campusId: actor.campusId,
+      id: 'post_1',
+      kind: 'DISCUSSION',
+      status: 'PUBLISHED',
+    });
+    vi.mocked(db.$transaction).mockImplementation(async (operation) => {
+      await operation(db);
+      throw finalFailure;
+    });
+
+    await expect(
+      createReport(db, actor, {
+        reason: 'SPAM',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      }),
+    ).rejects.toBe(finalFailure);
+    expect(db.$transaction).toHaveBeenCalledTimes(3);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(3);
+    expect(db.report.create).toHaveBeenCalledTimes(3);
   });
 
   it('returns reporter-safe status and a neutral public outcome only', async () => {
@@ -371,5 +474,17 @@ describe('reports domain', () => {
     expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(1);
     expect(db.forumComment.findFirst).toHaveBeenCalledTimes(1);
     expect(db.report.create).not.toHaveBeenCalled();
+  });
+
+  it('forwards Serializable options through the report-first integration barrier adapter', () => {
+    const source = readFileSync('tests/integration/forum.test.ts', 'utf8');
+    const adapterSource = source.slice(
+      source.indexOf('function reportCreateBarrierAdapter'),
+      source.indexOf('function deleteBarrierAdapter'),
+    );
+    expect(adapterSource).toContain(
+      "options?: { isolationLevel: 'Serializable' }",
+    );
+    expect(adapterSource).toMatch(/client\.\$transaction\([\s\S]*options/);
   });
 });

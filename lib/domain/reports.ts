@@ -36,7 +36,10 @@ interface TargetDelegate {
 
 export interface ReportsAdapter {
   $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
-  $transaction<T>(operation: (tx: ReportsAdapter) => Promise<T>): Promise<T>;
+  $transaction<T>(
+    operation: (tx: ReportsAdapter) => Promise<T>,
+    options?: { isolationLevel: 'Serializable' },
+  ): Promise<T>;
   forumComment: TargetDelegate;
   forumPost: TargetDelegate;
   jobPost: TargetDelegate;
@@ -290,6 +293,33 @@ function isUniqueConflict(error: unknown) {
   return code === 'P2002' || code === '23505';
 }
 
+function isSerializationFailure(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
+  return (
+    candidate.code === 'P2034' ||
+    candidate.code === '40001' ||
+    candidate.meta?.code === '40001'
+  );
+}
+
+async function serializableReportTransaction<T>(
+  adapter: ReportsAdapter,
+  operation: (tx: ReportsAdapter) => Promise<T>,
+) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await adapter.$transaction(operation, {
+        isolationLevel: 'Serializable',
+      });
+    } catch (error) {
+      if (isSerializationFailure(error) && attempt < 2) continue;
+      throw error;
+    }
+  }
+  throw new Error('Unreachable report transaction state.');
+}
+
 export async function createReport(
   adapter: ReportsAdapter,
   actor: ReportActor,
@@ -298,7 +328,7 @@ export async function createReport(
 ) {
   requireVerifiedReportActor(actor);
   try {
-    return await adapter.$transaction(async (tx) => {
+    return await serializableReportTransaction(adapter, async (tx) => {
       if (
         input.targetType === 'FORUM_POST' ||
         input.targetType === 'FORUM_COMMENT'

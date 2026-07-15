@@ -123,34 +123,39 @@ function reportCreateBarrierAdapter(
   afterCreate: () => Promise<void>,
 ) {
   return {
-    $transaction: <T>(operation: (tx: ReportsAdapter) => Promise<T>) =>
-      client.$transaction((tx) =>
-        operation({
-          $queryRawUnsafe: <Result = unknown>(
-            query: string,
-            ...values: unknown[]
-          ) => tx.$queryRawUnsafe<Result>(query, ...values),
-          forumComment: {
-            findFirst: (args: Record<string, unknown>) =>
-              tx.forumComment.findFirst(args as never),
-          },
-          forumPost: {
-            findFirst: (args: Record<string, unknown>) =>
-              tx.forumPost.findFirst(args as never),
-          },
-          jobPost: tx.jobPost,
-          marketplaceItem: tx.marketplaceItem,
-          report: {
-            create: async (args: Record<string, unknown>) => {
-              const report = await tx.report.create(args as never);
-              await afterCreate();
-              return report;
+    $transaction: <T>(
+      operation: (tx: ReportsAdapter) => Promise<T>,
+      options?: { isolationLevel: 'Serializable' },
+    ) =>
+      client.$transaction(
+        (tx) =>
+          operation({
+            $queryRawUnsafe: <Result = unknown>(
+              query: string,
+              ...values: unknown[]
+            ) => tx.$queryRawUnsafe<Result>(query, ...values),
+            forumComment: {
+              findFirst: (args: Record<string, unknown>) =>
+                tx.forumComment.findFirst(args as never),
             },
-            findMany: (args: Record<string, unknown>) =>
-              tx.report.findMany(args as never),
-          },
-          resource: tx.resource,
-        } as unknown as ReportsAdapter),
+            forumPost: {
+              findFirst: (args: Record<string, unknown>) =>
+                tx.forumPost.findFirst(args as never),
+            },
+            jobPost: tx.jobPost,
+            marketplaceItem: tx.marketplaceItem,
+            report: {
+              create: async (args: Record<string, unknown>) => {
+                const report = await tx.report.create(args as never);
+                await afterCreate();
+                return report;
+              },
+              findMany: (args: Record<string, unknown>) =>
+                tx.report.findMany(args as never),
+            },
+            resource: tx.resource,
+          } as unknown as ReportsAdapter),
+        options,
       ),
   } as unknown as ReportsAdapter;
 }

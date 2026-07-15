@@ -51,7 +51,7 @@ function adapter(ownerId = 'seller_1') {
     ),
     forumComment: { findFirst: vi.fn(async () => null) },
     forumPost: { findFirst: vi.fn(async () => null) },
-    jobPost: { findFirst: vi.fn(async () => null) },
+    campusWorkPost: { findFirst: vi.fn(async () => null) },
     marketplaceItem: {
       findFirst: vi.fn(async () => ({ sellerId: ownerId })),
     },

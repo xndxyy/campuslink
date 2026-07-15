@@ -57,7 +57,6 @@ describeWithStorage('direct storage uploads', () => {
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.example.test`,
         name: 'Upload Integration Campus',
         slug: `upload-${suffix}`,
       },

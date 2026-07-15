@@ -234,13 +234,13 @@ describe('scoped tag schema contract', () => {
     );
   });
 
-  it('adds a lossless nullable-contact CampusWorkPost compatibility model', () => {
+  it('keeps the contracted CampusWorkPost model without obsolete job fields', () => {
     const campusWork = model('CampusWorkPost');
 
     expect(campusWork).toMatch(/id\s+String\s+@id\s+@default\(cuid\(\)\)/);
     expect(campusWork).toMatch(/authorId\s+String/);
     expect(campusWork).toMatch(/campusId\s+String/);
-    expect(campusWork).toMatch(/company\s+String\?\s+@db\.VarChar\(200\)/);
+    expect(campusWork).not.toMatch(/company\s+String/);
     expect(campusWork).toMatch(/title\s+String\s+@db\.VarChar\(200\)/);
     expect(campusWork).toMatch(/description\s+String\s+@db\.Text/);
     expect(campusWork).toMatch(/location\s+String\s+@db\.VarChar\(200\)/);
@@ -261,11 +261,11 @@ describe('scoped tag schema contract', () => {
     );
   });
 
-  it('retains all published legacy compatibility fields', () => {
-    expect(model('Resource')).toMatch(/courseCode\s+String\?/);
+  it('contracts retired compatibility fields and the legacy job model', () => {
+    expect(model('Resource')).not.toMatch(/courseCode\s+String\?/);
     expect(model('Resource')).toMatch(/tags\s+String\[\]\s+@default\(\[\]\)/);
-    expect(model('Campus')).toMatch(/allowedEmailDomain\s+String\?/);
-    expect(model('JobPost')).toMatch(/company\s+String\s+@db\.VarChar\(200\)/);
+    expect(model('Campus')).not.toMatch(/allowedEmailDomain\s+String\?/);
+    expect(schema).not.toMatch(/model JobPost\s*\{/);
   });
 });
 

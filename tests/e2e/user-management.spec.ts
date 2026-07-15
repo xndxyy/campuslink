@@ -55,14 +55,9 @@ async function createFixture() {
     await client.query('BEGIN');
     await client.query(
       `INSERT INTO "Campus"
-        (id, slug, name, "allowedEmailDomain", "isActive", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, true, now(), now())`,
-      [
-        campusId,
-        `user-governance-${runId}`,
-        `User Governance ${runId}`,
-        campusDomain,
-      ],
+        (id, slug, name, "isActive", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, true, now(), now())`,
+      [campusId, `user-governance-${runId}`, `User Governance ${runId}`],
     );
     await insertUser(client, {
       email: adminEmail,

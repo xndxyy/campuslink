@@ -15,6 +15,8 @@ published file until the scanner records a `CLEAN` verdict.
   ports.
 - A malware scanner that can read the private upload object and call the
   authenticated scan-result endpoint.
+- An OpenAI-compatible moderation provider on an operator-approved public HTTPS
+  hostname. The application validates DNS results and every redirect.
 - A Node-compatible host for `next start`, behind an HTTPS reverse proxy.
 
 ## Production environment
@@ -23,6 +25,7 @@ published file until the scanner records a `CLEAN` verdict.
 | --- | --- |
 | `APP_URL` | Exact public HTTPS origin, with no path credentials. |
 | `NEXT_PUBLIC_APP_URL` | Same public origin used by browser links. |
+| `DEFAULT_CAMPUS_SLUG` | Active single-community slug; use `campuslink` unless the production record deliberately differs. |
 | `DATABASE_URL` | TLS PostgreSQL connection string. |
 | `TRUST_PROXY` | Explicit `true` only if the trusted edge overwrites forwarding headers; otherwise `false`. |
 | `S3_ENDPOINT` | HTTPS S3/R2 endpoint. |
@@ -34,6 +37,10 @@ published file until the scanner records a `CLEAN` verdict.
 | `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` | Mail credentials and verified sender. |
 | `UPLOAD_CLEANUP_SECRET` | Random 32+ character scheduler bearer secret. |
 | `UPLOAD_SCANNER_CALLBACK_SECRET` | Different random 32+ character scanner callback bearer secret. |
+| `ANONYMOUS_IDENTITY_KEY_V1` | Base64-encoded 32-byte AES key for tree-hole identity envelopes. |
+| `ANONYMOUS_FINGERPRINT_KEY` | Different Base64-encoded 32-byte HMAC key; do not rotate in place. |
+| `AI_CONFIG_ENCRYPTION_KEY_V1` | Independent Base64-encoded 32-byte key for AI API credentials at rest. |
+| `AI_ALLOWED_HOSTS` | Comma-separated exact public hostnames; no schemes, paths, wildcards, IP literals, or localhost. |
 
 Keep every secret in the deployment platform's encrypted secret store. Never
 place the Stitch API key, database password, storage secret, SMTP password, or
@@ -59,6 +66,26 @@ Run migrations once as a release job before shifting traffic. Use a deployment
 with health checks and an atomic rollback to the previous application image.
 Database migrations are forward-only; restore a pre-migration database backup
 if a migration itself must be rolled back.
+
+The Phase 5 contract migration removes `JobPost`, `Resource.courseCode`,
+`Campus.allowedEmailDomain`, and the obsolete campus-work company column. Take
+a verified snapshot first. After this migration, application rollback to
+`pre-community-expansion-2026-07-13` also requires restoring a compatible
+pre-contract database; switching only the application image is unsafe.
+
+## AI and anonymous-key rollout
+
+Generate each key independently with a cryptographic random generator. Store
+only Secret Manager references in deployment configuration. For key rotation,
+add a new versioned environment variable and deploy readers that accept both
+versions before writing the new version. Re-encrypt stored AI credentials, then
+retire the old key. Tree-hole identity follows the same key rotation sequence;
+`ANONYMOUS_FINGERPRINT_KEY` cannot be changed in place because it is the stable
+ownership lookup key.
+
+Configure `AI_ALLOWED_HOSTS` narrowly. Provider failure is intentionally
+fail-open for publishing, but each failure persists `AI_CHECK_SKIPPED`; the
+release is incomplete without an alert and a staff queue for those records.
 
 ## Edge configuration
 

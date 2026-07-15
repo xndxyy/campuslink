@@ -41,7 +41,7 @@ function adapter(
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },
-    jobPost: {
+    campusWorkPost: {
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },

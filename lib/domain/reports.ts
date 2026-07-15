@@ -42,7 +42,7 @@ export interface ReportsAdapter {
   ): Promise<T>;
   forumComment: TargetDelegate;
   forumPost: TargetDelegate;
-  jobPost: TargetDelegate;
+  campusWorkPost: TargetDelegate;
   marketplaceItem: TargetDelegate;
   report: {
     create(args: Record<string, unknown>): Promise<Record<string, unknown>>;
@@ -132,7 +132,9 @@ function targetPolicy(targetType: ReportTargetType) {
   }
   return {
     delegate:
-      targetType === 'RESOURCE' ? ('resource' as const) : ('jobPost' as const),
+      targetType === 'RESOURCE'
+        ? ('resource' as const)
+        : ('campusWorkPost' as const),
     ownerField: 'authorId',
   };
 }

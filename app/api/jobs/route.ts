@@ -1,24 +1,7 @@
-import {
-  handleCreateContent,
-  type CreateRouteDependencies,
-} from '@/lib/domain/content-routes';
-import { createJobPost } from '@/lib/domain/content-service';
-import { createJobSchema, type CreateJobInput } from '@/lib/validation/content';
+import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
 
-export function handleCreateJob(
-  request: Request,
-  dependencies: CreateRouteDependencies<CreateJobInput> = {},
-) {
-  return handleCreateContent(
-    request,
-    createJobSchema,
-    createJobPost,
-    dependencies,
-  );
-}
-
 export function POST(request: Request) {
-  return handleCreateJob(request);
+  return NextResponse.redirect(new URL('/api/campus-work', request.url), 308);
 }

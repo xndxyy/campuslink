@@ -66,7 +66,7 @@ describe('fully parallel governance E2E isolation contract', () => {
       'Asset',
       'Resource',
       'MarketplaceItem',
-      'JobPost',
+      'CampusWorkPost',
       'User',
       'Campus',
     ]) {

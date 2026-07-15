@@ -32,9 +32,9 @@ export interface ModerationAdapter {
   contentAssessment: {
     findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   };
+  campusWorkPost: ContentDelegate;
   forumComment: ContentDelegate;
   forumPost: ContentDelegate;
-  jobPost: ContentDelegate;
   marketplaceItem: ContentDelegate;
   moderationAction: CreateDelegate & {
     findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
@@ -91,7 +91,7 @@ function contentDelegate(adapter: ModerationAdapter, type: ContentSubjectType) {
   if (type === 'MARKETPLACE_ITEM') return adapter.marketplaceItem;
   if (type === 'FORUM_POST') return adapter.forumPost;
   if (type === 'FORUM_COMMENT') return adapter.forumComment;
-  return adapter.jobPost;
+  return adapter.campusWorkPost;
 }
 
 const contentTransitions = {
@@ -222,7 +222,6 @@ export async function listModerationContent(
             where: { status: 'READY' },
           },
           author: { select: { id: true, name: true } },
-          courseCode: true,
           summary: true,
         },
         take,
@@ -250,12 +249,11 @@ export async function listModerationContent(
         take,
         where,
       }),
-      adapter.jobPost.findMany({
+      adapter.campusWorkPost.findMany({
         orderBy,
         select: {
           ...sharedPendingSelect,
           author: { select: { id: true, name: true } },
-          company: true,
           description: true,
           location: true,
           payText: true,

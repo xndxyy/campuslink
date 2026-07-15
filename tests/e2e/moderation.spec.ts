@@ -44,7 +44,7 @@ const tracked = {
   auditLogs: new Set<string>(),
   campuses: new Set([campusId]),
   favourites: new Set<string>(),
-  jobPosts: new Set<string>(),
+  campusWorkPosts: new Set<string>(),
   marketplaceItems: new Set<string>(),
   moderationActions: new Set<string>(),
   reports: new Set([reportId]),
@@ -89,9 +89,9 @@ async function createFixture() {
     await client.query('BEGIN');
     await client.query(
       `INSERT INTO "Campus"
-        (id, slug, name, "allowedEmailDomain", "isActive", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, true, now(), now())`,
-      [campusId, campusSlug, campusName, campusDomain],
+        (id, slug, name, "isActive", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, true, now(), now())`,
+      [campusId, campusSlug, campusName],
     );
     await insertUser(client, {
       email: adminEmail,
@@ -245,9 +245,9 @@ async function cleanupFixture() {
     await attempt(() =>
       collectIds(
         client!,
-        `SELECT id FROM "JobPost" WHERE "authorId" = ANY($1::text[])`,
+        `SELECT id FROM "CampusWorkPost" WHERE "authorId" = ANY($1::text[])`,
         [userIds],
-        tracked.jobPosts,
+        tracked.campusWorkPosts,
       ),
     );
     await attempt(() =>
@@ -293,8 +293,8 @@ async function cleanupFixture() {
       ),
     );
     await attempt(() =>
-      client!.query(`DELETE FROM "JobPost" WHERE id = ANY($1::text[])`, [
-        [...tracked.jobPosts],
+      client!.query(`DELETE FROM "CampusWorkPost" WHERE id = ANY($1::text[])`, [
+        [...tracked.campusWorkPosts],
       ]),
     );
     await attempt(() =>

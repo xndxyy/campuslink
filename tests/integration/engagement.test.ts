@@ -33,7 +33,6 @@ describeWithDatabase('engagement persistence', () => {
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.engagement.test`,
         name: 'Engagement Test Campus',
         slug: `engagement-${suffix}`,
       },

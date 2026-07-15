@@ -1,6 +1,9 @@
 # CampusLink
 
-CampusLink is a moderated, single-campus platform for sharing learning resources, listing second-hand items, and publishing part-time opportunities.
+CampusLink is a moderated, single-campus platform for learning resources,
+second-hand exchange, tagged campus work, public forum discussion, and an
+anonymous no-comment tree hole. It includes announcements, user governance,
+blocked words, and configurable OpenAI-compatible AI assessment.
 
 For the complete Chinese project handoff, user guide, production deployment,
 rollback, backup, and risk register, see
@@ -41,6 +44,11 @@ Mailpit is available at `http://127.0.0.1:8025` and MinIO Console at
   they are not configured.
 - `npm run test:e2e` requires provisioned test fixtures and live services.
 - `npm run verify:release` runs the complete release matrix.
+
+The release verifier requires live PostgreSQL, S3, provisioned browser fixtures,
+and the deterministic HTTPS AI fixture. Missing live services are an unknown
+release state, not a pass. The Phase 5 contract migration is forward-only; see
+the delivery guide before attempting an application rollback.
 
 Deployment, environment variables, scanner integration, backups, cleanup, and
 incident response are documented in `docs/deployment.md`,

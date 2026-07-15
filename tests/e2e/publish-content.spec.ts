@@ -247,7 +247,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
     expect(campusWork.contact).toBe(campusWorkContact);
 
     const published = await publisher.db.query<{ id: string }>(
-      `UPDATE "JobPost"
+      `UPDATE "CampusWorkPost"
        SET status = 'PUBLISHED'
        WHERE id = $1 AND "authorId" = $2 AND title = $3
          AND status = 'PENDING'
@@ -373,7 +373,6 @@ test('owner edits a provisioned rejected record and resubmits it', async ({
   const db = new Pool({ connectionString: process.env.DATABASE_URL });
   let originalRejectedResource:
     | {
-        courseCode: string | null;
         status: string;
         summary: string;
         tags: string[];
@@ -385,7 +384,7 @@ test('owner edits a provisioned rejected record and resubmits it', async ({
     const original = await db.query<
       NonNullable<typeof originalRejectedResource>
     >(
-      `SELECT title, summary, "courseCode", tags, status::text, "updatedAt"
+      `SELECT title, summary, tags, status::text, "updatedAt"
        FROM "Resource" WHERE id = $1`,
       [id],
     );
@@ -413,14 +412,13 @@ test('owner edits a provisioned rejected record and resubmits it', async ({
     if (originalRejectedResource) {
       await db.query(
         `UPDATE "Resource"
-         SET title = $2, summary = $3, "courseCode" = $4, tags = $5,
-             status = $6::"ContentStatus", "updatedAt" = $7
+         SET title = $2, summary = $3, tags = $4,
+             status = $5::"ContentStatus", "updatedAt" = $6
          WHERE id = $1`,
         [
           id,
           originalRejectedResource.title,
           originalRejectedResource.summary,
-          originalRejectedResource.courseCode,
           originalRejectedResource.tags,
           originalRejectedResource.status,
           originalRejectedResource.updatedAt,

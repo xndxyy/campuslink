@@ -35,13 +35,12 @@ function adapter() {
     },
     campus: {
       findFirst: vi.fn(async () => ({
-        allowedEmailDomain: 'old.example.edu',
         id: 'campus_1',
         name: 'Old Campus',
       })),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
-    jobPost: {
+    campusWorkPost: {
       count: vi.fn(async () => 0),
       findMany: vi.fn(async () => []),
     },
@@ -239,7 +238,7 @@ describe('administrator user controls', () => {
     vi.mocked(db.session.count).mockResolvedValue(2);
     vi.mocked(db.resource.count).mockResolvedValue(12);
     vi.mocked(db.marketplaceItem.count).mockResolvedValue(3);
-    vi.mocked(db.jobPost.count).mockResolvedValue(1);
+    vi.mocked(db.campusWorkPost.count).mockResolvedValue(1);
     vi.mocked(db.report.count).mockResolvedValue(4);
     vi.mocked(db.resource.findMany).mockResolvedValue([
       { createdAt, id: 'resource_1', status: 'PUBLISHED', title: 'Notes' },
@@ -247,7 +246,7 @@ describe('administrator user controls', () => {
     vi.mocked(db.marketplaceItem.findMany).mockResolvedValue([
       { createdAt, id: 'item_1', status: 'PUBLISHED', title: 'Book' },
     ]);
-    vi.mocked(db.jobPost.findMany).mockResolvedValue([
+    vi.mocked(db.campusWorkPost.findMany).mockResolvedValue([
       { createdAt, id: 'job_1', status: 'PUBLISHED', title: 'Assistant' },
     ]);
     vi.mocked(db.report.findMany).mockResolvedValue([
@@ -361,7 +360,7 @@ describe('administrator user controls', () => {
       },
       reports: { submittedCount: 4 },
       submissions: {
-        jobPosts: { total: 1 },
+        campusWorkPosts: { total: 1 },
         marketplaceItems: { total: 3 },
         resources: { total: 12 },
       },

@@ -1,9 +1,26 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8');
+
+function runtimeSource() {
+  const files: string[] = [];
+  const collect = (directory: string) => {
+    for (const entry of readdirSync(directory)) {
+      const path = join(directory, entry);
+      if (statSync(path).isDirectory()) collect(path);
+      else if (/\.(?:ts|tsx)$/.test(entry)) files.push(path);
+    }
+  };
+  for (const directory of ['app', 'components', 'lib']) {
+    collect(resolve(root, directory));
+  }
+  files.push(resolve(root, 'prisma/seed.ts'));
+  files.push(resolve(root, 'scripts/provision-e2e.ts'));
+  return files.map((path) => readFileSync(path, 'utf8')).join('\n');
+}
 
 describe('release contract', () => {
   it('uses a Next 16 proxy with nonce propagation and sensitive no-store coverage', () => {
@@ -86,17 +103,90 @@ describe('release contract', () => {
     expect(envExample).toMatch(/^DEFAULT_CAMPUS_SLUG=campuslink$/m);
     expect(guide).toContain('DEFAULT_CAMPUS_SLUG=campuslink');
     expect(guide).not.toContain('CAMPUS_EMAIL_DOMAIN');
-    expect(guide).toContain('19 个 Prisma 迁移');
-    expect(guide).not.toMatch(/18\s*个[^\n]*迁移/);
+    expect(guide).toContain('21 个 Prisma 迁移');
+    expect(guide).not.toMatch(/(?:18|19|20)\s*个[^\n]*迁移/);
     expect(guide).toMatch(
-      /'campuslink',\s*\n\s*'西大同学 CampusLink',\s*\n\s*NULL,/,
+      /'campuslink',\s*\n\s*'西大同学 CampusLink',\s*\n\s*true,/,
     );
     expect(guide).toMatch(/'defaultCampusSlug',\s*'campuslink'/);
-    expect(guide).toMatch(
+    expect(guide).not.toMatch(
       /allowedEmailDomain[^\n]*(?:旧|遗留)[^\n]*(?:不参与|不是)[^\n]*注册准入/,
     );
-    expect(guide).not.toContain('allowedEmailDomain` 编辑界面');
+    expect(guide).toMatch(
+      /20260713220000_contract_legacy_content[^\n]*永久删除[^\n]*allowedEmailDomain/,
+    );
     expect(guide).not.toMatch(/允许注册的邮箱域名|校园邮箱域名变更/);
+  });
+
+  it('removes legacy content readers and writers while preserving HTTP redirects', () => {
+    const source = runtimeSource();
+    expect(source).not.toMatch(/\bcourseCode\b/);
+    expect(source).not.toMatch(/\ballowedEmailDomain\b/);
+    expect(source).not.toMatch(/\bjobPost\b/);
+    expect(source).not.toMatch(/\b(?:create|update)Job(?:Post|Schema|Input)\b/);
+
+    expect(read('app/jobs/page.tsx')).toContain('permanentRedirect');
+    expect(read('app/jobs/[id]/page.tsx')).toContain('permanentRedirect');
+    for (const path of [
+      'app/api/jobs/route.ts',
+      'app/api/jobs/[id]/route.ts',
+    ]) {
+      const route = read(path);
+      expect(route, path).toContain('NextResponse.redirect');
+      expect(route, path).not.toMatch(/handleCreate|handleContentAction/);
+    }
+  });
+
+  it('documents every Phase 5 secret and live AI fixture variable', () => {
+    const envExample = read('.env.example');
+    const guide = read('docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md');
+    for (const variable of [
+      'DEFAULT_CAMPUS_SLUG',
+      'AI_ALLOWED_HOSTS',
+      'AI_CONFIG_ENCRYPTION_KEY_V1',
+      'ANONYMOUS_IDENTITY_KEY_V1',
+      'ANONYMOUS_FINGERPRINT_KEY',
+      'UPLOAD_CLEANUP_SECRET',
+      'UPLOAD_SCANNER_CALLBACK_SECRET',
+      'E2E_AI_BASE_URL',
+      'E2E_AI_FAILURE_BASE_URL',
+      'E2E_AI_API_KEY',
+      'E2E_AI_MODEL',
+    ]) {
+      expect(envExample, variable).toContain(variable);
+    }
+    for (const evidence of [
+      '200af9014448bffa4974f3a9b1aedded72ce2caf',
+      'community-expansion-phase-5',
+      'AI_CHECK_SKIPPED',
+      'AI_ALLOWED_HOSTS',
+      'AI_CONFIG_ENCRYPTION_KEY_V1',
+      'ANONYMOUS_IDENTITY_KEY_V1',
+      'ANONYMOUS_FINGERPRINT_KEY',
+    ]) {
+      expect(guide, evidence).toContain(evidence);
+    }
+    expect(guide).toMatch(/live Integration\/E2E[^\n]*`UNKNOWN`/);
+  });
+
+  it('makes the release verifier require Phase 5 migration and E2E evidence', () => {
+    const releaseScript = read('scripts/verify-release.ts');
+    for (const path of [
+      'prisma/migrations/20260713220000_contract_legacy_content/migration.sql',
+      'tests/e2e/authorization.spec.ts',
+      'tests/e2e/moderation-ai.spec.ts',
+    ]) {
+      expect(releaseScript, path).toContain(path);
+    }
+    for (const command of [
+      "['run', 'db:migrate:deploy']",
+      "['run', 'test:integration']",
+      "['run', 'e2e:provision']",
+      "['run', 'test:e2e']",
+      "['run', 'build']",
+    ]) {
+      expect(releaseScript, command).toContain(command);
+    }
   });
 
   it('ships a real, authenticated malware scan callback and database status', () => {

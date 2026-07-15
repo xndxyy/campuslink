@@ -13,7 +13,7 @@ function db(asset: Record<string, unknown> | null) {
       findMany: vi.fn(),
       updateMany: vi.fn(),
     },
-    jobPost: {},
+    campusWorkPost: {},
     marketplaceItem: {},
     resource: {},
   } as unknown as ContentAdapter;

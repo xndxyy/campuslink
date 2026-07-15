@@ -69,14 +69,7 @@ export function PublicList({
           <input name="pageSize" type="hidden" value={pageSize} />
           <div className="filter-row">
             {kind === 'resource' ? (
-              <>
-                <input
-                  defaultValue={query.courseCode}
-                  name="courseCode"
-                  placeholder="课程代码"
-                />
-                <input defaultValue={query.tag} name="tag" placeholder="标签" />
-              </>
+              <input defaultValue={query.tag} name="tag" placeholder="标签" />
             ) : null}
             {kind === 'marketplace' ? (
               <>
@@ -130,7 +123,7 @@ export function PublicList({
           const tags = contentTagsForPresentation(item);
           const meta =
             kind === 'resource'
-              ? String(item.courseCode ?? '跨学科')
+              ? '学习资料'
               : kind === 'marketplace'
                 ? `¥${(Number(item.priceCents ?? 0) / 100).toFixed(2)} · ${String(item.condition ?? '')}`
                 : `${String(item.location ?? '')} · ${String(item.payText ?? '')}`;

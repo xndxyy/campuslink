@@ -19,7 +19,6 @@ import {
 } from './content-service';
 import {
   updateCampusWorkSchema,
-  updateJobSchema,
   updateMarketplaceItemSchema,
   updateResourceSchema,
 } from '@/lib/validation/content';
@@ -84,9 +83,7 @@ export async function handleContentAction(
         ? updateResourceSchema
         : kind === 'marketplace'
           ? updateMarketplaceItemSchema
-          : kind === 'campus-work'
-            ? updateCampusWorkSchema
-            : updateJobSchema;
+          : updateCampusWorkSchema;
     const parsedEdit =
       body?.action === 'edit' ? editSchema.safeParse(body.data) : null;
     if (parsedEdit && !parsedEdit.success) {

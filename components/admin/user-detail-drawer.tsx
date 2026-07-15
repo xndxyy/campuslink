@@ -175,8 +175,8 @@ export function UserDetailDrawer({
             />
             <RecentContent
               label="校园工作"
-              records={detail.submissions.jobPosts.recent}
-              total={detail.submissions.jobPosts.total}
+              records={detail.submissions.campusWorkPosts.recent}
+              total={detail.submissions.campusWorkPosts.total}
             />
           </div>
         ) : null}

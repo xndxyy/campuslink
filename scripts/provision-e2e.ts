@@ -48,12 +48,10 @@ async function main() {
     const campus = await db.campus.upsert({
       where: { slug: 'campuslink-e2e' },
       update: {
-        allowedEmailDomain: verifiedEmail.split('@').at(-1)!,
         isActive: true,
         name: 'CampusLink E2E Campus',
       },
       create: {
-        allowedEmailDomain: verifiedEmail.split('@').at(-1)!,
         isActive: true,
         name: 'CampusLink E2E Campus',
         slug: 'campuslink-e2e',

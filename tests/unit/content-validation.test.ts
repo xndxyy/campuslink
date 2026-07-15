@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   contentListQuerySchema,
-  createJobSchema,
+  createCampusWorkSchema,
   createMarketplaceItemSchema,
   createResourceSchema,
   plainText,
@@ -176,13 +176,15 @@ describe('content validation', () => {
       },
     ],
     [
-      'job',
-      createJobSchema,
+      'campus-work',
+      createCampusWorkSchema,
       {
-        company: 'Campus Cafe',
+        contact: 'Campus inbox',
+        customTags: [],
         description: '<a href=x>Apply</a>',
         location: 'Campus',
         payText: '$20/hour',
+        presetTagIds: [],
         title: 'Weekend assistant',
       },
     ],
@@ -201,12 +203,14 @@ describe('content validation', () => {
       }),
     ).toThrow();
     expect(() =>
-      createJobSchema.parse({
+      createCampusWorkSchema.parse({
         campusId: 'client-controlled',
-        company: 'Campus Cafe',
+        contact: 'Campus inbox',
+        customTags: [],
         description: 'Help serve students during the weekend lunch shift.',
         location: 'Student centre',
         payText: '$20/hour',
+        presetTagIds: [],
         title: 'Weekend assistant',
       }),
     ).toThrow();

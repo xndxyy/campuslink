@@ -207,7 +207,6 @@ describeWithDatabase('database schema constraints', () => {
       data: {
         slug: `test-campus-${suffix}`,
         name: 'Schema Constraints Test Campus',
-        allowedEmailDomain: `${suffix}.example.test`,
       },
     });
 
@@ -276,9 +275,6 @@ describeWithDatabase('database schema constraints', () => {
         where: { campusId: { in: cleanupCampusIds } },
       });
       await db.campusWorkPost.deleteMany({
-        where: { campusId: { in: cleanupCampusIds } },
-      });
-      await db.jobPost.deleteMany({
         where: { campusId: { in: cleanupCampusIds } },
       });
       await db.tagDefinition.deleteMany({

@@ -54,7 +54,6 @@ describeWithDatabase('password authentication flow', () => {
 
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.example.test`,
         name: 'Authentication Flow Test Campus',
         slug: defaultCampusSlug,
       },
@@ -129,7 +128,6 @@ describeWithDatabase('password authentication flow', () => {
     process.env.DEFAULT_CAMPUS_SLUG = inactiveSlug;
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.inactive.example.test`,
         isActive: false,
         name: 'Inactive Authentication Flow Test Campus',
         slug: inactiveSlug,

@@ -104,7 +104,7 @@ export interface AdministrationAdapter {
     count(args: Record<string, unknown>): Promise<number>;
     deleteMany(args: Record<string, unknown>): Promise<{ count: number }>;
   };
-  jobPost: CountAndFindManyDelegate;
+  campusWorkPost: CountAndFindManyDelegate;
   marketplaceItem: CountAndFindManyDelegate;
   report: CountAndFindManyDelegate;
   resource: CountAndFindManyDelegate;
@@ -429,7 +429,7 @@ export interface ManagedUserDetail {
     submittedCount: number;
   };
   submissions: {
-    jobPosts: { recent: Record<string, unknown>[]; total: number };
+    campusWorkPosts: { recent: Record<string, unknown>[]; total: number };
     marketplaceItems: { recent: Record<string, unknown>[]; total: number };
     resources: { recent: Record<string, unknown>[]; total: number };
   };
@@ -466,8 +466,8 @@ export async function getManagedUserDetail(
     resources,
     marketplaceItemCount,
     marketplaceItems,
-    jobPostCount,
-    jobPosts,
+    campusWorkPostCount,
+    campusWorkPosts,
     submittedReportCount,
     reports,
     audit,
@@ -489,10 +489,10 @@ export async function getManagedUserDetail(
       ...recentContentQuery,
       where: { campusId: actor.campusId, sellerId: userId },
     }),
-    adapter.jobPost.count({
+    adapter.campusWorkPost.count({
       where: { authorId: userId, campusId: actor.campusId },
     }),
-    adapter.jobPost.findMany({
+    adapter.campusWorkPost.findMany({
       ...recentContentQuery,
       where: { authorId: userId, campusId: actor.campusId },
     }),
@@ -541,7 +541,10 @@ export async function getManagedUserDetail(
     overview: { ...user, activeSessionCount },
     reports: { recent: reports, submittedCount: submittedReportCount },
     submissions: {
-      jobPosts: { recent: jobPosts, total: jobPostCount },
+      campusWorkPosts: {
+        recent: campusWorkPosts,
+        total: campusWorkPostCount,
+      },
       marketplaceItems: {
         recent: marketplaceItems,
         total: marketplaceItemCount,

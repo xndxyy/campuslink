@@ -5,7 +5,7 @@ import {
   type ContentAdapter,
   type ContentPublishingPolicy,
   type ContentRecord,
-  createJobPost,
+  createCampusWorkPost,
   createMarketplaceItem,
   createResource,
   editOwnedContent,
@@ -63,15 +63,15 @@ function createAdapter(assets: Asset[] = []) {
         id: 'assessment_1',
       })),
     },
-    jobPost: {
+    campusWorkPost: {
       updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        const record = { ...data, id: 'job_1' };
+        const record = { ...data, id: String(data.id ?? 'work_1') };
         created.push(record);
         return record;
       }),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-        id: 'job_1',
+        id: 'work_1',
         ...data,
       })),
     },
@@ -788,23 +788,26 @@ describe('content service', () => {
 
   it('takes owner and campus only from the verified actor', async () => {
     const { adapter, serviceAdapter } = createAdapter();
-    await createJobPost(serviceAdapter, actor, {
-      company: 'Campus Cafe',
+    await createCampusWorkPost(serviceAdapter, actor, {
+      contact: 'Campus inbox',
+      customTags: [],
       description: 'Help serve students during the weekend lunch shift.',
       location: 'Student centre',
       payText: '$20/hour',
+      presetTagIds: [],
       title: 'Weekend assistant',
     });
-    expect(adapter.jobPost.create).toHaveBeenCalledWith({
+    expect(adapter.campusWorkPost.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         authorId: 'user_server',
         campusId: 'campus_server',
+        contact: 'Campus inbox',
         status: 'DRAFT',
       }),
     });
-    expect(adapter.jobPost.update).toHaveBeenCalledWith({
+    expect(adapter.campusWorkPost.update).toHaveBeenCalledWith({
       data: { status: 'PENDING' },
-      where: { id: 'job_1' },
+      where: { id: expect.any(String) },
     });
   });
 

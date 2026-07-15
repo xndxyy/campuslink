@@ -39,7 +39,7 @@ export interface FavouritesAdapter {
     ): Promise<FavouriteIdentity | null>;
     upsert(args: Record<string, unknown>): Promise<FavouriteIdentity>;
   };
-  jobPost: TargetDelegate;
+  campusWorkPost: TargetDelegate;
   marketplaceItem: TargetDelegate;
   resource: TargetDelegate;
 }
@@ -58,7 +58,7 @@ function delegateFor(
     ? adapter.resource
     : targetType === 'MARKETPLACE_ITEM'
       ? adapter.marketplaceItem
-      : adapter.jobPost;
+      : adapter.campusWorkPost;
 }
 
 function publicSelect(targetType: FavouriteTargetType) {
@@ -67,7 +67,6 @@ function publicSelect(targetType: FavouriteTargetType) {
     return {
       ...shared,
       author: { select: { name: true } },
-      courseCode: true,
       summary: true,
       tags: true,
     };
@@ -86,7 +85,6 @@ function publicSelect(targetType: FavouriteTargetType) {
   return {
     ...shared,
     author: { select: { name: true } },
-    company: true,
     description: true,
     location: true,
     payText: true,
@@ -235,7 +233,7 @@ export async function listUserFavourites(
              f."targetId", 'RESOURCE'::text AS "targetType",
              jsonb_build_object(
                'id', r.id, 'title', r.title, 'createdAt', r."createdAt",
-               'summary', r.summary, 'courseCode', r."courseCode", 'tags', r.tags,
+               'summary', r.summary, 'tags', r.tags,
                'author', jsonb_build_object('name', author.name)
              ) AS item
       FROM "Favourite" f
@@ -270,12 +268,12 @@ export async function listUserFavourites(
              f."targetId", 'JOB_POST'::text AS "targetType",
              jsonb_build_object(
                'id', j.id, 'title', j.title, 'createdAt', j."createdAt",
-               'description', j.description, 'company', j.company,
-               'location', j.location, 'payText', j."payText",
+               'description', j.description, 'location', j.location,
+               'payText', j."payText",
                'author', jsonb_build_object('name', author.name)
              ) AS item
       FROM "Favourite" f
-      JOIN "JobPost" j
+      JOIN "CampusWorkPost" j
         ON f."targetType" = 'JOB_POST' AND j.id = f."targetId"
       JOIN "User" author ON author.id = j."authorId"
       WHERE f."userId" = ${actor.id}

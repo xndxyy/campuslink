@@ -1,7 +1,12 @@
-import { handleContentAction } from '@/lib/domain/content-action-route';
-export function PATCH(
+import { NextResponse } from 'next/server';
+
+export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  return params.then(({ id }) => handleContentAction(request, 'job', id));
+  const { id } = await params;
+  return NextResponse.redirect(
+    new URL(`/api/campus-work/${encodeURIComponent(id)}`, request.url),
+    308,
+  );
 }

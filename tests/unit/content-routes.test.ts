@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { handleCreateJob } from '@/app/api/jobs/route';
+import { POST as redirectLegacyJobCreate } from '@/app/api/jobs/route';
 import { handleCreateMarketplaceItem } from '@/app/api/marketplace/route';
 import { handleCreateResource } from '@/app/api/resources/route';
 import { handleContentAction } from '@/lib/domain/content-action-route';
@@ -144,19 +144,14 @@ describe('content creation routes', () => {
     });
   });
 
-  it('creates a valid job without assets', async () => {
-    const create = vi.fn(async () => ({ id: 'job_1', status: 'PENDING' }));
-    const response = await handleCreateJob(
-      request('/api/jobs', {
-        company: 'Campus Cafe',
-        description: 'Help serve students during the weekend lunch shift.',
-        location: 'Student centre',
-        payText: '$20/hour',
-        title: 'Weekend assistant',
-      }),
-      { create, resolveUser: async () => user },
+  it('redirects the legacy job writer to campus work without changing method', () => {
+    const response = redirectLegacyJobCreate(
+      request('/api/jobs', { title: 'Legacy client payload' }),
     );
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(308);
+    expect(response.headers.get('location')).toBe(
+      'http://localhost/api/campus-work',
+    );
   });
 
   it('passes the complete verified server actor into tag-aware edits', async () => {

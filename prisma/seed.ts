@@ -22,13 +22,11 @@ async function main() {
       where: { slug: 'campuslink' },
       update: {
         name: 'CampusLink Demo Campus',
-        allowedEmailDomain: 'campuslink.edu',
         isActive: true,
       },
       create: {
         slug: 'campuslink',
         name: 'CampusLink Demo Campus',
-        allowedEmailDomain: 'campuslink.edu',
         isActive: true,
       },
     });
@@ -139,7 +137,6 @@ async function main() {
             title: 'Calculus I Exam Review Notes',
             summary:
               'Approved sample notes covering limits, derivatives, and integration.',
-            courseCode: 'MATH-101',
             tags: ['calculus', 'exam-review', 'notes'],
             status: ContentStatus.PUBLISHED,
           },
@@ -217,16 +214,16 @@ async function main() {
       },
     });
 
-    const jobPost = await db.jobPost.findFirst({
+    const campusWorkPost = await db.campusWorkPost.findFirst({
       where: { authorId: moderator.id, title: 'Peer Tutor – Mathematics' },
       select: { id: true },
     });
-    if (!jobPost) {
-      await db.jobPost.create({
+    if (!campusWorkPost) {
+      await db.campusWorkPost.create({
         data: {
           authorId: moderator.id,
           campusId: campus.id,
-          company: 'Campus Learning Centre',
+          contact: 'moderator@campuslink.edu',
           title: 'Peer Tutor – Mathematics',
           description:
             'Approved sample part-time role for a mathematics peer tutor.',

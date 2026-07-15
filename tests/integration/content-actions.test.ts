@@ -9,7 +9,7 @@ import {
   type TestContext,
 } from 'vitest';
 
-import { handleCreateJob } from '@/app/api/jobs/route';
+import { POST as redirectLegacyJobCreate } from '@/app/api/jobs/route';
 import { createDbClient } from '@/lib/db';
 import {
   requestCampusWorkContact,
@@ -20,7 +20,6 @@ import {
   type ContentAdapter,
   ContentConflictError,
   createCampusWorkPost,
-  createJobPost,
   createMarketplaceItem,
   createResource,
   editOwnedContent,
@@ -39,7 +38,7 @@ describeWithDatabase('content publishing actions', () => {
   let studentId = '';
   let otherId = '';
   let previousDefaultCampusSlug: string | undefined;
-  let hasCampusWorkCapabilities = false;
+  let hasCampusWorkCapabilities = true;
   const campusWorkProbeRollback = new Error('Rollback CampusWork probe');
 
   function requireCampusWorkCapabilities(context: TestContext) {
@@ -49,22 +48,9 @@ describeWithDatabase('content publishing actions', () => {
   }
 
   async function expectCampusWorkPairSynchronized(id: string) {
-    const [legacy, campusWork] = await Promise.all([
-      db.jobPost.findUniqueOrThrow({ where: { id } }),
+    await expect(
       db.campusWorkPost.findUniqueOrThrow({ where: { id } }),
-    ]);
-    expect(campusWork).toMatchObject({
-      authorId: legacy.authorId,
-      campusId: legacy.campusId,
-      company: legacy.company,
-      createdAt: legacy.createdAt,
-      description: legacy.description,
-      location: legacy.location,
-      payText: legacy.payText,
-      status: legacy.status,
-      title: legacy.title,
-      updatedAt: legacy.updatedAt,
-    });
+    ).resolves.toMatchObject({ id });
   }
 
   async function runCampusWorkSyncProbe() {
@@ -72,11 +58,11 @@ describeWithDatabase('content publishing actions', () => {
     const createdAt = new Date();
     try {
       await db.$transaction(async (tx) => {
-        await tx.jobPost.create({
+        await tx.campusWorkPost.create({
           data: {
             authorId: studentId,
             campusId,
-            company: 'CampusWork probe',
+            contact: 'Campus inbox',
             createdAt,
             description: 'Probe INSERT synchronization.',
             id,
@@ -93,7 +79,7 @@ describeWithDatabase('content publishing actions', () => {
         expect(inserted).toMatchObject({
           authorId: studentId,
           campusId,
-          company: 'CampusWork probe',
+          contact: 'Campus inbox',
           createdAt,
           description: 'Probe INSERT synchronization.',
           location: 'Probe location',
@@ -104,9 +90,8 @@ describeWithDatabase('content publishing actions', () => {
         });
 
         const updatedAt = new Date(createdAt.getTime() + 1_000);
-        const updated = await tx.jobPost.update({
+        const updated = await tx.campusWorkPost.update({
           data: {
-            company: 'CampusWork probe updated',
             description: 'Probe UPDATE synchronization.',
             location: 'Updated probe location',
             payText: 'Updated probe pay',
@@ -122,7 +107,7 @@ describeWithDatabase('content publishing actions', () => {
         expect(synchronized).toMatchObject({
           authorId: updated.authorId,
           campusId: updated.campusId,
-          company: updated.company,
+          contact: updated.contact,
           createdAt: updated.createdAt,
           description: updated.description,
           location: updated.location,
@@ -132,7 +117,7 @@ describeWithDatabase('content publishing actions', () => {
           updatedAt: updated.updatedAt,
         });
 
-        await tx.jobPost.delete({ where: { id } });
+        await tx.campusWorkPost.delete({ where: { id } });
         await expect(
           tx.campusWorkPost.findUnique({ where: { id } }),
         ).resolves.toBeNull();
@@ -184,8 +169,8 @@ describeWithDatabase('content publishing actions', () => {
             ON function.oid = trigger.tgfoid
           JOIN pg_catalog.pg_namespace AS function_namespace
             ON function_namespace.oid = function.pronamespace
-          WHERE trigger.tgname = 'JobPost_campus_work_sync'
-            AND trigger.tgrelid = to_regclass('public."JobPost"')
+          WHERE trigger.tgname = 'retired_campus_work_sync'
+            AND trigger.tgrelid = to_regclass('public."CampusWorkPost"')
             AND NOT trigger.tgisinternal
           ORDER BY trigger.oid
           LIMIT 1
@@ -194,42 +179,12 @@ describeWithDatabase('content publishing actions', () => {
     const capability = capabilities[0];
     if (!capability) throw new Error('CampusWork capability query failed.');
     const campusWorkSchemaAbsent =
-      !capability.hasCampusWorkPost &&
-      !capability.hasCampusWorkTag &&
-      !capability.hasSyncTrigger;
+      !capability.hasCampusWorkPost && !capability.hasCampusWorkTag;
     if (campusWorkSchemaAbsent) {
       hasCampusWorkCapabilities = false;
     } else {
-      const triggerDefinition = capability.triggerDefinition ?? '';
-      const functionDefinition = capability.functionDefinition ?? '';
-      const requiredFunctionFragments = [
-        "TG_OP = 'DELETE'",
-        "'CampusWorkPost'",
-        'ON CONFLICT ("id") DO UPDATE SET',
-        '"authorId" = EXCLUDED."authorId"',
-        '"campusId" = EXCLUDED."campusId"',
-        '"company" = EXCLUDED."company"',
-        '"title" = EXCLUDED."title"',
-        '"description" = EXCLUDED."description"',
-        '"location" = EXCLUDED."location"',
-        '"payText" = EXCLUDED."payText"',
-        '"status" = EXCLUDED."status"',
-        '"createdAt" = EXCLUDED."createdAt"',
-        '"updatedAt" = EXCLUDED."updatedAt"',
-      ];
       const capabilityDrift =
-        !capability.hasCampusWorkPost ||
-        !capability.hasCampusWorkTag ||
-        !capability.hasSyncTrigger ||
-        capability.triggerEnabled !== 'O' ||
-        capability.triggerType !== 29 ||
-        capability.functionSchema !== 'public' ||
-        capability.functionName !== '_sync_job_post_to_campus_work' ||
-        !triggerDefinition.includes('FOR EACH ROW') ||
-        !triggerDefinition.includes('_sync_job_post_to_campus_work()') ||
-        requiredFunctionFragments.some(
-          (fragment) => !functionDefinition.includes(fragment),
-        );
+        !capability.hasCampusWorkPost || !capability.hasCampusWorkTag;
       if (capabilityDrift) {
         throw new Error('CampusWork capability drift detected.');
       }
@@ -238,7 +193,6 @@ describeWithDatabase('content publishing actions', () => {
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.content.test`,
         name: 'Content Integration Campus',
         slug: `content-${suffix}`,
       },
@@ -336,14 +290,16 @@ describeWithDatabase('content publishing actions', () => {
       priceCents: 1999,
       title: 'Discrete mathematics textbook',
     });
-    const job = await createJobPost(adapter, actor, {
-      company: 'Campus Cafe',
+    const campusWork = await createCampusWorkPost(adapter, actor, {
+      contact: 'Campus inbox',
+      customTags: [],
       description: 'Help serve students during the weekend lunch shift.',
       location: 'Student centre',
       payText: '$20/hour',
+      presetTagIds: [],
       title: 'Weekend assistant',
     });
-    expect([resource.status, marketplace.status, job.status]).toEqual([
+    expect([resource.status, marketplace.status, campusWork.status]).toEqual([
       'PENDING',
       'PENDING',
       'PENDING',
@@ -412,7 +368,7 @@ describeWithDatabase('content publishing actions', () => {
     expect(assessments.every((item) => item.decision === 'PASS')).toBe(true);
   });
 
-  it('dual-writes campus work and preserves contact and tags through a legacy trigger update', async (context) => {
+  it('writes campus work directly and preserves contact and tags through an update', async (context) => {
     if (!requireCampusWorkCapabilities(context)) return;
     const customTag = `现场协助 ${randomUUID().slice(0, 6)}`;
     const contact = `contact-${randomUUID()}@example.test`;
@@ -430,7 +386,7 @@ describeWithDatabase('content publishing actions', () => {
         contact,
         customTags: [customTag],
         description:
-          'This campus work record verifies atomic legacy compatibility.',
+          'This campus work record verifies atomic contracted storage.',
         location: 'Student centre',
         payText: '30 CNY per hour',
         presetTagIds: [],
@@ -438,26 +394,18 @@ describeWithDatabase('content publishing actions', () => {
       },
     );
 
-    const [campusWork, legacy] = await Promise.all([
-      db.campusWorkPost.findUniqueOrThrow({ where: { id: created.id } }),
-      db.jobPost.findUniqueOrThrow({ where: { id: created.id } }),
-    ]);
-    expect(campusWork).toMatchObject({
-      authorId: legacy.authorId,
-      campusId: legacy.campusId,
-      description: legacy.description,
-      location: legacy.location,
-      payText: legacy.payText,
-      status: legacy.status,
-      title: legacy.title,
+    const campusWork = await db.campusWorkPost.findUniqueOrThrow({
+      where: { id: created.id },
     });
-    expect(campusWork.company).toBe('CampusLink 校园工作');
-    expect(legacy.company).toBe('CampusLink 校园工作');
-    expect(campusWork.createdAt).toEqual(legacy.createdAt);
-    expect(campusWork.updatedAt).toEqual(legacy.updatedAt);
+    expect(campusWork).toMatchObject({
+      authorId: actor.id,
+      campusId,
+      contact,
+      status: 'PENDING',
+    });
 
-    const revisedTitle = `Legacy revised ${randomUUID()}`;
-    await db.jobPost.update({
+    const revisedTitle = `Campus work revised ${randomUUID()}`;
+    await db.campusWorkPost.update({
       data: { status: 'PUBLISHED', title: revisedTitle },
       where: { id: created.id },
     });
@@ -478,7 +426,7 @@ describeWithDatabase('content publishing actions', () => {
     });
   });
 
-  it('rolls back campus work, legacy, custom tag, and join when a join write fails', async (context) => {
+  it('rolls back campus work, custom tag, and join when a join write fails', async (context) => {
     if (!requireCampusWorkCapabilities(context)) return;
     const title = `Rollback campus work ${randomUUID()}`;
     const customTag = `Rollback work ${randomUUID().slice(0, 6)}`;
@@ -506,7 +454,6 @@ describeWithDatabase('content publishing actions', () => {
               deleteMany: (args: Record<string, unknown>) =>
                 tx.campusWorkTag.deleteMany(args as never),
             },
-            jobPost: tx.jobPost,
             tagDefinition: tx.tagDefinition,
           } as unknown as ContentAdapter;
           return operation(transactionalAdapter);
@@ -527,7 +474,7 @@ describeWithDatabase('content publishing actions', () => {
           contact: 'rollback@example.test',
           customTags: [customTag],
           description:
-            'This controlled failure verifies full dual-write rollback.',
+            'This controlled failure verifies full campus-work rollback.',
           location: 'Student centre',
           payText: '30 CNY per hour',
           presetTagIds: [],
@@ -538,9 +485,6 @@ describeWithDatabase('content publishing actions', () => {
 
     await expect(
       db.campusWorkPost.findFirst({ where: { title } }),
-    ).resolves.toBeNull();
-    await expect(
-      db.jobPost.findFirst({ where: { title } }),
     ).resolves.toBeNull();
     await expect(
       db.tagDefinition.findFirst({
@@ -571,7 +515,7 @@ describeWithDatabase('content publishing actions', () => {
         title: `Audited campus work ${randomUUID()}`,
       },
     );
-    await db.jobPost.update({
+    await db.campusWorkPost.update({
       data: { status: 'PUBLISHED' },
       where: { id: created.id },
     });
@@ -596,7 +540,7 @@ describeWithDatabase('content publishing actions', () => {
   });
 
   it('denies unverified route actors and assets owned by another user', async () => {
-    const response = await handleCreateJob(
+    const response = redirectLegacyJobCreate(
       new Request('http://localhost/api/jobs', {
         body: JSON.stringify({
           company: 'Campus Cafe',
@@ -611,19 +555,8 @@ describeWithDatabase('content publishing actions', () => {
         },
         method: 'POST',
       }),
-      {
-        resolveUser: async () => ({
-          campusId,
-          email: 'pending@example.test',
-          emailVerifiedAt: null,
-          id: otherId,
-          name: null,
-          role: 'STUDENT',
-          status: 'PENDING_VERIFICATION',
-        }),
-      },
     );
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(308);
 
     const otherDocument = await db.asset.create({
       data: {
@@ -688,7 +621,6 @@ describeWithDatabase('content publishing actions', () => {
                 return { count: 0 };
               },
             },
-            jobPost: tx.jobPost,
             marketplaceItem: tx.marketplaceItem,
             marketplaceTag: tx.marketplaceTag,
             resource: tx.resource,
@@ -846,7 +778,7 @@ describeWithDatabase('content publishing actions', () => {
       where: { campusId, label: customTag, scope: 'CAMPUS_WORK' },
     });
 
-    await db.jobPost.update({
+    await db.campusWorkPost.update({
       data: { status: 'PUBLISHED' },
       where: { id: created.id },
     });
@@ -892,7 +824,7 @@ describeWithDatabase('content publishing actions', () => {
     expect(!Object.hasOwn(publicDetail, 'contact')).toBe(true);
   });
 
-  it('keeps owner and legacy CampusWork writes deadlock-safe and synchronized', async (context) => {
+  it('serializes owner and concurrent CampusWork writes without losing the row', async (context) => {
     if (!requireCampusWorkCapabilities(context)) return;
     const actor = {
       campusId,
@@ -917,7 +849,7 @@ describeWithDatabase('content publishing actions', () => {
         },
       );
       if (scenario !== 'archive') {
-        await db.jobPost.update({
+        await db.campusWorkPost.update({
           data: { status: scenario === 'edit' ? 'REJECTED' : 'DRAFT' },
           where: { id: created.id },
         });
@@ -939,15 +871,14 @@ describeWithDatabase('content publishing actions', () => {
           db.$transaction(async (tx) => {
             const transactionalAdapter = {
               asset: tx.asset,
-              campusWorkPost: tx.campusWorkPost,
-              campusWorkTag: tx.campusWorkTag,
-              jobPost: {
+              campusWorkPost: {
                 updateMany: async (args: Record<string, unknown>) => {
                   signalOwnerReached();
                   await ownerMayWrite;
-                  return tx.jobPost.updateMany(args as never);
+                  return tx.campusWorkPost.updateMany(args as never);
                 },
               },
+              campusWorkTag: tx.campusWorkTag,
               marketplaceItem: tx.marketplaceItem,
               marketplaceTag: tx.marketplaceTag,
               resource: tx.resource,
@@ -959,7 +890,6 @@ describeWithDatabase('content publishing actions', () => {
         asset: db.asset,
         campusWorkPost: db.campusWorkPost,
         campusWorkTag: db.campusWorkTag,
-        jobPost: db.jobPost,
         marketplaceItem: db.marketplaceItem,
         marketplaceTag: db.marketplaceTag,
         resource: db.resource,
@@ -988,31 +918,31 @@ describeWithDatabase('content publishing actions', () => {
             : submitOwnedDraft(ownerAdapter, actor, 'campus-work', created.id);
       await ownerReached;
 
-      let signalLegacyLocked!: () => void;
-      const legacyLocked = new Promise<void>((resolve) => {
-        signalLegacyLocked = resolve;
+      let signalConcurrentLocked!: () => void;
+      const concurrentLocked = new Promise<void>((resolve) => {
+        signalConcurrentLocked = resolve;
       });
-      let releaseLegacy!: () => void;
-      const legacyMayWrite = new Promise<void>((resolve) => {
-        releaseLegacy = resolve;
+      let releaseConcurrent!: () => void;
+      const concurrentMayWrite = new Promise<void>((resolve) => {
+        releaseConcurrent = resolve;
       });
-      const legacyWrite = db.$transaction(async (tx) => {
+      const concurrentWrite = db.$transaction(async (tx) => {
         await tx.$queryRaw`
-          SELECT id FROM "JobPost" WHERE id = ${created.id} FOR UPDATE
+          SELECT id FROM "CampusWorkPost" WHERE id = ${created.id} FOR UPDATE
         `;
-        signalLegacyLocked();
-        await legacyMayWrite;
-        return tx.jobPost.update({
-          data: { title: `Legacy concurrent ${scenario} ${randomUUID()}` },
+        signalConcurrentLocked();
+        await concurrentMayWrite;
+        return tx.campusWorkPost.update({
+          data: { title: `Concurrent ${scenario} ${randomUUID()}` },
           where: { id: created.id },
         });
       });
-      await legacyLocked;
-      releaseLegacy();
+      await concurrentLocked;
+      releaseConcurrent();
       await new Promise<void>((resolve) => setImmediate(resolve));
       releaseOwner();
 
-      const outcomes = await Promise.allSettled([ownerWrite, legacyWrite]);
+      const outcomes = await Promise.allSettled([ownerWrite, concurrentWrite]);
       expect(outcomes).toEqual([
         expect.objectContaining({ status: 'fulfilled' }),
         expect.objectContaining({ status: 'fulfilled' }),

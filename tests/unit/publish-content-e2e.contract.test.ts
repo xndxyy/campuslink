@@ -99,7 +99,7 @@ describe('publish content live E2E navigation contract', () => {
   it('restores the shared rejected fixture after editing and resubmitting it', () => {
     expect(source).toContain('originalRejectedResource');
     expect(source).toContain('UPDATE "Resource"');
-    expect(source).toMatch(/status = \$6::"ContentStatus"/);
+    expect(source).toMatch(/status = \$5::"ContentStatus"/);
     expect(source).toContain('finally');
   });
 
@@ -109,7 +109,9 @@ describe('publish content live E2E navigation contract', () => {
     expect(source).toContain('"authorId" = $1');
     expect(source).toContain('title = $2');
     expect(source).toContain('publisher.runId');
-    expect(source).toContain('UPDATE "JobPost"');
+    expect(source).toContain('UPDATE "CampusWorkPost"');
+    expect(source).not.toContain('"courseCode"');
+    expect(source).not.toContain('"JobPost"');
     expect(source).toContain("status = 'PUBLISHED'");
     expect(source).toContain('page.context().clearCookies()');
     expect(source).toContain('process.env.E2E_OTHER_EMAIL!');

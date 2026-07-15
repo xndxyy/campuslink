@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => {
       contentAssessment: { findMany: vi.fn(async () => []) },
       forumComment: { findMany: vi.fn(async () => []) },
       forumPost: { findMany: vi.fn(async () => []) },
-      jobPost: { findMany: vi.fn(async () => []) },
+      campusWorkPost: { findMany: vi.fn(async () => []) },
       marketplaceItem: { findMany: vi.fn(async () => []) },
       moderationAction: {
         create: vi.fn(),

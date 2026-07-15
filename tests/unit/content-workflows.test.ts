@@ -42,9 +42,18 @@ function adapter(updateCount = 1) {
     contentAssessment: {
       create: vi.fn(async () => ({ id: 'assessment_1' })),
     },
-    jobPost: { ...delegate, updateMany },
+    campusWorkPost: { ...delegate, updateMany },
+    campusWorkTag: {
+      createMany: vi.fn(async () => ({ count: 0 })),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
     marketplaceItem: { ...delegate, updateMany },
     resource: { ...delegate, updateMany },
+    tagDefinition: {
+      findMany: vi.fn(async () => []),
+      findUnique: vi.fn(async () => null),
+      upsert: vi.fn(),
+    },
   };
   return {
     db: value as unknown as ContentAdapter,
@@ -118,11 +127,13 @@ describe('owned content workflows', () => {
 
   it('edits only an owned draft or rejected record and returns rejected to draft', async () => {
     const { db, updateMany } = adapter();
-    await editOwnedContent(db, actor, 'job', 'job_1', {
-      company: 'Campus Cafe',
+    await editOwnedContent(db, actor, 'campus-work', 'work_1', {
+      contact: 'campus inbox',
+      customTags: [],
       description: 'A revised and complete weekend role description.',
       location: 'Student centre',
       payText: '$20/hour',
+      presetTagIds: [],
       title: 'Weekend assistant',
     });
     expect(updateMany).toHaveBeenCalledWith({
@@ -132,7 +143,7 @@ describe('owned content workflows', () => {
       }),
       where: {
         authorId: actor.id,
-        id: 'job_1',
+        id: 'work_1',
         status: { in: ['DRAFT', 'REJECTED'] },
       },
     });
@@ -141,11 +152,13 @@ describe('owned content workflows', () => {
   it('reports a conflict when a concurrent state change makes an edit update zero rows', async () => {
     const { db } = adapter(0);
     await expect(
-      editOwnedContent(db, actor, 'job', 'job_1', {
-        company: 'Campus Cafe',
+      editOwnedContent(db, actor, 'campus-work', 'work_1', {
+        contact: 'campus inbox',
+        customTags: [],
         description: 'A revised and complete weekend role description.',
         location: 'Student centre',
         payText: '$20/hour',
+        presetTagIds: [],
         title: 'Weekend assistant',
       }),
     ).rejects.toBeInstanceOf(ContentConflictError);

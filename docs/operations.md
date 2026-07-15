@@ -39,6 +39,29 @@ document remains `PENDING` for more than ten minutes, if scan `ERROR` grows, or
 if any `INFECTED` deletion cannot be confirmed. Never convert pending or error
 records to clean manually without a scanner-produced SHA-256 result.
 
+## Moderation operations
+
+- Page immediately on sustained `AI_CHECK_SKIPPED` growth or any skipped record
+  older than 15 minutes. Staff review the dedicated skipped-provider filter;
+  provider recovery does not retroactively approve old assessments.
+- Administrators maintain blocked words as literal text only. Every create,
+  enable/disable, and permanent delete requires a reason and produces an audit
+  event. Export the active list before bulk changes and never insert regex.
+- `TREE_HOLE_AUTHOR_REVEALED` is a high-sensitivity event. Review it daily and
+  require an open or triaged report plus the recorded reason. Do not expose the
+  revealed identity in general moderation exports.
+- Run the storage-deletions timer every 15 minutes and keep its backlog alerts
+  enabled even when uploads are temporarily disabled.
+
+## Key rotation
+
+Use versioned key rotation, never in-place replacement. Add the new
+`AI_CONFIG_ENCRYPTION_KEY_V2` or `ANONYMOUS_IDENTITY_KEY_V2` reader first,
+re-encrypt records in a bounded audited job, switch writers, verify decrypts,
+then retire V1. Do not rotate `ANONYMOUS_FINGERPRINT_KEY` without an explicit
+identity-index migration. Rotate provider API keys through the admin page only
+after the application encryption key is healthy.
+
 ## Backup and restore
 
 - Take encrypted PostgreSQL backups at least daily and retain 30 days. Enable
@@ -61,6 +84,9 @@ npx prisma migrate status
 
 Do not restore over the live database. Validate counts, sign-in, asset links,
 campus isolation, and audit history in an isolated environment before cutover.
+The pre-expansion tag `pre-community-expansion-2026-07-13` requires a database
+snapshot from before the Phase 5 contract migration; code-only rollback cannot
+recreate removed tables or columns.
 
 ## Incident response
 

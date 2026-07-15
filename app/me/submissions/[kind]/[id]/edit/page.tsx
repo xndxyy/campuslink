@@ -21,7 +21,7 @@ export default async function EditSubmissionPage({
   if (!['resource', 'marketplace', 'campus-work'].includes(rawKind)) {
     notFound();
   }
-  const kind = rawKind as Exclude<ContentKind, 'job'>;
+  const kind = rawKind as ContentKind;
   const user = await requireVerifiedPageUser();
   const database = getDb();
   const actor = {

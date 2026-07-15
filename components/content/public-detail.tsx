@@ -54,9 +54,7 @@ export function PublicDetail({
           <p className="eyebrow">已通过校园审核</p>
           <h1>{String(item.title)}</h1>
           <p className="detail-meta">
-            {kind === 'resource'
-              ? String(item.courseCode ?? '跨学科资源')
-              : null}
+            {kind === 'resource' ? '学习资源' : null}
             {kind === 'marketplace'
               ? `¥${(Number(item.priceCents) / 100).toFixed(2)} · ${String(item.condition)} · ${String(item.pickupArea)}`
               : null}

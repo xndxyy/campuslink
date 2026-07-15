@@ -12,30 +12,30 @@ CampusLink 是一个面向单校区的校园内容平台，覆盖学习资料、
 
 当前发布验证结果：
 
-- 单元测试：927 项通过。
-- PostgreSQL/MinIO 集成测试：本机未提供 live 服务；默认门禁失败关闭，显式本地 skip 模式确认 66 项待执行，结果为 `UNKNOWN`。
-- Playwright 真实业务流程：本机未提供 live 服务；默认门禁失败关闭，显式本地 skip 模式确认 20 项待执行，结果为 `UNKNOWN`。
+- 单元测试：99 个测试文件、1012 项通过。
+- PostgreSQL/MinIO/AI 集成测试：本机未提供完整 live 服务；显式本地 skip 模式发现 10 个文件、71 项待执行，结果为 `UNKNOWN`，不能记为通过。
+- Playwright 真实业务流程：本机未提供完整 live 服务；显式本地 skip 模式发现 21 项待执行，结果为 `UNKNOWN`，不能记为通过。
 - 论坛桌面和手机几何回归：2 项通过，人工截图复核无重叠或横向溢出。
-- Prisma 迁移：19 个前向迁移；Schema validate 和 Client generate 通过，目标环境部署仍须执行 live 迁移验收。
+- Prisma 迁移：21 个前向迁移；Schema validate 和 Client generate 通过，目标环境部署仍须执行 live 迁移验收。
 - ESLint、TypeScript、Prettier、Prisma Schema 校验和密钥扫描通过。
-- Next.js production build 通过，39/39 个页面完成构建。
+- Next.js production build 通过，41/41 个页面完成构建。
 - 论坛与匿名树洞阶段的独立规格审查、代码质量审查通过，无 Critical 或 Important 问题。
 
-以上证据采集于 2026-07-15 11:40-11:45（Asia/Shanghai），绑定下表 Commit 和锁文件。它们来自本地发布复核，没有可公开引用的 CI Run 或已提交日志制品；第 7.4 节要求正式发布重新执行命令，并把完整日志、时间和制品哈希归档到发布系统。
+以上本地静态、单元和构建证据更新于 2026-07-15 19:34（Asia/Shanghai），绑定下表功能 Commit 和锁文件。live Integration/E2E 仍为 `UNKNOWN`，没有可公开引用的 CI Run 或已提交日志制品；第 7.4 节要求正式发布重新执行命令，并把完整日志、时间和制品哈希归档到发布系统。
 
 本次功能验证绑定的代码基线：
 
 | 证据 | 值 |
 | --- | --- |
-| 功能基线 Commit | `b3fd618ff999d45a2661b80d30091bc8f0d5a26e` |
-| Phase 4 回滚标签 | `community-expansion-phase-4` |
+| AI 审核功能基线 Commit | `200af9014448bffa4974f3a9b1aedded72ce2caf` |
+| Phase 5 目标发布标签 | `community-expansion-phase-5`，仅在 live release verifier 全部通过后创建 |
 | CI Node | `22.12.0` |
 | 最终本地复核 Node/npm | `v24.14.1` / `11.11.0` |
 | PostgreSQL 测试镜像 | `postgres:16-alpine` |
 | MinIO 测试镜像 | `minio/minio:RELEASE.2025-09-07T16-13-09Z` |
 | `package-lock.json` SHA-256 | `650abe508bf1c25df3887ea92df0e79e7ddfe8e48e0a5740b3ae2deaa4c86e8f` |
 
-代码当前位于私有仓库的 `codex/community-expansion` 分支，Phase 4 功能基线由标签 `community-expansion-phase-4` 固定。本地开发服务器默认使用 `http://127.0.0.1:3000`。本手册之后的纯文档 Commit 不改变上述功能基线；正式发布仍应为目标 Commit 重新生成验证证据，不能永久复用本表。
+代码当前位于私有仓库的 `codex/community-expansion` 分支。AI 审核功能基线已由 Commit `200af9014448bffa4974f3a9b1aedded72ce2caf` 固定；`community-expansion-phase-5` 是通过完整 live 发布矩阵后才能创建的目标标签，不得用本地构建冒充 release verified。本地开发服务器默认使用 `http://127.0.0.1:3000`，正式发布仍应为目标 Commit 重新生成验证证据。
 
 > **生产上线判定：** Web 应用已通过本地构建和单元测试，可以进入隔离预发布验证，但当前 live Integration/E2E 为 `UNKNOWN`，尚不满足第 11 节的生产放行条件。仓库还只实现了文件扫描回调和发布门禁，没有交付扫描 Worker；若要开放“学习资料文档”功能，扫描 Worker 是额外上线阻塞项。未接入时文档会停留在 `PENDING`，不能送审、发布或下载。二手交易、校园工作、论坛、树洞、公告、审核和用户治理不依赖扫描 Worker，但仍必须先通过 live 发布矩阵。
 
@@ -55,6 +55,7 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 8. 所有敏感治理动作保留审计证据。
 9. 管理员发布中文公告并永久删除历史公告；普通用户只能阅读。
 10. 树洞只开放发布、点赞和举报，不开放评论；身份揭示仅限管理员处理有效举报时使用。
+11. 所有公开发布路径先经过确定性的屏蔽词检查，再按管理员配置调用 OpenAI 兼容 AI 审核；违规时向作者返回中文原因和修改建议。
 
 这意味着系统不仅“能发布”，还具备审核、纠错、隐藏、恢复和追责能力。
 
@@ -113,7 +114,15 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 
 系统还保护“最后一个有效管理员”，避免误操作导致整个校区失去管理权限。
 
-### 2.8 论坛与匿名治理边界明确
+### 2.8 本地规则与 AI 审核形成统一入口
+
+- 学习资源、二手交易、校园工作、论坛、树洞、评论和自定义标签共用同一套发布评估。
+- 屏蔽词使用标准化后的纯文本精确匹配，优先于外部 AI 执行，命中后不会再发送到供应商。
+- AI `PASS` 直接发布，`REVIEW` 进入人工待审，`BLOCK` 拒绝并返回中文违规原因、分类和修改建议。
+- 供应商超时或不可用时采用可观测的 fail-open：内容继续发布，但持久化评估并写入 `AI_CHECK_SKIPPED` 审计事件，运营必须告警处置。
+- API Key 使用 AES-256-GCM 加密后存入数据库；管理员页面只显示末四位，外发 URL 还受 HTTPS、精确主机白名单和公网 DNS 解析约束。
+
+### 2.9 论坛与匿名治理边界明确
 
 - 普通论坛公开可读，登录后的有效账号可以发帖、评论、点赞和举报。
 - 匿名树洞必须登录后访问，只展示随机 `publicCode`，不展示作者关系或可逆身份字段。
@@ -121,15 +130,15 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 - 管理员只有在处理未关闭举报、填写审计理由时才能揭示作者，揭示动作写入审计日志，日志本身不记录解密后的身份。
 - 点赞、举报、删除和作者揭示使用数据库约束、锁与 Serializable 重试，避免并发请求破坏唯一性或举报证据。
 
-### 2.9 工程质量可验证
+### 2.10 工程质量可验证
 
 项目包含：
 
 - TypeScript 严格类型检查。
-- Prisma Schema 和 19 个前向迁移。
-- 927 项单元测试。
-- 66 项 PostgreSQL/MinIO 集成测试定义，缺少 live 服务时失败关闭。
-- 20 项 Playwright 端到端测试定义，缺少 live 服务时失败关闭。
+- Prisma Schema 和 21 个前向迁移。
+- 99 个单元测试文件、1012 项测试，包含 Task 6 收缩迁移契约。
+- PostgreSQL/MinIO/AI 集成测试定义，缺少 live 服务时失败关闭。
+- Playwright 端到端测试定义，缺少 live 服务时失败关闭。
 - 完整发布命令 `npm run verify:release`。
 - GitHub Actions CI。
 - 独立运行的 E2E 数据夹具和清理逻辑。
@@ -137,7 +146,7 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 
 E2E 测试使用 cookie 哈希定位自己的 Session，并使用运行级主键清理用户、报告、对象和上传记录，能够在并行执行时避免互相删除数据。
 
-### 2.10 与开源项目相比，CampusLink 的定位更聚焦
+### 2.11 与开源项目相比，CampusLink 的定位更聚焦
 
 后续演进可以继续参考 GitHub 上成熟项目的治理思路：
 
@@ -158,6 +167,7 @@ flowchart LR
     Browser -->|签名 PUT| Storage[(S3 / R2 / MinIO 私有 Bucket)]
     Next -->|生成签名 URL、校验对象| Storage
     Next --> SMTP[SMTP 邮件服务]
+    Next -->|HTTPS、白名单主机| AI[OpenAI 兼容审核服务]
     Scanner[恶意文件扫描器] -->|带 Bearer Secret 的扫描结果| Next
     Scanner -->|读取待扫描对象| Storage
     Scheduler[定时任务] -->|清理过期上传| Next
@@ -191,6 +201,7 @@ flowchart LR
    - 我的提交：查看草稿、待审、拒绝、发布或隐藏状态。
    - 我的收藏：查看收藏内容。
 5. 被拒绝的内容可以编辑后重新提交。
+   - 页面会显示中文违规原因和修改建议；进入 `PENDING` 表示需要人工复核，不表示系统故障。
 6. 对可疑内容可以举报。
 7. 二手物品联系方式只有登录且验证后的用户才能请求查看，该请求会被审计。
 
@@ -215,6 +226,8 @@ flowchart LR
 | `/admin/reports` | `MODERATOR`、`ADMIN` | `OPEN` 先分派为 `TRIAGED`；`TRIAGED` 才可解决或驳回 | 解决时可隐藏目标；举报状态和原因进入治理历史 |
 | `/admin/announcements` | 仅 `ADMIN` | 发布新公告，可在发布时设为当前置顶；永久删除需二次确认 | 新公告立即公开；发布新的置顶公告会取消原置顶，现有公告没有单独编辑/取消置顶入口；删除正文、封面和数据库记录且不可恢复 |
 | `/admin/tags` | 仅 `ADMIN` | 按资源、二手交易、校园工作范围新增预设、启停、把自定义标签提升为预设；必须填写原因 | 历史内容保留原标签；治理动作写入审计 |
+| `/admin/blocked-words` | 仅 `ADMIN` | 新增、启停或永久删除纯文本屏蔽词；必须填写原因 | 立即影响后续公开发布，所有治理动作进入审计 |
+| `/admin/ai-settings` | 仅 `ADMIN` | 配置启用状态、OpenAI 兼容请求地址、模型、API Key、超时与阈值并执行固定文本连接测试 | API Key 只加密保存且仅展示末四位；主机必须先进入运维白名单 |
 | `/admin/users` | 仅 `ADMIN` | 搜索、筛选、分页、查看详情，调整角色、停用/恢复、强制退出全部设备；必须填写原因 | 撤销相关 Session，并保护最后一个有效管理员 |
 | `/admin/audit-log` | 仅 `ADMIN` | 按操作者、动作、对象过滤 | 只读查看敏感治理记录 |
 | `/admin/settings` | 仅 `ADMIN` | 只能修改 Campus 显示名称，必须填写原因 | 名称变化被审计；不能在此修改默认 Slug 或邮箱准入 |
@@ -393,9 +406,9 @@ ALLOW_DESTRUCTIVE_E2E=true
 | --- | --- | --- |
 | `campus.example.edu` | 已解析到服务器/CDN 的正式域名 | `APP_URL`、`NEXT_PUBLIC_APP_URL`、Nginx、TLS、R2 CORS、烟雾测试 URL |
 | `DB_HOST`、`RESTORE_DB_HOST` | 生产/恢复 PostgreSQL TLS 主机 | 应用、迁移、恢复环境文件和 `pg_service.conf` |
-| `REPLACE_*`、`URL_ENCODED_PASSWORD` | Secret Store 生成的独立随机值 | `/etc/campuslink/*.env`、匿名身份密钥、扫描器、定时任务、恢复凭据 |
+| `REPLACE_*`、`URL_ENCODED_PASSWORD` | Secret Store 生成的独立随机值 | `/etc/campuslink/*.env`、AI/匿名身份密钥、扫描器、定时任务、恢复凭据 |
 | `REPLACE_WITH_OPERATOR_ID`、`REPLACE_WITH_TICKET_ID` | 真实操作者和变更单号 | 首管初始化和审计 SQL |
-| `community-expansion-phase-4` | 本次已审核发布标签，或后续经批准的标签 | `RELEASE_REF` 和发布证据 |
+| `community-expansion-phase-5` | 完整 live 发布矩阵通过后创建的目标标签 | `RELEASE_REF` 和发布证据；标签不存在时不得上线 |
 | `campuslink`、`campus-prod-campuslink-001` | 经批准且唯一的 Slug/Campus ID | 默认社区配置、首管初始化和恢复抽样 |
 
 私有仓库当前 URL 是 `https://github.com/xndxyy/campuslink.git`。生产服务器使用 GitHub Deploy Key 或只读机器凭据，不把 Token 写入 URL、环境文件或 Shell 历史。
@@ -408,6 +421,7 @@ required_paths=(
   /etc/campuslink/migration.env
   /etc/campuslink/build.env
   /etc/campuslink/anonymous-identity.env
+  /etc/campuslink/ai-moderation.env
   /etc/campuslink/backup.env
   /etc/campuslink/rclone.conf
   /etc/nginx/sites-enabled/campuslink
@@ -557,6 +571,22 @@ sudo chmod 600 /etc/campuslink/anonymous-identity.env
 - 轮换必须作为单独发布：先让代码同时加载旧/新版本，再在受控任务中重新加密身份并重算指纹，核对数量和抽样解密后才切换写入版本；当前发布不提供自动轮换任务。
 - 灾难恢复必须把数据库与这两把密钥恢复到兼容版本，并在隔离环境验证树洞所有权和管理员审计揭示；只恢复数据库不算完成。
 
+AI 配置加密根密钥和允许访问的供应商主机单独保存在 `/etc/campuslink/ai-moderation.env`。`AI_ALLOWED_HOSTS` 只写逗号分隔的精确公网主机名，不带协议、路径、通配符、IP 地址或 localhost：
+
+```bash
+sudo bash -c '
+set -Eeuo pipefail
+umask 077
+printf "AI_CONFIG_ENCRYPTION_KEY_V1=%s\nAI_ALLOWED_HOSTS=api.example.com\n" \
+  "$(openssl rand -base64 32)" \
+  > /etc/campuslink/ai-moderation.env
+'
+sudo chown root:root /etc/campuslink/ai-moderation.env
+sudo chmod 600 /etc/campuslink/ai-moderation.env
+```
+
+将 `api.example.com` 替换为实际供应商主机，并在 `/admin/ai-settings` 配置完整 HTTPS Base URL、模型和供应商 API Key。供应商 API Key 会用 `AI_CONFIG_ENCRYPTION_KEY_V1` 加密后存入数据库。不得原地替换或删除 V1；轮换时先让代码同时读取旧/新版本，重新加密现有配置并验证连接，再切换写入版本。持续出现或短时间突增的 `AI_CHECK_SKIPPED` 必须触发告警，因为它表示发布已 fail-open、没有得到 AI 结论。
+
 任意符合格式的邮箱都可以请求注册，邮箱验证只证明用户能够控制该邮箱。运行时会把新用户分配给 `slug` 与 `DEFAULT_CAMPUS_SLUG` 一致且处于启用状态的 Campus；如果没有匹配的启用 Campus，注册接口仍返回防止账号枚举的统一确认信息，但不会创建用户。数据库 URL 中的用户名和密码必须按 URL userinfo 规则编码，尤其要编码 `@`、`:`、`/`、`?`、`#` 和 `%`。
 
 创建只供迁移任务读取的 `/etc/campuslink/migration.env`：
@@ -654,11 +684,13 @@ sudo chown root:root /etc/campuslink/build.env
 sudo chmod 600 /etc/campuslink/build.env
 sudo chown root:root /etc/campuslink/anonymous-identity.env
 sudo chmod 600 /etc/campuslink/anonymous-identity.env
+sudo chown root:root /etc/campuslink/ai-moderation.env
+sudo chmod 600 /etc/campuslink/ai-moderation.env
 ```
 
 不要在 Bash 中 `source /etc/campuslink/campuslink.env`。该文件采用 systemd `EnvironmentFile` 语法，且包含引号和可能有特殊字符的密码；只让 systemd 加载它。SMTP 端口 465 使用隐式 TLS，其他端口由代码强制 STARTTLS；同时要验证 SMTP 服务端证书，并为发件域名配置 SPF、DKIM 和 DMARC。
 
-`Campus.allowedEmailDomain` 是可空的遗留兼容字段，不参与注册准入；管理后台不提供该字段的编辑入口。切换默认社区属于运维配置变更：先确认目标 Campus 已启用且 `slug` 唯一匹配新值，再更新 root-only 环境文件中的 `DEFAULT_CAMPUS_SLUG`、重启应用并用普通邮箱完成注册验证，同时保留变更和验证记录。该操作改变用户归属社区，不会限制可注册的邮箱域名。
+注册不按邮箱域名限制。切换默认社区属于运维配置变更：先确认目标 Campus 已启用且 `slug` 唯一匹配新值，再更新 root-only 环境文件中的 `DEFAULT_CAMPUS_SLUG`、重启应用并用普通邮箱完成注册验证，同时保留变更和验证记录。该操作改变用户归属社区，不会限制可注册的邮箱域名。
 
 ### 7.4 在非在线目录构建版本并固化发布证据
 
@@ -666,7 +698,7 @@ sudo chmod 600 /etc/campuslink/anonymous-identity.env
 
 ```bash
 export REPOSITORY_URL=https://github.com/xndxyy/campuslink.git
-export RELEASE_REF=community-expansion-phase-4
+export RELEASE_REF=community-expansion-phase-5
 export STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 export STAGING_DIR="/srv/campuslink/releases/.staging-${STAMP}"
 
@@ -754,6 +786,7 @@ Group=campuslink
 WorkingDirectory=/srv/campuslink/current
 EnvironmentFile=/etc/campuslink/campuslink.env
 EnvironmentFile=/etc/campuslink/anonymous-identity.env
+EnvironmentFile=/etc/campuslink/ai-moderation.env
 ExecStart=/usr/bin/npm start -- --hostname 127.0.0.1 --port 3000
 Restart=always
 RestartSec=5
@@ -1115,7 +1148,7 @@ sudo journalctl -u campuslink-upload-cleanup.service -n 50 --no-pager
 
 不要在生产运行开发 Seed，也不要直接插入带明文或临时密码的管理员。注册逻辑在创建用户前会查找 `slug` 与 `DEFAULT_CAMPUS_SLUG` 匹配的启用 Campus，因此初始化顺序必须是“创建启用的默认 Campus → 使用任意普通邮箱注册 → 完成邮箱验证 → 提升管理员”。所有 SQL 使用数据库迁移账号或云厂商受审计控制台执行，应用数据库账号不应拥有这些权限。
 
-本节的前置条件是 19 个 Prisma 迁移已经成功执行。全新部署应先完成第 7.4 节，并按第 9.1 节执行迁移、切换 `current` 和启动应用；首次业务烟雾测试可以等首管创建完成后再补做，然后回到本节。
+本节的前置条件是 21 个 Prisma 迁移已经成功执行。全新部署应先完成第 7.4 节，并按第 9.1 节执行迁移、切换 `current` 和启动应用；首次业务烟雾测试可以等首管创建完成后再补做，然后回到本节。
 
 ### 8.1 在开放注册前创建首个 Campus
 
@@ -1132,13 +1165,11 @@ DEFAULT_CAMPUS_SLUG=campuslink
 BEGIN;
 
 INSERT INTO "Campus" (
-  "id", "slug", "name", "allowedEmailDomain",
-  "isActive", "createdAt", "updatedAt"
+  "id", "slug", "name", "isActive", "createdAt", "updatedAt"
 ) VALUES (
   'campus-prod-campuslink-001',
   'campuslink',
   '西大同学 CampusLink',
-  NULL,
   true,
   now(),
   now()
@@ -1165,10 +1196,10 @@ INSERT INTO "AuditLog" (
 COMMIT;
 ```
 
-该插入故意不是 `ON CONFLICT DO NOTHING`：如果 ID 或 slug 已经存在，应中止并人工核对，不能静默跳过。确认查询只返回一个启用的 Campus，且其 `slug` 与环境变量完全一致；遗留字段 `allowedEmailDomain` 应为 `NULL`：
+该插入故意不是 `ON CONFLICT DO NOTHING`：如果 ID 或 slug 已经存在，应中止并人工核对，不能静默跳过。确认查询只返回一个启用的 Campus，且其 `slug` 与环境变量完全一致：
 
 ```sql
-SELECT "id", "slug", "name", "allowedEmailDomain", "isActive"
+SELECT "id", "slug", "name", "isActive"
 FROM "Campus"
 WHERE "slug" = 'campuslink' AND "isActive" = true;
 ```
@@ -1395,7 +1426,9 @@ sudo systemctl start campuslink-upload-cleanup.timer
 
 ### 9.2 代码回滚与数据库灾难恢复必须分开
 
-Phase 4 的已审核代码回滚点是 `community-expansion-phase-4`，解引用后应得到 `b3fd618ff999d45a2661b80d30091bc8f0d5a26e`。部署前可用 `git fetch --tags` 和 `git rev-parse community-expansion-phase-4^{}` 核对。该标签只固定代码，不会自动回滚数据库；只有在 19 个前向迁移与旧代码保持兼容时才能直接切回。
+Phase 5 的目标发布点是 `community-expansion-phase-5`，但该标签只能在完整 live release verifier 通过后创建。部署前用 `git fetch --tags` 和 `git rev-parse community-expansion-phase-5^{}` 核对并把结果写入发布证据。该标签只固定代码，不会自动回滚数据库。
+
+迁移 `20260713220000_contract_legacy_content` 会永久删除旧 `JobPost` 表，以及 `Resource.courseCode`、`Campus.allowedEmailDomain` 和 `CampusWorkPost.company` 列。执行后，任何仍依赖这些结构的旧 Commit 都不能只靠切换软链接回滚。发布前必须创建带 Commit SHA 和迁移名的快照/PITR 时间点；若需要回到收缩前版本，只能真正停写后把数据库恢复到收缩前快照，并同时部署匹配的旧代码，再对发布后合法写入进行人工补录或回放。更稳妥的生产处置通常是保留新 Schema、前向修复代码。
 
 **代码回滚**只在数据库迁移对旧代码仍然兼容时执行：
 
@@ -1678,7 +1711,7 @@ DATABASE_URL="$RESTORE_DATABASE_URL" npx prisma migrate status
 
 - [ ] `APP_URL` 和 `NEXT_PUBLIC_APP_URL` 是同一个正式 HTTPS Origin。
 - [ ] `DEFAULT_CAMPUS_SLUG` 与数据库中一个启用的 `Campus.slug` 完全一致，普通邮箱注册烟雾测试成功。
-- [ ] 未依赖 `Campus.allowedEmailDomain` 或后台域名控制进行注册准入；该可空遗留字段不参与准入且后台没有编辑入口。
+- [ ] 任意格式有效的普通邮箱可以注册；不存在后台邮箱域名准入配置。
 - [ ] `TRUST_PROXY` 与真实网络拓扑一致。
 - [ ] Cloudflare 场景已配置官方可信 CIDR、源站防火墙和真实 IP 验证。
 - [ ] 数据库连接包含 TLS 要求。
@@ -1687,7 +1720,9 @@ DATABASE_URL="$RESTORE_DATABASE_URL" npx prisma migrate status
 - [ ] Bucket 非公开。
 - [ ] 清理 Secret 和扫描 Secret 不同，且长度不少于 32 字符。
 - [ ] 所有 Secret 存在服务器 Secret Store 或 root 可读配置中。
-- [ ] 已制定数据库、存储、SMTP、清理和扫描 Secret 轮换流程并演练。
+- [ ] `AI_ALLOWED_HOSTS` 只含已批准的精确公网主机，AI 连接测试通过。
+- [ ] AI/匿名身份加密根密钥互相独立，数据库恢复时能同时恢复兼容密钥版本。
+- [ ] 已制定数据库、存储、SMTP、AI、匿名身份、清理和扫描 Secret 轮换流程并演练。
 - [ ] 应用以 `campuslink` 非 root 用户运行，迁移以独立用户运行。
 - [ ] `build.env` 不含任何生产 Secret，构建期间无法连接生产依赖。
 - [ ] release 已固化为 root 只读，运行用户只能写独立 `/var/cache`/`/var/lib`。
@@ -1722,6 +1757,8 @@ DATABASE_URL="$RESTORE_DATABASE_URL" npx prisma migrate status
 - [ ] `CLEAN` 后可以送审和下载。
 - [ ] `INFECTED`、`ERROR`、`PENDING` 文件不能发布。
 - [ ] 举报、审核、隐藏、恢复和审计日志正常。
+- [ ] 屏蔽词命中不会调用 AI；AI `PASS`/`REVIEW`/`BLOCK` 与中文原因、修改建议符合预期。
+- [ ] 人工触发 AI 不可用后可观察到 `AI_CHECK_SKIPPED` 告警，并确认内容按既定 fail-open 策略处理。
 - [ ] 普通论坛公开读取、评论分页、点赞和举报正常。
 - [ ] 匿名树洞只允许有效账号访问，页面/API 不含作者身份字段，也不存在评论入口。
 - [ ] 公告只有管理员可发布，永久删除完成二次确认并移除数据库记录。

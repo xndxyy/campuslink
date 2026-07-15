@@ -149,12 +149,10 @@ model Campus {
   id                 String              @id @default(cuid())
   slug               String              @unique @db.VarChar(64)
   name               String              @db.VarChar(200)
-  allowedEmailDomain String?             @unique @db.VarChar(255)
   isActive           Boolean             @default(true)
   users              User[]
   resources          Resource[]
   marketplaceItems   MarketplaceItem[]
-  jobPosts           JobPost[]
   campusWorkPosts    CampusWorkPost[]
   forumCategories    ForumCategory[]
   tagDefinitions     TagDefinition[]
@@ -243,7 +241,6 @@ model User {
   assets           Asset[]
   resources        Resource[]         @relation("ResourceAuthor")
   marketplaceItems MarketplaceItem[]  @relation("MarketplaceSeller")
-  jobPosts         JobPost[]          @relation("JobAuthor")
   campusWorkPosts  CampusWorkPost[]   @relation("CampusWorkAuthor")
   forumPosts       ForumPost[]        @relation("ForumPostAuthor")
   forumComments    ForumComment[]     @relation("ForumCommentAuthor")
@@ -377,7 +374,6 @@ model Resource {
   campusId       String
   title          String        @db.VarChar(200)
   summary        String        @db.Text
-  courseCode     String?       @db.VarChar(64)
   tags           String[]      @default([])
   status         ContentStatus @default(DRAFT)
   author         User          @relation("ResourceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
@@ -413,30 +409,10 @@ model MarketplaceItem {
   @@index([sellerId, status])
 }
 
-model JobPost {
-  id          String        @id @default(cuid())
-  authorId    String
-  campusId    String
-  company     String        @db.VarChar(200)
-  title       String        @db.VarChar(200)
-  description String        @db.Text
-  location    String        @db.VarChar(200)
-  payText     String        @db.VarChar(200)
-  status      ContentStatus @default(DRAFT)
-  author      User          @relation("JobAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  campus      Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@index([campusId, status, createdAt])
-  @@index([authorId, status])
-}
-
 model CampusWorkPost {
   id             String          @id @default(cuid())
   authorId       String
   campusId       String
-  company        String?         @db.VarChar(200)
   title          String          @db.VarChar(200)
   description    String          @db.Text
   location       String          @db.VarChar(200)

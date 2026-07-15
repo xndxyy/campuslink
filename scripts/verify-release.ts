@@ -1,4 +1,18 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+
+const requiredReleaseFiles = [
+  'prisma/migrations/20260713220000_contract_legacy_content/migration.sql',
+  'tests/e2e/authorization.spec.ts',
+  'tests/e2e/moderation-ai.spec.ts',
+] as const;
+
+for (const path of requiredReleaseFiles) {
+  if (!existsSync(path)) {
+    console.error(`Required release evidence is missing: ${path}`);
+    process.exit(1);
+  }
+}
 
 const npmExecPath = process.env.npm_execpath;
 if (!npmExecPath) {

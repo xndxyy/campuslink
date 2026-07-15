@@ -51,7 +51,6 @@ describeWithDatabase('audited administration persistence', () => {
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.moderation.test`,
         name: 'Moderation Test Campus',
         slug: `moderation-${suffix}`,
       },
@@ -163,7 +162,6 @@ describeWithDatabase('audited administration persistence', () => {
 
     const otherCampus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.other-moderation.test`,
         name: 'Other Moderation Campus',
         slug: `other-moderation-${suffix}`,
       },
@@ -621,7 +619,6 @@ describeWithDatabase('audited administration persistence', () => {
     const suffix = randomUUID();
     const raceCampus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.admin-race.test`,
         name: 'Final Admin Race Campus',
         slug: `admin-race-${suffix}`,
       },

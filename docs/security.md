@@ -14,6 +14,12 @@ storage, short-lived signed reads, and immutable moderation/audit events.
   readiness and malware verdict are independent states.
 - Scanner and cleanup callbacks use different bearer secrets and timing-safe
   comparison. They are never browser-accessible credentials.
+- AI credentials are encrypted with `AI_CONFIG_ENCRYPTION_KEY_V1`. Outbound
+  requests require an exact `AI_ALLOWED_HOSTS` match, public DNS answers, HTTPS,
+  and redirect revalidation; contacts and anonymous identity never enter the
+  model payload.
+- Tree-hole identity uses `ANONYMOUS_IDENTITY_KEY_V1` for authenticated
+  encryption and a distinct `ANONYMOUS_FINGERPRINT_KEY` for owner matching.
 
 ## Upload lifecycle
 
@@ -24,6 +30,28 @@ storage, short-lived signed reads, and immutable moderation/audit events.
 4. Only an authenticated scanner callback can record the SHA-256 verdict.
 5. Production resource binding, resubmission, publication, and signed download
    all require a clean document. Infected assets are rejected before deletion.
+
+## Moderation and identity
+
+The deterministic blocked-word gate runs before AI. PASS publishes, REVIEW
+queues staff review, provider BLOCK persists a rejected record and returns
+bounded Chinese feedback, and provider failure publishes with an immutable
+`AI_CHECK_SKIPPED` audit event. Admin-only model signals never reach authors or
+moderators. Custom-tag assessments are associated with their parent content and
+the strictest current outcome is shown.
+
+Anonymous tree-hole posts expose no author field. Only an administrator may
+reveal one author for an open or triaged report; the action records
+`TREE_HOLE_AUTHOR_REVEALED`. Tree holes allow posts, likes, and reports only,
+with no comment path.
+
+## Key rotation
+
+Key rotation is expand/migrate/contract: deploy readers for a new numbered key,
+re-encrypt in an audited batch, switch writers, verify, then remove the old
+reader. Never overwrite `AI_CONFIG_ENCRYPTION_KEY_V1` or
+`ANONYMOUS_IDENTITY_KEY_V1` while records still reference version 1. Never
+replace `ANONYMOUS_FINGERPRINT_KEY` without migrating every stored fingerprint.
 
 ## Reporting vulnerabilities
 

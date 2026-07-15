@@ -25,13 +25,12 @@ function adapter(overrides: Record<string, unknown> = {}) {
       findUnique: vi.fn(async () => null),
       upsert: vi.fn(async () => ({ id: 'favourite_1' })),
     },
-    jobPost: { findFirst: vi.fn(async () => null) },
+    campusWorkPost: { findFirst: vi.fn(async () => null) },
     marketplaceItem: { findFirst: vi.fn(async () => null) },
     resource: {
       findMany: vi.fn(async () => []),
       findFirst: vi.fn(async () => ({
         author: { name: 'Ada' },
-        courseCode: 'CS101',
         createdAt: new Date('2026-07-12T10:00:00Z'),
         id: target.targetId,
         summary: 'Safe summary',
@@ -51,7 +50,6 @@ function rawPaginatedAdapter(total: number) {
     favouriteId: `fav_${String(total - index).padStart(4, '0')}`,
     item: {
       author: { name: 'Ada' },
-      courseCode: 'CS101',
       createdAt: createdAt.toISOString(),
       id: `resource_${String(index).padStart(4, '0')}`,
       summary: `Summary for resource_${String(index).padStart(4, '0')}`,
@@ -149,7 +147,7 @@ describe('favourites domain', () => {
     expect(sql).toMatch(/UNION ALL/i);
     expect(sql).toMatch(/JOIN "Resource"/);
     expect(sql).toMatch(/JOIN "MarketplaceItem"/);
-    expect(sql).toMatch(/JOIN "JobPost"/);
+    expect(sql).toMatch(/JOIN "CampusWorkPost"/);
     expect(sql).toMatch(/status[^?]*PUBLISHED/i);
     expect(sql).not.toContain(actor.id);
     expect(sql).not.toMatch(/jsonb_build_object\([^)]*contact/i);

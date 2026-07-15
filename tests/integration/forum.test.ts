@@ -142,7 +142,7 @@ function reportCreateBarrierAdapter(
               findFirst: (args: Record<string, unknown>) =>
                 tx.forumPost.findFirst(args as never),
             },
-            jobPost: tx.jobPost,
+            campusWorkPost: tx.campusWorkPost,
             marketplaceItem: tx.marketplaceItem,
             report: {
               create: async (args: Record<string, unknown>) => {
@@ -237,7 +237,6 @@ describeWithDatabase('forum anonymous identity persistence', () => {
     const suffix = randomUUID();
     const campus = await db.campus.create({
       data: {
-        allowedEmailDomain: `${suffix}.forum.test`,
         name: 'Forum Identity Test Campus',
         slug: `forum-identity-${suffix}`,
       },

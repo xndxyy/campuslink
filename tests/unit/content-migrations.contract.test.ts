@@ -15,6 +15,15 @@ const tagsMigrationPath = fileURLToPath(
 const tagsMigration = existsSync(tagsMigrationPath)
   ? readFileSync(tagsMigrationPath, 'utf8')
   : '';
+const contractMigrationPath = fileURLToPath(
+  new URL(
+    '../../prisma/migrations/20260713220000_contract_legacy_content/migration.sql',
+    import.meta.url,
+  ),
+);
+const contractMigration = existsSync(contractMigrationPath)
+  ? readFileSync(contractMigrationPath, 'utf8')
+  : '';
 const schema = readFileSync(
   fileURLToPath(new URL('../../prisma/schema.prisma', import.meta.url)),
   'utf8',
@@ -517,7 +526,7 @@ describe('scoped tags and campus-work expand migration', () => {
   it('matches Prisma CampusWorkPost nullability, defaults, keys, and indexes', () => {
     const campusWork = prismaBlock('model', 'CampusWorkPost');
 
-    expect(campusWork).toMatch(/company\s+String\?\s+@db\.VarChar\(200\)/);
+    expect(campusWork).not.toContain('company');
     expect(campusWork).toMatch(/contact\s+String\?\s+@db\.Text/);
     expect(campusWork).toMatch(/status\s+ContentStatus\s+@default\(DRAFT\)/);
     expect(sqlColumn('CampusWorkPost', 'company')).toBe('VARCHAR(200)');
@@ -656,5 +665,82 @@ describe('scoped tags and campus-work expand migration', () => {
   it('documents the short JobPost write lock and Phase 5 bridge lifetime', () => {
     expect(phasePlans[0]).toContain('SHARE ROW EXCLUSIVE');
     expect(phasePlans[0]).toMatch(/sync trigger[\s\S]*Phase 5/i);
+  });
+});
+
+describe('legacy content contract migration', () => {
+  it('exists after the expand migrations and is one explicit transaction', () => {
+    expect(existsSync(contractMigrationPath)).toBe(true);
+    const effectiveSql = contractMigration.replace(/^\s*--.*$/gm, '').trim();
+    expect(effectiveSql).toMatch(/^BEGIN;\s/);
+    expect(effectiveSql).toMatch(/COMMIT;$/);
+    expect(effectiveSql.match(/\bBEGIN;/g)).toHaveLength(1);
+    expect(effectiveSql.match(/\bCOMMIT;/g)).toHaveLength(1);
+  });
+
+  it('verifies the complete legacy copy before removing compatibility storage', () => {
+    const guardIndex = contractMigration.indexOf('legacy_count');
+    const dropIndex = contractMigration.indexOf('DROP TABLE "JobPost"');
+
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(dropIndex).toBeGreaterThan(guardIndex);
+    expect(contractMigration).toMatch(
+      /SELECT COUNT\(\*\) INTO legacy_count FROM "JobPost"/,
+    );
+    expect(contractMigration).toMatch(
+      /SELECT COUNT\(\*\) INTO campus_work_count\s+FROM "CampusWorkPost"/,
+    );
+    for (const field of [
+      'authorId',
+      'campusId',
+      'title',
+      'description',
+      'location',
+      'payText',
+      'status',
+      'createdAt',
+      'updatedAt',
+    ]) {
+      expect(contractMigration).toMatch(
+        new RegExp(
+          `target\\."${field}"\\s+IS DISTINCT FROM\\s+source\\."${field}"`,
+        ),
+      );
+    }
+    expect(contractMigration).toMatch(
+      /FROM "CampusWorkPost"[\s\S]*"authorId" IS NULL[\s\S]*"updatedAt" IS NULL/,
+    );
+    expect(contractMigration).toMatch(/RAISE EXCEPTION[\s\S]*row count/i);
+    expect(contractMigration).toMatch(/RAISE EXCEPTION[\s\S]*field mismatch/i);
+    expect(contractMigration).toMatch(/RAISE EXCEPTION[\s\S]*required field/i);
+  });
+
+  it('drops only the approved legacy bridge, table, and columns after guards', () => {
+    const guardIndex = contractMigration.indexOf('legacy_count');
+    for (const operation of [
+      'DROP TRIGGER "JobPost_campus_work_sync" ON "JobPost"',
+      'DROP FUNCTION "_sync_job_post_to_campus_work"()',
+      'DROP TABLE "JobPost"',
+      'ALTER TABLE "Resource" DROP COLUMN "courseCode"',
+      'ALTER TABLE "Campus" DROP COLUMN "allowedEmailDomain"',
+      'ALTER TABLE "CampusWorkPost" DROP COLUMN "company"',
+    ]) {
+      expect(contractMigration, operation).toContain(operation);
+      expect(contractMigration.indexOf(operation), operation).toBeGreaterThan(
+        guardIndex,
+      );
+    }
+    expect(contractMigration).not.toMatch(/DROP TABLE "CampusWorkPost"/);
+    expect(contractMigration).not.toMatch(/DROP TABLE "Resource"/);
+    expect(contractMigration).not.toMatch(/DROP TABLE "Campus"/);
+  });
+
+  it('matches the contracted Prisma schema', () => {
+    expect(prismaBlock('model', 'Resource')).not.toContain('courseCode');
+    expect(prismaBlock('model', 'Campus')).not.toContain('allowedEmailDomain');
+    expect(prismaBlock('model', 'Campus')).not.toContain('jobPosts');
+    expect(prismaBlock('model', 'User')).not.toContain('jobPosts');
+    expect(prismaBlock('model', 'CampusWorkPost')).not.toContain('company');
+    expect(schema).not.toMatch(/model JobPost\s*\{/);
   });
 });

@@ -18,24 +18,17 @@ import {
 import type {
   ContentListQuery,
   CreateCampusWorkInput,
-  CreateJobInput,
   CreateMarketplaceItemInput,
   CreateResourceInput,
   UpdateCampusWorkInput,
-  UpdateJobInput,
   UpdateMarketplaceItemInput,
   UpdateResourceInput,
 } from '@/lib/validation/content';
 
 type Role = 'STUDENT' | 'MODERATOR' | 'ADMIN';
-export type ContentKind = 'resource' | 'marketplace' | 'campus-work' | 'job';
+export type ContentKind = 'resource' | 'marketplace' | 'campus-work';
 export type UpdateContentInput =
-  | UpdateResourceInput
-  | UpdateMarketplaceItemInput
-  | UpdateCampusWorkInput
-  | UpdateJobInput;
-
-export const LEGACY_CAMPUS_WORK_COMPANY = 'CampusLink 校园工作';
+  UpdateResourceInput | UpdateMarketplaceItemInput | UpdateCampusWorkInput;
 
 export interface ContentActor {
   campusId: string;
@@ -140,7 +133,6 @@ export interface ContentAdapter {
   contentAssessment: {
     create(args: Record<string, unknown>): Promise<{ id: string }>;
   };
-  jobPost: Delegate;
   marketplaceItem: Delegate;
   marketplaceTag: TagJoinDelegate;
   moderationAction?: {
@@ -262,9 +254,7 @@ function delegateFor(adapter: ContentAdapter, kind: ContentKind): Delegate {
     ? adapter.resource
     : kind === 'marketplace'
       ? adapter.marketplaceItem
-      : kind === 'campus-work'
-        ? adapter.campusWorkPost
-        : adapter.jobPost;
+      : adapter.campusWorkPost;
 }
 
 function validateAssets(
@@ -541,30 +531,8 @@ export async function createMarketplaceItem(
   return result;
 }
 
-export async function createJobPost(
-  adapter: ContentAdapter,
-  actor: ContentActor,
-  input: CreateJobInput,
-) {
-  return adapter.$transaction(async (tx) => {
-    const created = await tx.jobPost.create({
-      data: {
-        authorId: actor.id,
-        campusId: actor.campusId,
-        ...input,
-        status: ContentStatus.DRAFT,
-      },
-    });
-    return tx.jobPost.update({
-      data: { status: ContentStatus.PENDING },
-      where: { id: created.id },
-    });
-  });
-}
-
 function sharedCampusWorkData(input: CreateCampusWorkInput) {
   return {
-    company: LEGACY_CAMPUS_WORK_COMPANY,
     description: input.description,
     location: input.location,
     payText: input.payText,
@@ -600,28 +568,16 @@ export async function createCampusWorkPost(
   );
   const result = await serializableContentTransaction(adapter, async (tx) => {
     const id = assessment?.targetId ?? randomUUID();
-    const createdAt = new Date();
-    await tx.jobPost.create({
+    await tx.campusWorkPost.create({
       data: {
         authorId: actor.id,
         campusId: actor.campusId,
+        contact: input.contact,
         ...sharedCampusWorkData(input),
-        createdAt,
-        id,
-        status: ContentStatus.DRAFT,
-        updatedAt: createdAt,
-      },
-    });
-    if (!tx.campusWorkPost.updateMany) throw new Error('Unsupported adapter');
-    const contactUpdated = await tx.campusWorkPost.updateMany({
-      data: { contact: input.contact, updatedAt: createdAt },
-      where: {
-        authorId: actor.id,
         id,
         status: ContentStatus.DRAFT,
       },
     });
-    if (contactUpdated.count !== 1) throw new ContentConflictError();
     const resolvedTagIds = await resolveContentTagsInTransaction(
       tx,
       preparedTags,
@@ -637,12 +593,11 @@ export async function createCampusWorkPost(
     if (assessment) {
       await persistPreparedAssessmentBatch(tx, assessment.prepared);
     }
-    const updated = await tx.jobPost.update({
+    const updated = await tx.campusWorkPost.update({
       data: {
         status: assessment
           ? publishingOutcomeStatus(assessment.prepared.outcome)
           : ContentStatus.PENDING,
-        updatedAt: new Date(),
       },
       where: { id },
     });
@@ -658,12 +613,10 @@ function publicWhere(
 ) {
   const searchableFields =
     kind === 'resource'
-      ? ['title', 'summary', 'courseCode']
+      ? ['title', 'summary']
       : kind === 'marketplace'
         ? ['title', 'description', 'pickupArea']
-        : kind === 'campus-work'
-          ? ['title', 'description', 'location', 'payText']
-          : ['title', 'company', 'description', 'location'];
+        : ['title', 'description', 'location', 'payText'];
   const search = query.search
     ? {
         OR: searchableFields.map((field) => ({
@@ -682,9 +635,6 @@ function publicWhere(
       : { campusId: query.campusId }),
     status: ContentStatus.PUBLISHED,
     ...search,
-    ...(kind === 'resource' && query.courseCode
-      ? { courseCode: query.courseCode }
-      : {}),
     ...((kind === 'resource' ||
       kind === 'marketplace' ||
       kind === 'campus-work') &&
@@ -711,10 +661,7 @@ function publicWhere(
           },
         }
       : {}),
-    ...(kind === 'job' && query.company
-      ? { company: { contains: query.company, mode: 'insensitive' } }
-      : {}),
-    ...((kind === 'job' || kind === 'campus-work') && query.location
+    ...(kind === 'campus-work' && query.location
       ? { location: { contains: query.location, mode: 'insensitive' } }
       : {}),
   };
@@ -736,7 +683,6 @@ function publicSelect(kind: ContentKind) {
         where: { status: 'READY' },
       },
       author: { select: { name: true } },
-      courseCode: true,
       summary: true,
       tagAssignments: {
         select: {
@@ -779,35 +725,25 @@ function publicSelect(kind: ContentKind) {
       // Contact is deliberately absent until the audited request-contact flow.
     };
   }
-  if (kind === 'campus-work') {
-    return {
-      ...shared,
-      author: { select: { name: true } },
-      description: true,
-      location: true,
-      payText: true,
-      tagAssignments: {
-        select: {
-          tag: {
-            select: {
-              id: true,
-              isActive: true,
-              isPreset: true,
-              label: true,
-            },
-          },
-        },
-      },
-      // Contact is deliberately absent from the public campus-work presenter.
-    };
-  }
   return {
     ...shared,
-    company: true,
+    author: { select: { name: true } },
     description: true,
     location: true,
     payText: true,
-    author: { select: { name: true } },
+    tagAssignments: {
+      select: {
+        tag: {
+          select: {
+            id: true,
+            isActive: true,
+            isPreset: true,
+            label: true,
+          },
+        },
+      },
+    },
+    // Contact is deliberately absent from the public campus-work presenter.
   };
 }
 
@@ -1026,20 +962,12 @@ async function updateCampusWorkStatus(
   nextStatus: ContentStatus,
 ) {
   return serializableContentTransaction(adapter, async (tx) => {
-    if (!tx.jobPost.updateMany || !tx.campusWorkPost.updateMany) {
-      throw new Error('Unsupported adapter');
-    }
-    const updatedAt = new Date();
-    const legacy = await tx.jobPost.updateMany({
-      data: { status: nextStatus, updatedAt },
+    if (!tx.campusWorkPost.updateMany) throw new Error('Unsupported adapter');
+    const changed = await tx.campusWorkPost.updateMany({
+      data: { status: nextStatus },
       where: { authorId: actor.id, id, status: currentStatus },
     });
-    if (legacy.count !== 1) throw new ContentConflictError();
-    const synchronized = await tx.campusWorkPost.updateMany({
-      data: { status: nextStatus, updatedAt },
-      where: { authorId: actor.id, id, status: nextStatus },
-    });
-    if (synchronized.count !== 1) throw new ContentConflictError();
+    if (changed.count !== 1) throw new ContentConflictError();
     return { id, status: nextStatus };
   });
 }
@@ -1117,7 +1045,7 @@ export async function submitOwnedDraft(
           }
         : {};
   let assessment: Awaited<ReturnType<typeof prepareContentPublishing>> = null;
-  if (publishing && kind !== 'job') {
+  if (publishing) {
     if (!isVerifiedContentActor(actor)) throw new ContentForbiddenError();
     if (!delegate.findFirst) throw new Error('Unsupported adapter');
     const tagSelect = {
@@ -1241,37 +1169,20 @@ export async function submitOwnedDraft(
   const nextStatus =
     ContentStatus[publishingOutcomeStatus(assessment.prepared.outcome)];
   const result = await serializableContentTransaction(adapter, async (tx) => {
-    if (kind === 'campus-work') {
-      if (!tx.jobPost.updateMany || !tx.campusWorkPost.updateMany) {
-        throw new Error('Unsupported adapter');
-      }
-      const updatedAt = new Date();
-      const legacy = await tx.jobPost.updateMany({
-        data: { status: nextStatus, updatedAt },
-        where: { authorId: actor.id, id, status: ContentStatus.DRAFT },
-      });
-      if (legacy.count !== 1) throw new ContentConflictError();
-      const synchronized = await tx.campusWorkPost.updateMany({
-        data: { status: nextStatus, updatedAt },
-        where: { authorId: actor.id, id, status: nextStatus },
-      });
-      if (synchronized.count !== 1) throw new ContentConflictError();
-    } else {
-      const transactionalDelegate = delegateFor(tx, kind);
-      if (!transactionalDelegate.updateMany) {
-        throw new Error('Unsupported adapter');
-      }
-      const changed = await transactionalDelegate.updateMany({
-        data: { status: nextStatus },
-        where: {
-          ...assetInvariant,
-          id,
-          [ownerField]: actor.id,
-          status: ContentStatus.DRAFT,
-        },
-      });
-      if (changed.count !== 1) throw new ContentConflictError();
+    const transactionalDelegate = delegateFor(tx, kind);
+    if (!transactionalDelegate.updateMany) {
+      throw new Error('Unsupported adapter');
     }
+    const changed = await transactionalDelegate.updateMany({
+      data: { status: nextStatus },
+      where: {
+        ...assetInvariant,
+        id,
+        [ownerField]: actor.id,
+        status: ContentStatus.DRAFT,
+      },
+    });
+    if (changed.count !== 1) throw new ContentConflictError();
     await persistPreparedAssessmentBatch(tx, assessment.prepared);
     return { id, status: nextStatus };
   });
@@ -1289,118 +1200,73 @@ export async function editOwnedContent(
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
-  if (kind !== 'job') {
-    if (!isVerifiedContentActor(actor)) {
-      throw new ContentForbiddenError();
-    }
-    if (!('customTags' in input) || !('presetTagIds' in input)) {
-      throw new ContentConflictError();
-    }
-    const { customTags, presetTagIds } = input;
-    const scope =
-      kind === 'resource'
-        ? 'RESOURCE'
-        : kind === 'marketplace'
-          ? 'MARKETPLACE'
-          : 'CAMPUS_WORK';
-    const updateData =
-      kind === 'resource'
-        ? 'summary' in input
+  if (!isVerifiedContentActor(actor)) {
+    throw new ContentForbiddenError();
+  }
+  if (!('customTags' in input) || !('presetTagIds' in input)) {
+    throw new ContentConflictError();
+  }
+  const { customTags, presetTagIds } = input;
+  const scope =
+    kind === 'resource'
+      ? 'RESOURCE'
+      : kind === 'marketplace'
+        ? 'MARKETPLACE'
+        : 'CAMPUS_WORK';
+  const updateData =
+    kind === 'resource'
+      ? 'summary' in input
+        ? {
+            status: ContentStatus.DRAFT,
+            summary: input.summary,
+            title: input.title,
+          }
+        : null
+      : kind === 'marketplace' && 'condition' in input
+        ? {
+            condition: input.condition,
+            contact: input.contact,
+            description: input.description,
+            pickupArea: input.pickupArea,
+            priceCents: input.priceCents,
+            status: ContentStatus.DRAFT,
+            title: input.title,
+          }
+        : kind === 'campus-work' && 'location' in input && 'contact' in input
           ? {
-              status: ContentStatus.DRAFT,
-              summary: input.summary,
-              title: input.title,
-            }
-          : null
-        : kind === 'marketplace' && 'condition' in input
-          ? {
-              condition: input.condition,
               contact: input.contact,
               description: input.description,
-              pickupArea: input.pickupArea,
-              priceCents: input.priceCents,
+              location: input.location,
+              payText: input.payText,
               status: ContentStatus.DRAFT,
               title: input.title,
             }
-          : kind === 'campus-work' && 'location' in input && 'contact' in input
-            ? {
-                contact: input.contact,
-                description: input.description,
-                location: input.location,
-                payText: input.payText,
-                status: ContentStatus.DRAFT,
-                title: input.title,
-              }
-            : null;
-    if (!updateData) throw new ContentConflictError();
-    const preparedTags = await prepareContentTagSelection(actor, scope, {
-      customTags,
-      presetTagIds,
-    });
-    return serializableContentTransaction(adapter, async (tx) => {
-      if (kind === 'campus-work') {
-        if (!tx.jobPost.updateMany || !tx.campusWorkPost.updateMany)
-          throw new Error('Unsupported adapter');
-        const campusWorkInput = input as UpdateCampusWorkInput;
-        const updatedAt = new Date();
-        const legacy = await tx.jobPost.updateMany({
-          data: {
-            company: LEGACY_CAMPUS_WORK_COMPANY,
-            description: campusWorkInput.description,
-            location: campusWorkInput.location,
-            payText: campusWorkInput.payText,
-            status: ContentStatus.DRAFT,
-            title: campusWorkInput.title,
-            updatedAt,
-          },
-          where: {
-            authorId: actor.id,
-            id,
-            status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
-          },
-        });
-        if (legacy.count !== 1) throw new ContentConflictError();
-        const contact = await tx.campusWorkPost.updateMany({
-          data: { contact: campusWorkInput.contact, updatedAt },
-          where: {
-            authorId: actor.id,
-            id,
-            status: ContentStatus.DRAFT,
-          },
-        });
-        if (contact.count !== 1) throw new ContentConflictError();
-      } else {
-        const transactionalDelegate = delegateFor(tx, kind);
-        if (!transactionalDelegate.updateMany)
-          throw new Error('Unsupported adapter');
-        const changed = await transactionalDelegate.updateMany({
-          data: updateData,
-          where: {
-            id,
-            [ownerField]: actor.id,
-            status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
-          },
-        });
-        if (changed.count !== 1) throw new ContentConflictError();
-      }
-      const resolvedTagIds = await resolveContentTagsInTransaction(
-        tx,
-        preparedTags,
-      );
-      await writeResolvedTagJoins(tx, actor, kind, id, resolvedTagIds, true);
-      return { id, status: ContentStatus.DRAFT };
-    });
-  }
-  const changed = await delegate.updateMany({
-    data: { ...input, status: ContentStatus.DRAFT },
-    where: {
-      id,
-      [ownerField]: actor.id,
-      status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
-    },
+          : null;
+  if (!updateData) throw new ContentConflictError();
+  const preparedTags = await prepareContentTagSelection(actor, scope, {
+    customTags,
+    presetTagIds,
   });
-  if (changed.count !== 1) throw new ContentConflictError();
-  return { id, status: ContentStatus.DRAFT };
+  return serializableContentTransaction(adapter, async (tx) => {
+    const transactionalDelegate = delegateFor(tx, kind);
+    if (!transactionalDelegate.updateMany)
+      throw new Error('Unsupported adapter');
+    const changed = await transactionalDelegate.updateMany({
+      data: updateData,
+      where: {
+        id,
+        [ownerField]: actor.id,
+        status: { in: [ContentStatus.DRAFT, ContentStatus.REJECTED] },
+      },
+    });
+    if (changed.count !== 1) throw new ContentConflictError();
+    const resolvedTagIds = await resolveContentTagsInTransaction(
+      tx,
+      preparedTags,
+    );
+    await writeResolvedTagJoins(tx, actor, kind, id, resolvedTagIds, true);
+    return { id, status: ContentStatus.DRAFT };
+  });
 }
 
 export async function getOwnedContent(

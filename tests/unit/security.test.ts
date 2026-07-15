@@ -162,4 +162,30 @@ describe('release security boundary', () => {
       .join('\n');
     expect(source).not.toContain('dangerouslySetInnerHTML');
   });
+
+  it('documents versioned moderation and anonymous-identity key rotation', () => {
+    const root = resolve(process.cwd());
+    const deployment = readFileSync(
+      resolve(root, 'docs/deployment.md'),
+      'utf8',
+    );
+    const operations = readFileSync(
+      resolve(root, 'docs/operations.md'),
+      'utf8',
+    );
+    const security = readFileSync(resolve(root, 'docs/security.md'), 'utf8');
+    const documentation = `${deployment}\n${operations}\n${security}`;
+
+    for (const variable of [
+      'AI_CONFIG_ENCRYPTION_KEY_V1',
+      'AI_ALLOWED_HOSTS',
+      'ANONYMOUS_IDENTITY_KEY_V1',
+      'ANONYMOUS_FINGERPRINT_KEY',
+    ]) {
+      expect(documentation, variable).toContain(variable);
+    }
+    expect(documentation).toMatch(/key rotation|密钥轮换/i);
+    expect(documentation).toMatch(/AI_CHECK_SKIPPED/);
+    expect(documentation).toMatch(/TREE_HOLE_AUTHOR_REVEALED/);
+  });
 });

@@ -26,6 +26,11 @@ import {
   TreeHoleIdentityForbiddenError,
   TreeHoleIdentityValidationError,
 } from './tree-hole-identity';
+import {
+  BlockedWordConflictError,
+  BlockedWordForbiddenError,
+  BlockedWordValidationError,
+} from './blocked-words';
 import { TagValidationError } from '../validation/tags';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
@@ -51,6 +56,7 @@ export function adminErrorResponse(error: unknown) {
     error instanceof ModerationForbiddenError ||
     error instanceof AdminForbiddenError ||
     error instanceof TagForbiddenError ||
+    error instanceof BlockedWordForbiddenError ||
     error instanceof TreeHoleIdentityForbiddenError
   ) {
     return adminJson({ message: 'Insufficient permissions.' }, { status: 403 });
@@ -60,6 +66,7 @@ export function adminErrorResponse(error: unknown) {
     error instanceof AnnouncementValidationError ||
     error instanceof AdminValidationError ||
     error instanceof TagValidationError ||
+    error instanceof BlockedWordValidationError ||
     error instanceof TreeHoleIdentityValidationError
   ) {
     return adminJson(
@@ -93,6 +100,12 @@ export function adminErrorResponse(error: unknown) {
   }
   if (error instanceof TagConflictError) {
     return adminJson({ message: 'Tag state conflict.' }, { status: 409 });
+  }
+  if (error instanceof BlockedWordConflictError) {
+    return adminJson(
+      { message: 'Blocked word state conflict.' },
+      { status: 409 },
+    );
   }
   return adminJson(
     { message: 'Unable to complete administration request.' },

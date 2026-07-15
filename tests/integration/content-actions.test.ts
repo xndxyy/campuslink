@@ -29,6 +29,7 @@ import {
   listPublicContent,
   submitOwnedDraft,
 } from '@/lib/domain/content-service';
+import { preparePublishingAssessmentBatch } from '@/lib/moderation/content-assessment';
 
 const describeWithDatabase = describe.skipIf(!process.env.DATABASE_URL);
 
@@ -271,6 +272,7 @@ describeWithDatabase('content publishing actions', () => {
     try {
       if (campusId) {
         await db.auditLog.deleteMany({ where: { campusId } });
+        await db.contentAssessment.deleteMany({ where: { campusId } });
         await db.user.deleteMany({ where: { campusId } });
         await db.tagDefinition.deleteMany({ where: { campusId } });
         await db.campus.delete({ where: { id: campusId } });
@@ -352,6 +354,62 @@ describeWithDatabase('content publishing actions', () => {
     await expect(
       db.asset.findUnique({ where: { id: image.id } }),
     ).resolves.toMatchObject({ marketplaceItemId: marketplace.id });
+  });
+
+  it('atomically publishes assessed campus work and its custom-tag assessments', async (context) => {
+    if (!requireCampusWorkCapabilities(context)) return;
+    const adapter = db as unknown as ContentAdapter;
+    const actor = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: studentId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const targetId = `assessed-work-${randomUUID()}`;
+    const publishing = {
+      generateTargetId: () => targetId,
+      prepare: (
+        input: Parameters<typeof preparePublishingAssessmentBatch>[1],
+      ) =>
+        preparePublishingAssessmentBatch(adapter, input, {
+          localGate: async () => null,
+          provider: async () => ({
+            adminSignals: [],
+            categories: [],
+            decision: 'REVIEW' as const,
+            reasonZh: '内容符合校园社区规范',
+            riskScore: 3,
+            suggestionZh: '无需修改',
+          }),
+        }),
+    };
+
+    const created = await createCampusWorkPost(
+      adapter,
+      actor,
+      {
+        contact: 'private-campus-contact',
+        customTags: [`测试标签 ${randomUUID().slice(0, 6)}`],
+        description: 'Assessed integration campus work description.',
+        location: 'Student centre',
+        payText: '30 CNY per hour',
+        presetTagIds: [],
+        title: `Assessed campus work ${randomUUID()}`,
+      },
+      publishing,
+    );
+
+    expect(created).toMatchObject({ id: targetId, status: 'PUBLISHED' });
+    const assessments = await db.contentAssessment.findMany({
+      orderBy: { targetType: 'asc' },
+      where: { campusId, targetId: { startsWith: targetId } },
+    });
+    expect(assessments.map((item) => item.targetType).sort()).toEqual([
+      'CAMPUS_WORK',
+      'CUSTOM_TAG',
+    ]);
+    expect(assessments.every((item) => item.decision === 'PASS')).toBe(true);
   });
 
   it('dual-writes campus work and preserves contact and tags through a legacy trigger update', async (context) => {

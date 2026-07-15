@@ -29,6 +29,11 @@ import {
   updateForumPost,
 } from '@/lib/domain/forum';
 import { loadAnonymousIdentityKeyring } from '@/lib/security/anonymous-identity';
+import {
+  ContentBlockedError,
+  createConfiguredPublishingPolicy,
+  type ConfiguredPublishingAssessmentAdapter,
+} from '@/lib/moderation/content-assessment';
 import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import {
   createForumCommentSchema,
@@ -120,6 +125,17 @@ function mapForumError(error: unknown) {
   if (error instanceof ForumConflictError) {
     return json({ message: '当前内容状态不允许此操作。' }, 409);
   }
+  if (error instanceof ContentBlockedError) {
+    return json(
+      {
+        categories: error.categories,
+        code: error.code,
+        reason: error.reason,
+        suggestion: error.suggestion,
+      },
+      400,
+    );
+  }
   if (error instanceof ForumValidationError) {
     return json({ message: '论坛请求参数无效。' }, 400);
   }
@@ -175,7 +191,14 @@ async function runMutation<T>(
     }
     const parsed = schema.safeParse(rawBody);
     if (!parsed.success) return json({ message: '请求正文无效。' }, 400);
-    return json(await action(actor, parsed.data), successStatus);
+    const result = await action(actor, parsed.data);
+    const response =
+      result &&
+      typeof result === 'object' &&
+      (result as { status?: unknown }).status === 'PENDING'
+        ? { ...result, message: '内容正在人工审核。' }
+        : result;
+    return json(response, successStatus);
   } catch (error) {
     return mapForumError(error);
   }
@@ -215,11 +238,15 @@ export function handleForumPostCollectionPost(
     dependencies.resolveUser,
     async (actor, input) => {
       if (dependencies.create) return dependencies.create(actor, input);
+      const database = adapter() as ForumAdapter &
+        ConfiguredPublishingAssessmentAdapter;
       return createForumPost(
-        adapter(),
+        database,
         actor,
         input,
         input.kind === 'TREE_HOLE' ? loadAnonymousIdentityKeyring() : undefined,
+        {},
+        createConfiguredPublishingPolicy(database),
       );
     },
     201,
@@ -284,11 +311,14 @@ export function handleForumPostDetailPatch(
     async (actor, changes) => {
       const input = { changes, id, view };
       if (dependencies.update) return dependencies.update(actor, input);
+      const database = adapter() as ForumAdapter &
+        ConfiguredPublishingAssessmentAdapter;
       return updateForumPost(
-        adapter(),
+        database,
         actor,
         input,
         view === 'tree-hole' ? loadAnonymousIdentityKeyring() : undefined,
+        createConfiguredPublishingPolicy(database),
       );
     },
   );
@@ -366,7 +396,14 @@ export function handleForumCommentsPost(
       if (dependencies.createComment) {
         return dependencies.createComment(actor, input);
       }
-      return createForumComment(adapter(), actor, input);
+      const database = adapter() as ForumAdapter &
+        ConfiguredPublishingAssessmentAdapter;
+      return createForumComment(
+        database,
+        actor,
+        input,
+        createConfiguredPublishingPolicy(database),
+      );
     },
     201,
   );
@@ -393,7 +430,14 @@ export function handleForumCommentsPatch(
       if (dependencies.updateComment) {
         return dependencies.updateComment(actor, input);
       }
-      return updateForumComment(adapter(), actor, input);
+      const database = adapter() as ForumAdapter &
+        ConfiguredPublishingAssessmentAdapter;
+      return updateForumComment(
+        database,
+        actor,
+        input,
+        createConfiguredPublishingPolicy(database),
+      );
     },
   );
 }

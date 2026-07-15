@@ -1,6 +1,13 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import { getDefaultCampusSlug } from '@/lib/config';
+import {
+  ContentBlockedError,
+  persistPreparedAssessmentBatch,
+  publishingOutcomeStatus,
+  type PreparedAssessmentBatch,
+  type PublishingAssessmentPolicy,
+} from '@/lib/moderation/content-assessment';
 import {
   fingerprintAnonymousUser,
   sealAnonymousIdentity,
@@ -63,6 +70,12 @@ export interface ForumAdapter {
       args: Record<string, unknown>,
     ): Promise<Record<string, unknown> | null>;
   };
+  auditLog: {
+    create(args: Record<string, unknown>): Promise<unknown>;
+  };
+  contentAssessment: {
+    create(args: Record<string, unknown>): Promise<{ id: string }>;
+  };
   forumCategory: {
     findFirst(
       args: Record<string, unknown>,
@@ -83,6 +96,37 @@ export interface ForumAdapter {
       args: Record<string, unknown>,
     ): Promise<Record<string, unknown> | null>;
   };
+}
+
+async function prepareForumPublishing(
+  actor: ForumActor,
+  policy: PublishingAssessmentPolicy | undefined,
+  targetType: 'FORUM_POST' | 'FORUM_COMMENT',
+  content: Readonly<Record<string, string>>,
+  existingTargetId?: string,
+) {
+  if (!policy) return null;
+  const targetId =
+    existingTargetId ?? (policy.generateTargetId ?? randomUUID)();
+  const prepared = await policy.prepare({
+    campusId: actor.campusId,
+    requests: [{ content, targetId, targetType }],
+  });
+  if (
+    prepared.outcome.kind === 'block' &&
+    prepared.outcome.source === 'local'
+  ) {
+    throw new ContentBlockedError(prepared.outcome);
+  }
+  return { prepared, targetId };
+}
+
+function throwForumProviderBlock(
+  prepared: PreparedAssessmentBatch | undefined,
+) {
+  if (prepared?.outcome.kind === 'block') {
+    throw new ContentBlockedError(prepared.outcome);
+  }
 }
 
 export class ForumVerificationRequiredError extends Error {
@@ -381,12 +425,14 @@ function presentPublishedPost(
   record: Record<string, unknown>,
   campusId: string,
   kind: ForumPostKind,
+  allowedStatuses: ReadonlySet<string> = new Set(['PUBLISHED']),
 ) {
   const count = record._count as Record<string, unknown> | undefined;
   const commonValid =
     record.campusId === campusId &&
     record.kind === kind &&
-    record.status === 'PUBLISHED' &&
+    typeof record.status === 'string' &&
+    allowedStatuses.has(record.status) &&
     typeof record.id === 'string' &&
     typeof record.title === 'string' &&
     typeof record.body === 'string' &&
@@ -405,7 +451,7 @@ function presentPublishedPost(
     createdAt: record.createdAt as Date,
     id: record.id as string,
     kind,
-    status: 'PUBLISHED' as const,
+    status: record.status as string,
     title: record.title as string,
     updatedAt: record.updatedAt as Date,
   };
@@ -718,6 +764,12 @@ async function findOwnedPost(
   return { kind, record };
 }
 
+function requireEditableForumRecord(record: Record<string, unknown>) {
+  if (record.status === 'HIDDEN' || record.status === 'ARCHIVED') {
+    throw new ForumConflictError();
+  }
+}
+
 async function requireActiveCategory(
   adapter: ForumAdapter,
   campusId: string,
@@ -747,13 +799,23 @@ export async function createForumPost(
   rawInput: CreateForumPostInput,
   keys?: AnonymousIdentityKeyring,
   options: { generatePublicCode?: () => string } = {},
+  publishing?: PublishingAssessmentPolicy,
 ) {
   requireVerifiedForumActor(actor);
   const parsed = createForumPostSchema.safeParse(rawInput);
   if (!parsed.success) throw new ForumValidationError();
   const input = parsed.data;
+  if (publishing) {
+    await requireActiveCategory(adapter, actor.campusId, input.category);
+  }
+  const assessment = await prepareForumPublishing(
+    actor,
+    publishing,
+    'FORUM_POST',
+    { body: input.body, title: input.title },
+  );
 
-  return serializableForumTransaction(
+  const result = await serializableForumTransaction(
     adapter,
     async (tx) => {
       await requireActiveCategory(tx, actor.campusId, input.category);
@@ -764,13 +826,24 @@ export async function createForumPost(
             body: input.body,
             campusId: actor.campusId,
             category: input.category,
+            ...(assessment ? { id: assessment.targetId } : {}),
             kind: 'DISCUSSION',
-            status: 'PUBLISHED',
+            status: assessment
+              ? publishingOutcomeStatus(assessment.prepared.outcome)
+              : 'PUBLISHED',
             title: input.title,
           },
           select: publicPostSelect('DISCUSSION'),
         });
-        return presentPublishedPost(record, actor.campusId, 'DISCUSSION');
+        if (assessment) {
+          await persistPreparedAssessmentBatch(tx, assessment.prepared);
+        }
+        return presentPublishedPost(
+          record,
+          actor.campusId,
+          'DISCUSSION',
+          new Set(['PUBLISHED', 'PENDING', 'REJECTED']),
+        );
       }
 
       if (!keys) throw new ForumConflictError();
@@ -787,17 +860,30 @@ export async function createForumPost(
           body: input.body,
           campusId: actor.campusId,
           category: input.category,
+          ...(assessment ? { id: assessment.targetId } : {}),
           kind: 'TREE_HOLE',
           publicCode,
-          status: 'PUBLISHED',
+          status: assessment
+            ? publishingOutcomeStatus(assessment.prepared.outcome)
+            : 'PUBLISHED',
           title: input.title,
         },
         select: publicPostSelect('TREE_HOLE'),
       });
-      return presentPublishedPost(record, actor.campusId, 'TREE_HOLE');
+      if (assessment) {
+        await persistPreparedAssessmentBatch(tx, assessment.prepared);
+      }
+      return presentPublishedPost(
+        record,
+        actor.campusId,
+        'TREE_HOLE',
+        new Set(['PUBLISHED', 'PENDING', 'REJECTED']),
+      );
     },
     input.kind === 'TREE_HOLE' ? 'public-code' : undefined,
   );
+  throwForumProviderBlock(assessment?.prepared);
+  return result;
 }
 
 export async function updateForumPost(
@@ -809,6 +895,7 @@ export async function updateForumPost(
     view: ForumView;
   },
   keys?: AnonymousIdentityKeyring,
+  publishing?: PublishingAssessmentPolicy,
 ) {
   requireVerifiedForumActor(actor);
   kindForView(rawInput.view);
@@ -821,7 +908,37 @@ export async function updateForumPost(
   ) {
     throw new ForumValidationError();
   }
-  return serializableForumTransaction(adapter, async (tx) => {
+  let assessment: Awaited<ReturnType<typeof prepareForumPublishing>> = null;
+  if (publishing) {
+    const owned = await findOwnedPost(
+      adapter,
+      actor,
+      rawInput.id,
+      rawInput.view,
+      keys,
+    );
+    requireEditableForumRecord(owned.record);
+    if (parsed.data.category) {
+      await requireActiveCategory(
+        adapter,
+        actor.campusId,
+        parsed.data.category,
+      );
+    }
+    const title = parsed.data.title ?? owned.record.title;
+    const body = parsed.data.body ?? owned.record.body;
+    if (typeof title !== 'string' || typeof body !== 'string') {
+      throw new ForumConflictError();
+    }
+    assessment = await prepareForumPublishing(
+      actor,
+      publishing,
+      'FORUM_POST',
+      { body, title },
+      rawInput.id,
+    );
+  }
+  const result = await serializableForumTransaction(adapter, async (tx) => {
     const owned = await findOwnedPost(
       tx,
       actor,
@@ -829,12 +946,17 @@ export async function updateForumPost(
       rawInput.view,
       keys,
     );
-    if (owned.record.status === 'ARCHIVED') throw new ForumConflictError();
+    requireEditableForumRecord(owned.record);
     if (parsed.data.category) {
       await requireActiveCategory(tx, actor.campusId, parsed.data.category);
     }
     const updated = await tx.forumPost.update({
-      data: parsed.data,
+      data: {
+        ...parsed.data,
+        ...(assessment
+          ? { status: publishingOutcomeStatus(assessment.prepared.outcome) }
+          : {}),
+      },
       select: ownedPostSelect(owned.kind),
       where: { id: rawInput.id },
     });
@@ -848,8 +970,13 @@ export async function updateForumPost(
     ) {
       throw new ForumConflictError();
     }
+    if (assessment) {
+      await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    }
     return presentOwnedPost(updated, actor.campusId, owned.kind);
   });
+  throwForumProviderBlock(assessment?.prepared);
+  return result;
 }
 
 export async function deleteForumPost(
@@ -1035,13 +1162,28 @@ export async function createForumComment(
   adapter: ForumAdapter,
   actor: ForumActor,
   rawInput: { body: string; postId: string },
+  publishing?: PublishingAssessmentPolicy,
 ) {
   requireVerifiedForumActor(actor);
   const body = createForumCommentSchema.safeParse({ body: rawInput.body });
   if (!body.success || !/^[A-Za-z0-9_-]{1,191}$/.test(rawInput.postId)) {
     throw new ForumValidationError();
   }
-  return serializableForumTransaction(adapter, async (tx) => {
+  if (publishing) {
+    const post = await findVisibleInteractionPost(
+      adapter,
+      actor.campusId,
+      rawInput.postId,
+    );
+    if (post.kind === 'TREE_HOLE') throw new ForumNotFoundError();
+  }
+  const assessment = await prepareForumPublishing(
+    actor,
+    publishing,
+    'FORUM_COMMENT',
+    { comment: body.data.body },
+  );
+  const result = await serializableForumTransaction(adapter, async (tx) => {
     const post = await findVisibleInteractionPost(
       tx,
       actor.campusId,
@@ -1052,13 +1194,25 @@ export async function createForumComment(
       data: {
         authorId: actor.id,
         body: body.data.body,
+        ...(assessment ? { id: assessment.targetId } : {}),
         postId: rawInput.postId,
-        status: 'PUBLISHED',
+        status: assessment
+          ? publishingOutcomeStatus(assessment.prepared.outcome)
+          : 'PUBLISHED',
       },
       select: publicCommentSelect,
     });
-    return presentComment(created, rawInput.postId);
+    if (assessment) {
+      await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    }
+    return presentComment(
+      created,
+      rawInput.postId,
+      new Set(['PUBLISHED', 'PENDING', 'REJECTED']),
+    );
   });
+  throwForumProviderBlock(assessment?.prepared);
+  return result;
 }
 
 const ownedCommentSelect = {
@@ -1107,6 +1261,7 @@ export async function updateForumComment(
   adapter: ForumAdapter,
   actor: ForumActor,
   rawInput: { body: string; commentId: string; postId: string },
+  publishing?: PublishingAssessmentPolicy,
 ) {
   requireVerifiedForumActor(actor);
   const parsed = updateForumCommentSchema.safeParse({
@@ -1116,15 +1271,51 @@ export async function updateForumComment(
   if (!parsed.success || !/^[A-Za-z0-9_-]{1,191}$/.test(rawInput.postId)) {
     throw new ForumValidationError();
   }
-  return serializableForumTransaction(adapter, async (tx) => {
-    await findOwnedComment(tx, actor, rawInput.postId, parsed.data.commentId);
+  if (publishing) {
+    const owned = await findOwnedComment(
+      adapter,
+      actor,
+      rawInput.postId,
+      parsed.data.commentId,
+    );
+    requireEditableForumRecord(owned);
+  }
+  const assessment = await prepareForumPublishing(
+    actor,
+    publishing,
+    'FORUM_COMMENT',
+    { comment: parsed.data.body },
+    parsed.data.commentId,
+  );
+  const result = await serializableForumTransaction(adapter, async (tx) => {
+    const owned = await findOwnedComment(
+      tx,
+      actor,
+      rawInput.postId,
+      parsed.data.commentId,
+    );
+    requireEditableForumRecord(owned);
     const updated = await tx.forumComment.update({
-      data: { body: parsed.data.body },
+      data: {
+        body: parsed.data.body,
+        ...(assessment
+          ? { status: publishingOutcomeStatus(assessment.prepared.outcome) }
+          : {}),
+      },
       select: publicCommentSelect,
       where: { id: parsed.data.commentId },
     });
-    return presentComment(updated, rawInput.postId);
+    if (assessment) {
+      await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    }
+    return presentComment(
+      updated,
+      rawInput.postId,
+      new Set(['PUBLISHED', 'PENDING', 'REJECTED']),
+    );
   });
+  throwForumProviderBlock(assessment?.prepared);
+  return result;
 }
 
 export async function deleteForumComment(

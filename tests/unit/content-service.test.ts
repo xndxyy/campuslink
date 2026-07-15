@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ContentConflictError,
   type ContentAdapter,
+  type ContentPublishingPolicy,
   type ContentRecord,
   createJobPost,
   createMarketplaceItem,
@@ -12,6 +13,10 @@ import {
   listOwnedContent,
   listPublicContent,
 } from '@/lib/domain/content-service';
+import {
+  ContentBlockedError,
+  type PreparedAssessmentBatch,
+} from '@/lib/moderation/content-assessment';
 
 const actor = {
   campusId: 'campus_server',
@@ -51,6 +56,13 @@ function createAdapter(assets: Asset[] = []) {
       ),
       updateMany: vi.fn(async () => ({ count: assets.length })),
     },
+    auditLog: { create: vi.fn(async () => ({})) },
+    contentAssessment: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        ...data,
+        id: 'assessment_1',
+      })),
+    },
     jobPost: {
       updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -68,14 +80,22 @@ function createAdapter(assets: Asset[] = []) {
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: 1 })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        const record = { ...data, id: 'market_1' };
+        const record = { ...data, id: String(data.id ?? 'market_1') };
         created.push(record);
         return record;
       }),
-      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-        id: 'market_1',
-        ...data,
-      })),
+      update: vi.fn(
+        async ({
+          data,
+          where,
+        }: {
+          data: Record<string, unknown>;
+          where: { id: string };
+        }) => ({
+          id: where.id,
+          ...data,
+        }),
+      ),
     },
     marketplaceTag: {
       createMany: vi.fn(
@@ -111,7 +131,7 @@ function createAdapter(assets: Asset[] = []) {
     resource: {
       count: vi.fn(async () => 3),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        const record = { ...data, id: 'resource_1' };
+        const record = { ...data, id: String(data.id ?? 'resource_1') };
         created.push(record);
         return record;
       }),
@@ -128,10 +148,18 @@ function createAdapter(assets: Asset[] = []) {
         },
       ]),
       findFirst: vi.fn(async (): Promise<ContentRecord | null> => null),
-      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-        id: 'resource_1',
-        ...data,
-      })),
+      update: vi.fn(
+        async ({
+          data,
+          where,
+        }: {
+          data: Record<string, unknown>;
+          where: { id: string };
+        }) => ({
+          id: where.id,
+          ...data,
+        }),
+      ),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     resourceTag: {
@@ -178,6 +206,51 @@ function createAdapter(assets: Asset[] = []) {
   };
 }
 
+function publishingPolicy(
+  outcome:
+    | { kind: 'pass' }
+    | { kind: 'review'; reasonZh: string }
+    | {
+        categories: string[];
+        kind: 'block';
+        reasonZh: string;
+        source: 'provider';
+        suggestionZh: string;
+      }
+    | { kind: 'skipped' },
+) {
+  const targetId = 'resource_1';
+  const skipped = outcome.kind === 'skipped';
+  const prepared = {
+    assessments: [
+      {
+        auditSkipped: skipped,
+        data: {
+          campusId: actor.campusId,
+          decision:
+            outcome.kind === 'block'
+              ? 'BLOCK'
+              : outcome.kind === 'review'
+                ? 'REVIEW'
+                : 'PASS',
+          providerStatus: skipped ? 'SKIPPED' : 'COMPLETED',
+          targetId,
+          targetType: 'RESOURCE',
+        },
+        outcome,
+        targetId,
+        targetType: 'RESOURCE',
+      },
+    ],
+    campusId: actor.campusId,
+    outcome,
+  } as unknown as PreparedAssessmentBatch;
+  return {
+    generateTargetId: () => targetId,
+    prepare: vi.fn(async () => prepared),
+  } satisfies ContentPublishingPolicy;
+}
+
 const resourceInput = {
   assetIds: ['doc_1'],
   customTags: ['算法'],
@@ -187,6 +260,159 @@ const resourceInput = {
 };
 
 describe('content service', () => {
+  it('publishes a passing resource and assesses custom tags independently', async () => {
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
+    ]);
+    const policy = publishingPolicy({ kind: 'pass' });
+
+    const result = await createResource(
+      serviceAdapter,
+      actor,
+      resourceInput,
+      undefined,
+      policy,
+    );
+
+    expect(policy.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campusId: actor.campusId,
+        requests: [
+          {
+            content: {
+              summary: resourceInput.summary,
+              title: resourceInput.title,
+            },
+            targetId: 'resource_1',
+            targetType: 'RESOURCE',
+          },
+          {
+            content: { tag: '算法' },
+            targetId: 'resource_1:tag:0',
+            targetType: 'CUSTOM_TAG',
+          },
+        ],
+      }),
+    );
+    expect(adapter.resource.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ id: 'resource_1' }),
+    });
+    expect(adapter.resource.update).toHaveBeenCalledWith({
+      data: { status: 'PUBLISHED' },
+      where: { id: 'resource_1' },
+    });
+    expect(adapter.contentAssessment.create).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('PUBLISHED');
+  });
+
+  it('keeps reviewed marketplace content pending and excludes contact from AI input', async () => {
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'image_1',
+        kind: 'MARKETPLACE_IMAGE',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
+    ]);
+    const policy = publishingPolicy({
+      kind: 'review',
+      reasonZh: '需要人工确认交易描述',
+    });
+
+    const result = await createMarketplaceItem(
+      serviceAdapter,
+      actor,
+      {
+        assetIds: ['image_1'],
+        condition: 'GOOD',
+        contact: 'private-contact@example.com',
+        customTags: [],
+        description: 'A carefully used discrete mathematics textbook.',
+        pickupArea: 'North library',
+        presetTagIds: [],
+        priceCents: 1999,
+        title: 'Discrete mathematics textbook',
+      },
+      policy,
+    );
+
+    const serializedAssessmentInput = JSON.stringify(
+      vi.mocked(policy.prepare).mock.calls,
+    );
+    expect(serializedAssessmentInput).not.toContain('private-contact');
+    expect(adapter.marketplaceItem.update).toHaveBeenCalledWith({
+      data: { status: 'PENDING' },
+      where: { id: 'resource_1' },
+    });
+    expect(result.status).toBe('PENDING');
+  });
+
+  it('persists provider-blocked content as rejected before returning feedback', async () => {
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
+    ]);
+    const policy = publishingPolicy({
+      categories: ['诈骗引流'],
+      kind: 'block',
+      reasonZh: '内容包含诱导转账信息',
+      source: 'provider',
+      suggestionZh: '删除转账诱导后重新提交',
+    });
+
+    await expect(
+      createResource(serviceAdapter, actor, resourceInput, undefined, policy),
+    ).rejects.toMatchObject({
+      categories: ['诈骗引流'],
+      code: 'CONTENT_BLOCKED',
+      reason: '内容包含诱导转账信息',
+      suggestion: '删除转账诱导后重新提交',
+    } satisfies Partial<ContentBlockedError>);
+    expect(adapter.resource.update).toHaveBeenCalledWith({
+      data: { status: 'REJECTED' },
+      where: { id: 'resource_1' },
+    });
+    expect(adapter.contentAssessment.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('publishes fail-open content and audits the skipped provider in the transaction', async () => {
+    const { adapter, serviceAdapter } = createAdapter([
+      {
+        id: 'doc_1',
+        kind: 'RESOURCE_DOCUMENT',
+        marketplaceItemId: null,
+        ownerId: actor.id,
+        resourceId: null,
+        status: 'READY',
+      },
+    ]);
+    const policy = publishingPolicy({ kind: 'skipped' });
+
+    await expect(
+      createResource(serviceAdapter, actor, resourceInput, undefined, policy),
+    ).resolves.toMatchObject({ status: 'PUBLISHED' });
+    expect(adapter.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'AI_CHECK_SKIPPED' }),
+      }),
+    );
+  });
+
   it('rejects a resource without a document with the exact domain message', async () => {
     const { serviceAdapter } = createAdapter([
       {

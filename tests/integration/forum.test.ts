@@ -29,6 +29,7 @@ import {
   TreeHoleIdentityForbiddenError,
   type TreeHoleIdentityAdapter,
 } from '@/lib/domain/tree-hole-identity';
+import { preparePublishingAssessmentBatch } from '@/lib/moderation/content-assessment';
 import {
   fingerprintAnonymousUser,
   sealAnonymousIdentity,
@@ -358,6 +359,7 @@ describeWithDatabase('forum anonymous identity persistence', () => {
   afterAll(async () => {
     if (campusId) {
       await db.auditLog.deleteMany({ where: { campusId } });
+      await db.contentAssessment.deleteMany({ where: { campusId } });
       await db.moderationAction.deleteMany({
         where: { actorId: { in: [adminId, moderatorId] } },
       });
@@ -374,6 +376,59 @@ describeWithDatabase('forum anonymous identity persistence', () => {
       await db.campus.delete({ where: { id: campusId } });
     }
     await db.$disconnect();
+  });
+
+  it('atomically keeps an AI-reviewed forum post pending with its assessment', async () => {
+    const adapter = db as unknown as ForumAdapter;
+    const targetId = `assessed-forum-${randomUUID()}`;
+    const publishing = {
+      generateTargetId: () => targetId,
+      prepare: (
+        input: Parameters<typeof preparePublishingAssessmentBatch>[1],
+      ) =>
+        preparePublishingAssessmentBatch(adapter, input, {
+          localGate: async () => null,
+          provider: async () => ({
+            adminSignals: ['integration-review'],
+            categories: ['其他风险'] as const,
+            decision: 'PASS' as const,
+            reasonZh: '风险分达到人工复核阈值',
+            riskScore: 55,
+            suggestionZh: '请等待管理员人工确认',
+          }),
+        }),
+    };
+
+    const created = await createForumPost(
+      adapter,
+      {
+        campusId,
+        emailVerifiedAt: new Date(),
+        id: anonymousUserId,
+        role: 'STUDENT',
+        status: 'ACTIVE',
+      },
+      {
+        body: 'This integration discussion is long enough for assessment.',
+        category: categorySlug,
+        kind: 'DISCUSSION',
+        title: 'Assessed integration discussion',
+      },
+      testKeys,
+      {},
+      publishing,
+    );
+
+    expect(created).toMatchObject({ id: targetId, status: 'PENDING' });
+    await expect(
+      db.contentAssessment.findFirstOrThrow({
+        where: { campusId, targetId, targetType: 'FORUM_POST' },
+      }),
+    ).resolves.toMatchObject({
+      decision: 'REVIEW',
+      providerStatus: 'COMPLETED',
+      riskScore: 55,
+    });
   });
 
   it('denies moderators and administrators without an active matching report', async () => {

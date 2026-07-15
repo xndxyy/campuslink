@@ -3,6 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { ContentStatus } from './content-status';
 import { getDefaultCampusSlug } from '@/lib/config';
 import {
+  ContentBlockedError,
+  persistPreparedAssessmentBatch,
+  publishingOutcomeStatus,
+  type PreparedAssessmentBatch,
+  type PublishingAssessmentBatchInput,
+} from '@/lib/moderation/content-assessment';
+import {
   prepareContentTagSelection,
   resolveContentTagsInTransaction,
   TagConflictError,
@@ -125,8 +132,14 @@ export interface ContentAdapter {
       where: Record<string, unknown>;
     }): Promise<{ count: number }>;
   };
+  auditLog: {
+    create(args: Record<string, unknown>): Promise<unknown>;
+  };
   campusWorkPost: Delegate;
   campusWorkTag: TagJoinDelegate;
+  contentAssessment: {
+    create(args: Record<string, unknown>): Promise<{ id: string }>;
+  };
   jobPost: Delegate;
   marketplaceItem: Delegate;
   marketplaceTag: TagJoinDelegate;
@@ -136,6 +149,13 @@ export interface ContentAdapter {
   resource: Delegate;
   resourceTag: TagJoinDelegate;
   tagDefinition: TagResolutionTransaction['tagDefinition'];
+}
+
+export interface ContentPublishingPolicy {
+  generateTargetId?: () => string;
+  prepare(
+    input: PublishingAssessmentBatchInput,
+  ): Promise<PreparedAssessmentBatch>;
 }
 
 export class ContentConflictError extends Error {
@@ -278,17 +298,88 @@ function validateAssets(
   }
 }
 
+function assessmentRequests(
+  kind: 'RESOURCE' | 'MARKETPLACE_ITEM' | 'CAMPUS_WORK',
+  targetId: string,
+  content: Readonly<Record<string, string>>,
+  customTags: ReadonlyArray<{ label: string }>,
+) {
+  return [
+    { content, targetId, targetType: kind },
+    ...customTags.map(({ label }, index) => ({
+      content: { tag: label },
+      targetId: `${targetId}:tag:${index}`,
+      targetType: 'CUSTOM_TAG' as const,
+    })),
+  ];
+}
+
+async function prepareContentPublishing(
+  actor: VerifiedContentActor,
+  policy: ContentPublishingPolicy | undefined,
+  requests: (targetId: string) => PublishingAssessmentBatchInput['requests'],
+  existingTargetId?: string,
+) {
+  if (!policy) return null;
+  const targetId =
+    existingTargetId ?? (policy.generateTargetId ?? randomUUID)();
+  const prepared = await policy.prepare({
+    campusId: actor.campusId,
+    requests: requests(targetId),
+  });
+  if (
+    prepared.outcome.kind === 'block' &&
+    prepared.outcome.source === 'local'
+  ) {
+    throw new ContentBlockedError(prepared.outcome);
+  }
+  return { prepared, targetId };
+}
+
+function throwProviderBlock(prepared: PreparedAssessmentBatch | undefined) {
+  if (prepared?.outcome.kind === 'block') {
+    throw new ContentBlockedError(prepared.outcome);
+  }
+}
+
 export async function createResource(
   adapter: ContentAdapter,
   actor: VerifiedContentActor,
   input: CreateResourceInput,
   policy?: DocumentScanPolicy,
+  publishing?: ContentPublishingPolicy,
 ) {
   const preparedTags = await prepareContentTagSelection(actor, 'RESOURCE', {
     customTags: input.customTags,
     presetTagIds: input.presetTagIds,
   });
-  return serializableContentTransaction(adapter, async (tx) => {
+  if (publishing) {
+    const assets = await adapter.asset.findMany({
+      where: { id: { in: input.assetIds } },
+    });
+    validateAssets(
+      assets,
+      input.assetIds,
+      actor,
+      ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'],
+      policy,
+    );
+    if (!assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT')) {
+      throw new ContentConflictError('Resource requires a document');
+    }
+  }
+  const assessment = await prepareContentPublishing(
+    actor,
+    publishing,
+    (targetId) =>
+      assessmentRequests(
+        'RESOURCE',
+        targetId,
+        { summary: input.summary, title: input.title },
+        preparedTags.customTags,
+      ),
+  );
+  const result = await serializableContentTransaction(adapter, async (tx) => {
     const assets = await tx.asset.findMany({
       where: { id: { in: input.assetIds } },
     });
@@ -306,6 +397,7 @@ export async function createResource(
       data: {
         authorId: actor.id,
         campusId: actor.campusId,
+        ...(assessment ? { id: assessment.targetId } : {}),
         status: ContentStatus.DRAFT,
         summary: input.summary,
         title: input.title,
@@ -336,23 +428,57 @@ export async function createResource(
     });
     if (attached.count !== input.assetIds.length)
       throw new ContentConflictError();
+    if (assessment && created.id !== assessment.targetId) {
+      throw new ContentConflictError();
+    }
+    if (assessment) {
+      await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    }
     return tx.resource.update({
-      data: { status: ContentStatus.PENDING },
+      data: {
+        status: assessment
+          ? publishingOutcomeStatus(assessment.prepared.outcome)
+          : ContentStatus.PENDING,
+      },
       where: { id: created.id },
     });
   });
+  throwProviderBlock(assessment?.prepared);
+  return result;
 }
 
 export async function createMarketplaceItem(
   adapter: ContentAdapter,
   actor: VerifiedContentActor,
   input: CreateMarketplaceItemInput,
+  publishing?: ContentPublishingPolicy,
 ) {
   const preparedTags = await prepareContentTagSelection(actor, 'MARKETPLACE', {
     customTags: input.customTags,
     presetTagIds: input.presetTagIds,
   });
-  return serializableContentTransaction(adapter, async (tx) => {
+  if (publishing) {
+    const assets = await adapter.asset.findMany({
+      where: { id: { in: input.assetIds } },
+    });
+    validateAssets(assets, input.assetIds, actor, ['MARKETPLACE_IMAGE']);
+  }
+  const assessment = await prepareContentPublishing(
+    actor,
+    publishing,
+    (targetId) =>
+      assessmentRequests(
+        'MARKETPLACE_ITEM',
+        targetId,
+        {
+          description: input.description,
+          location: input.pickupArea,
+          title: input.title,
+        },
+        preparedTags.customTags,
+      ),
+  );
+  const result = await serializableContentTransaction(adapter, async (tx) => {
     const assets = await tx.asset.findMany({
       where: { id: { in: input.assetIds } },
     });
@@ -363,6 +489,7 @@ export async function createMarketplaceItem(
         condition: input.condition,
         contact: input.contact,
         description: input.description,
+        ...(assessment ? { id: assessment.targetId } : {}),
         pickupArea: input.pickupArea,
         priceCents: input.priceCents,
         sellerId: actor.id,
@@ -395,11 +522,23 @@ export async function createMarketplaceItem(
     });
     if (attached.count !== input.assetIds.length)
       throw new ContentConflictError();
+    if (assessment && created.id !== assessment.targetId) {
+      throw new ContentConflictError();
+    }
+    if (assessment) {
+      await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    }
     return tx.marketplaceItem.update({
-      data: { status: ContentStatus.PENDING },
+      data: {
+        status: assessment
+          ? publishingOutcomeStatus(assessment.prepared.outcome)
+          : ContentStatus.PENDING,
+      },
       where: { id: created.id },
     });
   });
+  throwProviderBlock(assessment?.prepared);
+  return result;
 }
 
 export async function createJobPost(
@@ -437,13 +576,30 @@ export async function createCampusWorkPost(
   adapter: ContentAdapter,
   actor: VerifiedContentActor,
   input: CreateCampusWorkInput,
+  publishing?: ContentPublishingPolicy,
 ) {
   const preparedTags = await prepareContentTagSelection(actor, 'CAMPUS_WORK', {
     customTags: input.customTags,
     presetTagIds: input.presetTagIds,
   });
-  return serializableContentTransaction(adapter, async (tx) => {
-    const id = randomUUID();
+  const assessment = await prepareContentPublishing(
+    actor,
+    publishing,
+    (targetId) =>
+      assessmentRequests(
+        'CAMPUS_WORK',
+        targetId,
+        {
+          description: input.description,
+          location: input.location,
+          payText: input.payText,
+          title: input.title,
+        },
+        preparedTags.customTags,
+      ),
+  );
+  const result = await serializableContentTransaction(adapter, async (tx) => {
+    const id = assessment?.targetId ?? randomUUID();
     const createdAt = new Date();
     await tx.jobPost.create({
       data: {
@@ -478,12 +634,22 @@ export async function createCampusWorkPost(
       resolvedTagIds,
       false,
     );
+    if (assessment) {
+      await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    }
     const updated = await tx.jobPost.update({
-      data: { status: ContentStatus.PENDING, updatedAt: new Date() },
+      data: {
+        status: assessment
+          ? publishingOutcomeStatus(assessment.prepared.outcome)
+          : ContentStatus.PENDING,
+        updatedAt: new Date(),
+      },
       where: { id },
     });
     return updated;
   });
+  throwProviderBlock(assessment?.prepared);
+  return result;
 }
 
 function publicWhere(
@@ -914,16 +1080,8 @@ export async function submitOwnedDraft(
   kind: ContentKind,
   id: string,
   policy?: DocumentScanPolicy,
+  publishing?: ContentPublishingPolicy,
 ) {
-  if (kind === 'campus-work') {
-    return updateCampusWorkStatus(
-      adapter,
-      actor,
-      id,
-      ContentStatus.DRAFT,
-      ContentStatus.PENDING,
-    );
-  }
   const delegate = delegateFor(adapter, kind);
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
@@ -958,17 +1116,167 @@ export async function submitOwnedDraft(
             },
           }
         : {};
-  const changed = await delegate.updateMany({
-    data: { status: ContentStatus.PENDING },
-    where: {
-      ...assetInvariant,
+  let assessment: Awaited<ReturnType<typeof prepareContentPublishing>> = null;
+  if (publishing && kind !== 'job') {
+    if (!isVerifiedContentActor(actor)) throw new ContentForbiddenError();
+    if (!delegate.findFirst) throw new Error('Unsupported adapter');
+    const tagSelect = {
+      select: {
+        tag: { select: { isPreset: true, label: true } },
+      },
+    };
+    const select =
+      kind === 'resource'
+        ? {
+            id: true,
+            status: true,
+            summary: true,
+            tagAssignments: tagSelect,
+            title: true,
+          }
+        : kind === 'marketplace'
+          ? {
+              description: true,
+              id: true,
+              pickupArea: true,
+              status: true,
+              tagAssignments: tagSelect,
+              title: true,
+            }
+          : {
+              description: true,
+              id: true,
+              location: true,
+              payText: true,
+              status: true,
+              tagAssignments: tagSelect,
+              title: true,
+            };
+    const current = await delegate.findFirst({
+      select,
+      where: {
+        ...assetInvariant,
+        id,
+        [ownerField]: actor.id,
+        status: ContentStatus.DRAFT,
+      },
+    });
+    if (
+      !current ||
+      current.id !== id ||
+      current.status !== ContentStatus.DRAFT
+    ) {
+      throw new ContentConflictError();
+    }
+    const stringField = (field: string) => {
+      const value = current[field];
+      if (typeof value !== 'string') throw new ContentConflictError();
+      return value;
+    };
+    const assignments = Array.isArray(current.tagAssignments)
+      ? current.tagAssignments
+      : [];
+    const customTags = assignments.flatMap((assignment) => {
+      if (!assignment || typeof assignment !== 'object') return [];
+      const tag = (assignment as { tag?: unknown }).tag;
+      if (!tag || typeof tag !== 'object') return [];
+      const record = tag as { isPreset?: unknown; label?: unknown };
+      return record.isPreset === false && typeof record.label === 'string'
+        ? [{ label: record.label }]
+        : [];
+    });
+    const targetType =
+      kind === 'resource'
+        ? 'RESOURCE'
+        : kind === 'marketplace'
+          ? 'MARKETPLACE_ITEM'
+          : 'CAMPUS_WORK';
+    const content: Readonly<Record<string, string>> =
+      kind === 'resource'
+        ? { summary: stringField('summary'), title: stringField('title') }
+        : kind === 'marketplace'
+          ? {
+              description: stringField('description'),
+              location: stringField('pickupArea'),
+              title: stringField('title'),
+            }
+          : {
+              description: stringField('description'),
+              location: stringField('location'),
+              payText: stringField('payText'),
+              title: stringField('title'),
+            };
+    assessment = await prepareContentPublishing(
+      actor,
+      publishing,
+      (targetId) =>
+        assessmentRequests(targetType, targetId, content, customTags),
       id,
-      [ownerField]: actor.id,
-      status: ContentStatus.DRAFT,
-    },
+    );
+  }
+
+  if (!assessment) {
+    if (kind === 'campus-work') {
+      return updateCampusWorkStatus(
+        adapter,
+        actor,
+        id,
+        ContentStatus.DRAFT,
+        ContentStatus.PENDING,
+      );
+    }
+    const changed = await delegate.updateMany({
+      data: { status: ContentStatus.PENDING },
+      where: {
+        ...assetInvariant,
+        id,
+        [ownerField]: actor.id,
+        status: ContentStatus.DRAFT,
+      },
+    });
+    if (changed.count !== 1) throw new ContentConflictError();
+    return { id, status: ContentStatus.PENDING };
+  }
+
+  const nextStatus =
+    ContentStatus[publishingOutcomeStatus(assessment.prepared.outcome)];
+  const result = await serializableContentTransaction(adapter, async (tx) => {
+    if (kind === 'campus-work') {
+      if (!tx.jobPost.updateMany || !tx.campusWorkPost.updateMany) {
+        throw new Error('Unsupported adapter');
+      }
+      const updatedAt = new Date();
+      const legacy = await tx.jobPost.updateMany({
+        data: { status: nextStatus, updatedAt },
+        where: { authorId: actor.id, id, status: ContentStatus.DRAFT },
+      });
+      if (legacy.count !== 1) throw new ContentConflictError();
+      const synchronized = await tx.campusWorkPost.updateMany({
+        data: { status: nextStatus, updatedAt },
+        where: { authorId: actor.id, id, status: nextStatus },
+      });
+      if (synchronized.count !== 1) throw new ContentConflictError();
+    } else {
+      const transactionalDelegate = delegateFor(tx, kind);
+      if (!transactionalDelegate.updateMany) {
+        throw new Error('Unsupported adapter');
+      }
+      const changed = await transactionalDelegate.updateMany({
+        data: { status: nextStatus },
+        where: {
+          ...assetInvariant,
+          id,
+          [ownerField]: actor.id,
+          status: ContentStatus.DRAFT,
+        },
+      });
+      if (changed.count !== 1) throw new ContentConflictError();
+    }
+    await persistPreparedAssessmentBatch(tx, assessment.prepared);
+    return { id, status: nextStatus };
   });
-  if (changed.count !== 1) throw new ContentConflictError();
-  return { id, status: ContentStatus.PENDING };
+  throwProviderBlock(assessment.prepared);
+  return result;
 }
 
 export async function editOwnedContent(

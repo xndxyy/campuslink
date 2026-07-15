@@ -15,8 +15,14 @@ import { TagValidationError } from '@/lib/validation/tags';
 import {
   type ContentAdapter,
   ContentConflictError,
+  type ContentPublishingPolicy,
   type VerifiedContentActor,
 } from './content-service';
+import {
+  ContentBlockedError,
+  createConfiguredPublishingPolicy,
+  type ConfiguredPublishingAssessmentAdapter,
+} from '@/lib/moderation/content-assessment';
 
 export interface CreateRouteDependencies<T> {
   create?: (actor: VerifiedContentActor, input: T) => Promise<unknown>;
@@ -30,6 +36,7 @@ export async function handleCreateContent<T>(
     adapter: ContentAdapter,
     actor: VerifiedContentActor,
     input: T,
+    publishing?: ContentPublishingPolicy,
   ) => Promise<unknown>,
   dependencies: CreateRouteDependencies<T> = {},
 ) {
@@ -69,10 +76,26 @@ export async function handleCreateContent<T>(
       role: user.role,
       status: user.status,
     };
-    const result = dependencies.create
-      ? await dependencies.create(actor, parsed.data)
-      : await service(getDb() as unknown as ContentAdapter, actor, parsed.data);
-    return NextResponse.json(result, { status: 201 });
+    let result: unknown;
+    if (dependencies.create) {
+      result = await dependencies.create(actor, parsed.data);
+    } else {
+      const database = getDb() as unknown as ContentAdapter &
+        ConfiguredPublishingAssessmentAdapter;
+      result = await service(
+        database,
+        actor,
+        parsed.data,
+        createConfiguredPublishingPolicy(database),
+      );
+    }
+    const response =
+      result &&
+      typeof result === 'object' &&
+      (result as { status?: unknown }).status === 'PENDING'
+        ? { ...result, message: '内容正在人工审核。' }
+        : result;
+    return NextResponse.json(response, { status: 201 });
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json(
@@ -84,6 +107,17 @@ export async function handleCreateContent<T>(
       return NextResponse.json(
         { message: 'A verified account is required.' },
         { status: 403 },
+      );
+    }
+    if (error instanceof ContentBlockedError) {
+      return NextResponse.json(
+        {
+          categories: error.categories,
+          code: error.code,
+          reason: error.reason,
+          suggestion: error.suggestion,
+        },
+        { status: 400 },
       );
     }
     if (error instanceof ContentConflictError) {

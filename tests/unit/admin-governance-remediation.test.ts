@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => {
     auditFindMany,
     db: {
       auditLog: { findMany: auditFindMany },
+      contentAssessment: { findMany: vi.fn(async () => []) },
+      forumComment: { findMany: vi.fn(async () => []) },
+      forumPost: { findMany: vi.fn(async () => []) },
       jobPost: { findMany: vi.fn(async () => []) },
       marketplaceItem: { findMany: vi.fn(async () => []) },
       moderationAction: {

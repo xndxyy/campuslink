@@ -7,6 +7,7 @@ import {
   ForumForbiddenError,
   ForumNotFoundError,
 } from '@/lib/domain/forum';
+import { ContentBlockedError } from '@/lib/moderation/content-assessment';
 import {
   handleForumCommentsDelete,
   handleForumCommentsGet,
@@ -132,6 +133,53 @@ describe('forum routes', () => {
     expect(response.status).toBe(403);
     expect(resolveUser).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('returns pending guidance and stable blocked-content feedback', async () => {
+    const pending = await handleForumPostCollectionPost(
+      mutation('POST', '/api/forum/posts', {
+        body: '这是一个满足长度要求的公开校园讨论正文。',
+        category: 'campus-life',
+        kind: 'DISCUSSION',
+        title: '校园讨论主题',
+      }),
+      {
+        create: vi.fn(async () => ({ id: 'post_1', status: 'PENDING' })),
+        resolveUser: async () => user,
+      },
+    );
+    expect(pending.status).toBe(201);
+    await expect(pending.json()).resolves.toStrictEqual({
+      id: 'post_1',
+      message: '内容正在人工审核。',
+      status: 'PENDING',
+    });
+
+    const blocked = await handleForumCommentsPost(
+      mutation('POST', '/api/forum/posts/post_1/comments', {
+        body: '这是一条符合长度要求的评论。',
+      }),
+      'post_1',
+      {
+        createComment: vi.fn(async () => {
+          throw new ContentBlockedError({
+            categories: ['仇恨骚扰'],
+            kind: 'block',
+            reasonZh: '内容包含攻击性表达',
+            source: 'provider',
+            suggestionZh: '删除攻击性表达后重新提交',
+          });
+        }),
+        resolveUser: async () => user,
+      },
+    );
+    expect(blocked.status).toBe(400);
+    await expect(blocked.json()).resolves.toStrictEqual({
+      categories: ['仇恨骚扰'],
+      code: 'CONTENT_BLOCKED',
+      reason: '内容包含攻击性表达',
+      suggestion: '删除攻击性表达后重新提交',
+    });
   });
 
   it('rejects unknown create fields and oversized bounded JSON', async () => {

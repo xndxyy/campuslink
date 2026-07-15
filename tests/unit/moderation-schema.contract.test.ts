@@ -12,6 +12,9 @@ const schema = readSource('../../prisma/schema.prisma');
 const migration = readSource(
   '../../prisma/migrations/20260713210000_add_content_assessment/migration.sql',
 );
+const forumModerationMigration = readSource(
+  '../../prisma/migrations/20260715120000_add_forum_moderation_subjects/migration.sql',
+);
 const integrationSchemaSource = readSource(
   '../integration/schema-constraints.test.ts',
 );
@@ -24,6 +27,23 @@ function block(kind: 'enum' | 'model', name: string) {
 }
 
 describe('content assessment persistence schema contract', () => {
+  it('supports audited moderation decisions for forum posts and comments', () => {
+    const subjects = block('enum', 'ModerationSubjectType');
+    expect(subjects).toMatch(/\bFORUM_POST\b/);
+    expect(subjects).toMatch(/\bFORUM_COMMENT\b/);
+    expect(forumModerationMigration).toMatch(/^BEGIN;/);
+    expect(forumModerationMigration).toContain(
+      `ALTER TYPE "ModerationSubjectType" ADD VALUE IF NOT EXISTS 'FORUM_POST'`,
+    );
+    expect(forumModerationMigration).toContain(
+      `ALTER TYPE "ModerationSubjectType" ADD VALUE IF NOT EXISTS 'FORUM_COMMENT'`,
+    );
+    expect(forumModerationMigration).toMatch(/COMMIT;\s*$/);
+    expect(forumModerationMigration).not.toMatch(
+      /\bDROP\b|\bDELETE\b|\bTRUNCATE\b/i,
+    );
+  });
+
   it('bounds assessment targets, decisions, and provider execution states', () => {
     const targets = block('enum', 'ContentAssessmentTarget');
     for (const target of [

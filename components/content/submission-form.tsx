@@ -4,6 +4,10 @@ import { useState } from 'react';
 
 import { FileUploader } from '@/components/uploads/file-uploader';
 import { TagSelector } from '@/components/content/tag-selector';
+import {
+  contentMutationErrorMessage,
+  contentMutationSuccessMessage,
+} from '@/lib/client/content-feedback';
 import type {
   AvailableTag,
   TagSelection,
@@ -55,13 +59,16 @@ export function SubmissionForm({
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       });
-      const result = (await response.json().catch(() => null)) as {
-        message?: string;
-      } | null;
+      const result = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null;
       if (!response.ok)
-        throw new Error(result?.message ?? '提交失败，请稍后重试。');
+        throw new Error(
+          contentMutationErrorMessage(result, '提交失败，请稍后重试。'),
+        );
       setState('success');
-      setMessage('已进入审核队列。你可以在“我的提交”查看状态。');
+      setMessage(contentMutationSuccessMessage(result));
       form.reset();
       setAssetIds([]);
       setTagSelection(emptyTagSelection());

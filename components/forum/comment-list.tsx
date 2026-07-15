@@ -11,6 +11,10 @@ import {
 } from './comment-pagination';
 import { parseForumCommentDeleteResult } from './forum-action-result';
 import type { ForumView } from './forum-tabs';
+import {
+  contentMutationErrorMessage,
+  contentMutationSuccessMessage,
+} from '@/lib/client/content-feedback';
 
 export interface PresentedComment {
   authorName: string;
@@ -59,18 +63,17 @@ export function CommentList({
           method,
         },
       );
-      const result = (await response.json().catch(() => null)) as {
-        message?: unknown;
-      } | null;
+      const result = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null;
       if (!response.ok)
         throw new Error(
-          typeof result?.message === 'string'
-            ? result.message
-            : '评论操作失败，请稍后重试。',
+          contentMutationErrorMessage(result, '评论操作失败，请稍后重试。'),
         );
       if (method !== 'DELETE') {
         setEditing(null);
-        setMessage(method === 'POST' ? '评论已发布。' : '评论已更新。');
+        setMessage(contentMutationSuccessMessage(result));
       }
       return { body: result, ok: true as const };
     } catch (error) {

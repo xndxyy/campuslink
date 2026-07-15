@@ -21,7 +21,13 @@ const mutationSchema = z
     action: z.enum(['APPROVE', 'REJECT', 'HIDE', 'RESTORE', 'ARCHIVE']),
     reason: z.string().trim().min(5).max(1000),
     subjectId: z.string().trim().min(1).max(191),
-    subjectType: z.enum(['RESOURCE', 'MARKETPLACE_ITEM', 'JOB_POST']),
+    subjectType: z.enum([
+      'RESOURCE',
+      'MARKETPLACE_ITEM',
+      'JOB_POST',
+      'FORUM_POST',
+      'FORUM_COMMENT',
+    ]),
   })
   .strict();
 
@@ -76,7 +82,10 @@ export async function handleModerationMutation(
 const queueSchema = z
   .object({
     pageSize: z.coerce.number().int().min(1).max(200).optional(),
-    status: z.enum(['PENDING', 'PUBLISHED', 'HIDDEN']).default('PENDING'),
+    providerStatus: z.enum(['SKIPPED']).optional(),
+    status: z
+      .enum(['PENDING', 'PUBLISHED', 'REJECTED', 'HIDDEN'])
+      .default('PENDING'),
   })
   .strict();
 

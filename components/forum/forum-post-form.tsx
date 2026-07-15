@@ -3,6 +3,11 @@
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 
+import {
+  contentMutationErrorMessage,
+  contentMutationSuccessMessage,
+} from '@/lib/client/content-feedback';
+
 type Kind = 'DISCUSSION' | 'TREE_HOLE';
 
 export function ForumPostForm({
@@ -40,18 +45,16 @@ export function ForumPostForm({
         headers: { 'Content-Type': 'application/json' },
         method: initialPost ? 'PATCH' : 'POST',
       });
-      const result = (await response.json().catch(() => null)) as {
-        id?: unknown;
-        message?: unknown;
-      } | null;
+      const result = (await response.json().catch(() => null)) as Record<
+        string,
+        unknown
+      > | null;
       if (!response.ok)
         throw new Error(
-          typeof result?.message === 'string'
-            ? result.message
-            : '操作失败，请稍后重试。',
+          contentMutationErrorMessage(result, '操作失败，请稍后重试。'),
         );
       if (initialPost) {
-        setMessage('修改已保存。');
+        setMessage(contentMutationSuccessMessage(result));
         router.refresh();
       } else if (typeof result?.id === 'string') {
         router.push(

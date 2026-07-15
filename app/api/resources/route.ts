@@ -17,7 +17,8 @@ export function handleCreateResource(
   return handleCreateContent(
     request,
     createResourceSchema,
-    createResource,
+    (adapter, actor, input, publishing) =>
+      createResource(adapter, actor, input, undefined, publishing),
     dependencies,
   );
 }

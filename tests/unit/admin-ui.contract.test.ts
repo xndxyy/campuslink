@@ -63,6 +63,20 @@ describe('moderator and administrator workspace contracts', () => {
     expect(moderation).toContain('action="RESTORE"');
   });
 
+  it('shows AI review details and a skipped-provider filter in moderation', () => {
+    const moderation = source('../../app/admin/moderation/page.tsx');
+    expect(moderation).toContain('AI_CHECK_SKIPPED');
+    expect(moderation).toContain('adminSignals');
+    expect(moderation).toContain('hasSkippedAssessment');
+    expect(moderation).toContain('含自定义标签');
+    expect(moderation).toContain('riskScore');
+    expect(moderation).toContain('providerStatus');
+    expect(moderation).toContain(
+      '/admin/moderation?status=PUBLISHED&providerStatus=SKIPPED',
+    );
+    expect(moderation).toContain("status !== 'REJECTED'");
+  });
+
   it('links report targets and renders accessible immutable history', () => {
     const reports = source('../../app/admin/reports/page.tsx');
     expect(reports).toContain('Open target details');

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import * as contentService from '@/lib/domain/content-service';
 import { handleContentAction } from '@/lib/domain/content-action-route';
+import type { PreparedAssessmentBatch } from '@/lib/moderation/content-assessment';
 import * as contentValidation from '@/lib/validation/content';
 
 function readSource(relativePath: string) {
@@ -273,8 +274,12 @@ function campusWorkAdapter() {
         operation(adapter),
     ),
     asset: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
+    auditLog: { create: vi.fn(async () => ({})) },
     campusWorkPost,
     campusWorkTag,
+    contentAssessment: {
+      create: vi.fn(async () => ({ id: 'assessment_1' })),
+    },
     jobPost,
     marketplaceItem: {},
     marketplaceTag: {},
@@ -312,6 +317,62 @@ function campusWorkCreateFunction() {
 }
 
 describe('campus work atomic compatibility writes', () => {
+  it('publishes passing campus work without assessing its private contact', async () => {
+    const { adapter, jobPost } = campusWorkAdapter();
+    const outcome = { kind: 'pass' } as const;
+    const prepared = {
+      assessments: [
+        {
+          auditSkipped: false,
+          data: {
+            campusId: verifiedActor.campusId,
+            decision: 'PASS',
+            providerStatus: 'COMPLETED',
+            targetId: 'work_1',
+            targetType: 'CAMPUS_WORK',
+          },
+          outcome,
+          targetId: 'work_1',
+          targetType: 'CAMPUS_WORK',
+        },
+      ],
+      campusId: verifiedActor.campusId,
+      outcome,
+    } as unknown as PreparedAssessmentBatch;
+    const prepare = vi.fn(async () => prepared);
+
+    const result = await contentService.createCampusWorkPost(
+      adapter as unknown as contentService.ContentAdapter,
+      verifiedActor,
+      campusWorkInput,
+      { generateTargetId: () => 'work_1', prepare },
+    );
+
+    const serialized = JSON.stringify(prepare.mock.calls);
+    expect(serialized).not.toContain(campusWorkInput.contact);
+    expect(prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requests: [
+          {
+            content: {
+              description: campusWorkInput.description,
+              location: campusWorkInput.location,
+              payText: campusWorkInput.payText,
+              title: campusWorkInput.title,
+            },
+            targetId: 'work_1',
+            targetType: 'CAMPUS_WORK',
+          },
+        ],
+      }),
+    );
+    expect(jobPost.update).toHaveBeenCalledWith({
+      data: { status: 'PUBLISHED', updatedAt: expect.any(Date) },
+      where: { id: 'work_1' },
+    });
+    expect(result).toMatchObject({ id: 'work_1', status: 'PUBLISHED' });
+  });
+
   it('acquires JobPost before CampusWorkPost for every shared-field write path', async () => {
     const create = campusWorkCreateFunction();
     expect(create).toBeTypeOf('function');

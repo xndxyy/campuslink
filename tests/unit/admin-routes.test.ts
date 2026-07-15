@@ -280,6 +280,29 @@ describe('admin mutation route protections', () => {
     });
   });
 
+  it('accepts forum posts and comments as governed moderation subjects', async () => {
+    for (const subjectType of ['FORUM_POST', 'FORUM_COMMENT'] as const) {
+      const mutate = vi.fn(async () => ({
+        id: 'forum_target',
+        status: 'PUBLISHED',
+      }));
+      const response = await handleModerationMutation(
+        request('/api/admin/moderation', {
+          action: 'APPROVE',
+          reason: '论坛内容符合校园社区规范。',
+          subjectId: 'forum_target',
+          subjectType,
+        }),
+        { mutate, resolveUser: async () => moderator },
+      );
+      expect(response.status).toBe(200);
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: moderator.id }),
+        expect.objectContaining({ subjectType }),
+      );
+    }
+  });
+
   it('returns 400 for unknown fields and invalid reasons', async () => {
     const response = await handleModerationMutation(
       request('/api/admin/moderation', {

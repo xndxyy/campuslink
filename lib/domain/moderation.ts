@@ -1,8 +1,10 @@
 export type StaffRole = 'STUDENT' | 'MODERATOR' | 'ADMIN';
-export type ContentSubjectType = 'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST';
+export type ContentSubjectType =
+  'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST' | 'FORUM_POST' | 'FORUM_COMMENT';
 export type ContentModerationAction =
   'APPROVE' | 'REJECT' | 'HIDE' | 'RESTORE' | 'ARCHIVE';
-export type ModerationContentStatus = 'PENDING' | 'PUBLISHED' | 'HIDDEN';
+export type ModerationContentStatus =
+  'PENDING' | 'PUBLISHED' | 'REJECTED' | 'HIDDEN';
 
 export interface StaffActor {
   campusId: string;
@@ -27,6 +29,11 @@ interface CreateDelegate {
 export interface ModerationAdapter {
   $transaction<T>(operation: (tx: ModerationAdapter) => Promise<T>): Promise<T>;
   auditLog: CreateDelegate;
+  contentAssessment: {
+    findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
+  };
+  forumComment: ContentDelegate;
+  forumPost: ContentDelegate;
   jobPost: ContentDelegate;
   marketplaceItem: ContentDelegate;
   moderationAction: CreateDelegate & {
@@ -82,6 +89,8 @@ function decisionReason(reason: string) {
 function contentDelegate(adapter: ModerationAdapter, type: ContentSubjectType) {
   if (type === 'RESOURCE') return adapter.resource;
   if (type === 'MARKETPLACE_ITEM') return adapter.marketplaceItem;
+  if (type === 'FORUM_POST') return adapter.forumPost;
+  if (type === 'FORUM_COMMENT') return adapter.forumComment;
   return adapter.jobPost;
 }
 
@@ -140,7 +149,9 @@ export async function moderateContent(
       data: { status: transition.to },
       where: {
         ...cleanDocumentInvariant,
-        campusId: actor.campusId,
+        ...(input.subjectType === 'FORUM_COMMENT'
+          ? { post: { campusId: actor.campusId } }
+          : { campusId: actor.campusId }),
         id: input.subjectId,
         status: Array.isArray(transition.from)
           ? { in: transition.from }
@@ -182,7 +193,11 @@ const sharedPendingSelect = {
 export async function listModerationContent(
   adapter: ModerationAdapter,
   actor: StaffActor,
-  query: { pageSize?: number; status?: ModerationContentStatus } = {},
+  query: {
+    pageSize?: number;
+    providerStatus?: 'SKIPPED';
+    status?: ModerationContentStatus;
+  } = {},
 ): Promise<
   Array<Record<string, unknown> & { subjectType: ContentSubjectType }>
 > {
@@ -191,53 +206,94 @@ export async function listModerationContent(
   const status = query.status ?? 'PENDING';
   const where = { campusId: actor.campusId, status };
   const orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
-  const [resources, marketplace, jobs] = await Promise.all([
-    adapter.resource.findMany({
-      orderBy,
-      select: {
-        ...sharedPendingSelect,
-        assets: {
-          select: { contentType: true, id: true, kind: true, sizeBytes: true },
-          where: { status: 'READY' },
+  const [resources, marketplace, jobs, forumPosts, forumComments] =
+    await Promise.all([
+      adapter.resource.findMany({
+        orderBy,
+        select: {
+          ...sharedPendingSelect,
+          assets: {
+            select: {
+              contentType: true,
+              id: true,
+              kind: true,
+              sizeBytes: true,
+            },
+            where: { status: 'READY' },
+          },
+          author: { select: { id: true, name: true } },
+          courseCode: true,
+          summary: true,
         },
-        author: { select: { id: true, name: true } },
-        courseCode: true,
-        summary: true,
-      },
-      take,
-      where,
-    }),
-    adapter.marketplaceItem.findMany({
-      orderBy,
-      select: {
-        ...sharedPendingSelect,
-        assets: {
-          select: { contentType: true, id: true, kind: true, sizeBytes: true },
-          where: { status: 'READY' },
+        take,
+        where,
+      }),
+      adapter.marketplaceItem.findMany({
+        orderBy,
+        select: {
+          ...sharedPendingSelect,
+          assets: {
+            select: {
+              contentType: true,
+              id: true,
+              kind: true,
+              sizeBytes: true,
+            },
+            where: { status: 'READY' },
+          },
+          condition: true,
+          description: true,
+          pickupArea: true,
+          priceCents: true,
+          seller: { select: { id: true, name: true } },
         },
-        condition: true,
-        description: true,
-        pickupArea: true,
-        priceCents: true,
-        seller: { select: { id: true, name: true } },
-      },
-      take,
-      where,
-    }),
-    adapter.jobPost.findMany({
-      orderBy,
-      select: {
-        ...sharedPendingSelect,
-        author: { select: { id: true, name: true } },
-        company: true,
-        description: true,
-        location: true,
-        payText: true,
-      },
-      take,
-      where,
-    }),
-  ]);
+        take,
+        where,
+      }),
+      adapter.jobPost.findMany({
+        orderBy,
+        select: {
+          ...sharedPendingSelect,
+          author: { select: { id: true, name: true } },
+          company: true,
+          description: true,
+          location: true,
+          payText: true,
+        },
+        take,
+        where,
+      }),
+      adapter.forumPost.findMany({
+        orderBy,
+        select: {
+          ...sharedPendingSelect,
+          author: { select: { id: true, name: true } },
+          body: true,
+          category: true,
+          kind: true,
+          publicCode: true,
+        },
+        take,
+        where,
+      }),
+      adapter.forumComment.findMany({
+        orderBy,
+        select: {
+          author: { select: { id: true, name: true } },
+          body: true,
+          createdAt: true,
+          id: true,
+          post: { select: { id: true, title: true } },
+          status: true,
+          updatedAt: true,
+        },
+        take,
+        where: {
+          post: { campusId: actor.campusId },
+          status,
+        },
+      }),
+    ]);
   const typed: Array<
     Record<string, unknown> & { subjectType: ContentSubjectType }
   > = [
@@ -247,8 +303,116 @@ export async function listModerationContent(
       subjectType: 'MARKETPLACE_ITEM' as const,
     })),
     ...jobs.map((item) => ({ ...item, subjectType: 'JOB_POST' as const })),
+    ...forumPosts.map((item) => ({
+      ...item,
+      subjectType: 'FORUM_POST' as const,
+    })),
+    ...forumComments.map((item) => ({
+      ...item,
+      subjectType: 'FORUM_COMMENT' as const,
+    })),
   ];
+  const targetType = (subjectType: ContentSubjectType) =>
+    subjectType === 'JOB_POST' ? 'CAMPUS_WORK' : subjectType;
+  const targetIds = typed.map((item) => String(item.id));
+  const targetTypes = [
+    ...new Set(typed.map((item) => targetType(item.subjectType))),
+  ];
+  const assessments = typed.length
+    ? await adapter.contentAssessment.findMany({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: {
+          adminSignals: true,
+          categories: true,
+          createdAt: true,
+          decision: true,
+          id: true,
+          model: true,
+          providerStatus: true,
+          reasonZh: true,
+          riskScore: true,
+          suggestionZh: true,
+          targetId: true,
+          targetType: true,
+        },
+        where: {
+          campusId: actor.campusId,
+          OR: [
+            {
+              targetId: { in: targetIds },
+              targetType: { in: targetTypes },
+            },
+            ...targetIds.map((targetId) => ({
+              targetId: { startsWith: `${targetId}:tag:` },
+              targetType: 'CUSTOM_TAG',
+            })),
+          ],
+        },
+      })
+    : [];
+  const latestAssessment = new Map<string, Record<string, unknown>>();
+  for (const assessment of assessments) {
+    const key = `${String(assessment.targetType)}:${String(assessment.targetId)}`;
+    if (!latestAssessment.has(key)) latestAssessment.set(key, assessment);
+  }
+  const assessmentRank = (assessment: Record<string, unknown>) => {
+    if (assessment.decision === 'BLOCK') return 4;
+    if (assessment.decision === 'REVIEW') return 3;
+    if (assessment.providerStatus === 'SKIPPED') return 2;
+    return 1;
+  };
   return typed
+    .map(
+      (
+        item,
+      ): Record<string, unknown> & {
+        assessment: Record<string, unknown> | null;
+        subjectType: ContentSubjectType;
+      } => {
+        const mainAssessment = latestAssessment.get(
+          `${targetType(item.subjectType)}:${String(item.id)}`,
+        );
+        const customTagPrefix = `${String(item.id)}:tag:`;
+        const mainCreatedAt = mainAssessment?.createdAt;
+        const candidates = [
+          mainAssessment,
+          ...Array.from(latestAssessment.values()).filter(
+            (assessment) =>
+              assessment.targetType === 'CUSTOM_TAG' &&
+              String(assessment.targetId).startsWith(customTagPrefix) &&
+              (!mainCreatedAt ||
+                new Date(String(assessment.createdAt)).getTime() >=
+                  new Date(String(mainCreatedAt)).getTime()),
+          ),
+        ].filter(
+          (assessment): assessment is Record<string, unknown> =>
+            assessment !== undefined,
+        );
+        const hasSkippedAssessment = candidates.some(
+          (assessment) => assessment.providerStatus === 'SKIPPED',
+        );
+        const assessment = candidates.reduce<Record<string, unknown> | null>(
+          (selected, candidate) =>
+            !selected || assessmentRank(candidate) > assessmentRank(selected)
+              ? candidate
+              : selected,
+          null,
+        );
+        if (!assessment) {
+          return { ...item, assessment: null, hasSkippedAssessment };
+        }
+        if (actor.role === 'ADMIN') {
+          return { ...item, assessment, hasSkippedAssessment };
+        }
+        const safeAssessment = { ...assessment };
+        delete safeAssessment.adminSignals;
+        return { ...item, assessment: safeAssessment, hasSkippedAssessment };
+      },
+    )
+    .filter((item) => {
+      if (!query.providerStatus) return true;
+      return item.hasSkippedAssessment;
+    })
     .sort((left, right) => {
       const byDate =
         new Date(String(left.createdAt)).getTime() -

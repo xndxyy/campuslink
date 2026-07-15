@@ -5,6 +5,7 @@ import { handleCreateMarketplaceItem } from '@/app/api/marketplace/route';
 import { handleCreateResource } from '@/app/api/resources/route';
 import { handleContentAction } from '@/lib/domain/content-action-route';
 import { ContentConflictError } from '@/lib/domain/content-service';
+import { ContentBlockedError } from '@/lib/moderation/content-assessment';
 
 const user = {
   campusId: 'campus_1',
@@ -85,6 +86,36 @@ describe('content creation routes', () => {
       },
       expect.objectContaining({ title: resourceBody.title }),
     );
+    await expect(response.json()).resolves.toMatchObject({
+      message: '内容正在人工审核。',
+      status: 'PENDING',
+    });
+  });
+
+  it('returns stable Chinese feedback for blocked content', async () => {
+    const response = await handleCreateResource(
+      request('/api/resources', resourceBody),
+      {
+        create: vi.fn(async () => {
+          throw new ContentBlockedError({
+            categories: ['广告垃圾'],
+            kind: 'block',
+            reasonZh: '内容包含违规推广信息',
+            source: 'provider',
+            suggestionZh: '删除推广链接后重新提交',
+          });
+        }),
+        resolveUser: async () => user,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toStrictEqual({
+      categories: ['广告垃圾'],
+      code: 'CONTENT_BLOCKED',
+      reason: '内容包含违规推广信息',
+      suggestion: '删除推广链接后重新提交',
+    });
   });
 
   it('maps asset conflicts without leaking internals', async () => {

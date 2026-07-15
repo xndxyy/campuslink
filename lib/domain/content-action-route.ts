@@ -24,10 +24,17 @@ import {
   updateResourceSchema,
 } from '@/lib/validation/content';
 import { TagValidationError } from '@/lib/validation/tags';
+import {
+  ContentBlockedError,
+  createConfiguredPublishingPolicy,
+  type ConfiguredPublishingAssessmentAdapter,
+  type PublishingAssessmentPolicy,
+} from '@/lib/moderation/content-assessment';
 
 export interface ContentActionDependencies {
   adapter?: ContentAdapter;
   edit?: typeof editOwnedContent;
+  publishing?: PublishingAssessmentPolicy;
   resolveUser?: CurrentUserResolver;
 }
 
@@ -65,6 +72,13 @@ export async function handleContentAction(
     };
     const adapter =
       dependencies.adapter ?? (getDb() as unknown as ContentAdapter);
+    const publishing =
+      dependencies.publishing ??
+      (!dependencies.adapter
+        ? createConfiguredPublishingPolicy(
+            adapter as ContentAdapter & ConfiguredPublishingAssessmentAdapter,
+          )
+        : undefined);
     const editSchema =
       kind === 'resource'
         ? updateResourceSchema
@@ -92,14 +106,25 @@ export async function handleContentAction(
       : body?.action === 'archive'
         ? await archiveOwnedContent(adapter, actor, kind, id)
         : body?.action === 'submit'
-          ? await submitOwnedDraft(adapter, actor, kind, id)
+          ? await submitOwnedDraft(
+              adapter,
+              actor,
+              kind,
+              id,
+              undefined,
+              publishing,
+            )
           : null;
     if (!result)
       return NextResponse.json(
         { message: 'Invalid content action.' },
         { status: 400 },
       );
-    return NextResponse.json(result);
+    return NextResponse.json(
+      result.status === 'PENDING'
+        ? { ...result, message: '内容正在人工审核。' }
+        : result,
+    );
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
       return NextResponse.json(
@@ -120,6 +145,16 @@ export async function handleContentAction(
       return NextResponse.json(
         { message: 'Content state conflict.' },
         { status: 409 },
+      );
+    if (error instanceof ContentBlockedError)
+      return NextResponse.json(
+        {
+          categories: error.categories,
+          code: error.code,
+          reason: error.reason,
+          suggestion: error.suggestion,
+        },
+        { status: 400 },
       );
     if (error instanceof TagValidationError)
       return NextResponse.json(

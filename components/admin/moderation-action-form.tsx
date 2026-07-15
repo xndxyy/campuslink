@@ -12,7 +12,12 @@ export function ModerationActionForm({
   action: 'APPROVE' | 'REJECT' | 'HIDE' | 'RESTORE' | 'ARCHIVE';
   label: string;
   subjectId: string;
-  subjectType: 'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST';
+  subjectType:
+    | 'RESOURCE'
+    | 'MARKETPLACE_ITEM'
+    | 'JOB_POST'
+    | 'FORUM_POST'
+    | 'FORUM_COMMENT';
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const router = useRouter();
@@ -35,12 +40,12 @@ export function ModerationActionForm({
         method: 'POST',
       });
       const result = (await response.json()) as { message?: string };
-      if (!response.ok) throw new Error(result.message ?? 'Decision failed.');
-      setMessage('Decision recorded.');
+      if (!response.ok) throw new Error(result.message ?? '操作失败。');
+      setMessage('审核决定已记录。');
       dialog.current?.close();
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Decision failed.');
+      setMessage(error instanceof Error ? error.message : '操作失败。');
     } finally {
       setPending(false);
     }
@@ -53,10 +58,10 @@ export function ModerationActionForm({
       </button>
       <dialog aria-labelledby={titleId} ref={dialog}>
         <form action={submit} className="admin-dialog-form">
-          <p className="eyebrow">Audited decision</p>
+          <p className="eyebrow">受审计的审核操作</p>
           <h2 id={titleId}>{label}</h2>
           <label>
-            Decision reason
+            审核原因
             <textarea
               maxLength={1000}
               minLength={5}
@@ -67,14 +72,14 @@ export function ModerationActionForm({
           </label>
           <div className="dialog-actions">
             <button disabled={pending} type="submit">
-              {pending ? 'Recording…' : `Confirm ${label}`}
+              {pending ? '正在记录…' : `确认${label}`}
             </button>
             <button
               disabled={pending}
               onClick={() => dialog.current?.close()}
               type="button"
             >
-              Cancel
+              取消
             </button>
           </div>
         </form>

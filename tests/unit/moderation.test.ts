@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   dismissReport,
+  listModerationContent,
   listModerationReports,
   listPendingContent,
   moderateContent,
@@ -28,6 +29,17 @@ function adapter(
     ),
     auditLog: {
       create: vi.fn(async ({ data }) => ({ id: 'audit_1', ...data })),
+    },
+    contentAssessment: {
+      findMany: vi.fn(async () => []),
+    },
+    forumComment: {
+      findMany: vi.fn(async () => []),
+      updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+    },
+    forumPost: {
+      findMany: vi.fn(async () => []),
+      updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },
     jobPost: {
       findMany: vi.fn(async () => []),
@@ -231,6 +243,198 @@ describe('audited content moderation', () => {
     expect(
       JSON.stringify(vi.mocked(db.resource.findMany).mock.calls),
     ).not.toContain('email');
+  });
+
+  it('includes forum content and enriches the queue with the latest AI assessment', async () => {
+    const db = adapter();
+    vi.mocked(db.resource.findMany).mockResolvedValue([
+      {
+        createdAt: new Date('2026-07-14T09:00:00Z'),
+        id: 'resource_1',
+        status: 'PENDING',
+        title: 'Algorithms notes',
+      },
+    ]);
+    vi.mocked(db.forumPost.findMany).mockResolvedValue([
+      {
+        author: { id: 'user_1', name: '同学甲' },
+        body: '需要人工审核的论坛正文。',
+        createdAt: new Date('2026-07-14T10:00:00Z'),
+        id: 'post_1',
+        kind: 'DISCUSSION',
+        status: 'PENDING',
+        title: '论坛主题',
+      },
+    ]);
+    vi.mocked(db.forumComment.findMany).mockResolvedValue([
+      {
+        author: { id: 'user_2', name: '同学乙' },
+        body: '需要人工审核的评论。',
+        createdAt: new Date('2026-07-14T11:00:00Z'),
+        id: 'comment_1',
+        post: { id: 'post_1', title: '论坛主题' },
+        status: 'PENDING',
+      },
+    ]);
+    vi.mocked(db.contentAssessment.findMany).mockResolvedValue([
+      {
+        adminSignals: ['疑似站外引流'],
+        categories: ['广告垃圾'],
+        createdAt: new Date('2026-07-14T10:01:00Z'),
+        decision: 'REVIEW',
+        id: 'assessment_2',
+        model: 'moderation-model',
+        providerStatus: 'COMPLETED',
+        reasonZh: '内容可能包含推广信息',
+        riskScore: 58,
+        suggestionZh: '删除站外推广后重新提交',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      },
+    ]);
+
+    const items = await listPendingContent(db, { ...moderator, role: 'ADMIN' });
+
+    expect(items.map((item) => item.subjectType)).toEqual([
+      'RESOURCE',
+      'FORUM_POST',
+      'FORUM_COMMENT',
+    ]);
+    expect(items[1]).toMatchObject({
+      assessment: {
+        adminSignals: ['疑似站外引流'],
+        decision: 'REVIEW',
+        providerStatus: 'COMPLETED',
+        riskScore: 58,
+      },
+      subjectType: 'FORUM_POST',
+    });
+    expect(db.contentAssessment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        where: expect.objectContaining({ campusId: moderator.campusId }),
+      }),
+    );
+  });
+
+  it('removes admin-only AI signals from the moderator queue', async () => {
+    const db = adapter();
+    vi.mocked(db.forumPost.findMany).mockResolvedValue([
+      {
+        createdAt: new Date('2026-07-14T10:00:00Z'),
+        id: 'post_1',
+        status: 'PENDING',
+        title: '论坛主题',
+      },
+    ]);
+    vi.mocked(db.contentAssessment.findMany).mockResolvedValue([
+      {
+        adminSignals: ['仅管理员可见'],
+        createdAt: new Date('2026-07-14T10:01:00Z'),
+        decision: 'REVIEW',
+        id: 'assessment_1',
+        providerStatus: 'COMPLETED',
+        targetId: 'post_1',
+        targetType: 'FORUM_POST',
+      },
+    ]);
+
+    const items = await listPendingContent(db, moderator);
+
+    expect(items[0]?.assessment).not.toHaveProperty('adminSignals');
+  });
+
+  it('uses custom-tag outcomes and skipped state when enriching parent content', async () => {
+    const db = adapter();
+    vi.mocked(db.resource.findMany).mockResolvedValue([
+      {
+        createdAt: new Date('2026-07-14T09:00:00Z'),
+        id: 'resource_1',
+        status: 'PENDING',
+        title: 'Algorithms notes',
+      },
+    ]);
+    vi.mocked(db.contentAssessment.findMany).mockResolvedValue([
+      {
+        adminSignals: [],
+        categories: [],
+        createdAt: new Date('2026-07-14T09:03:00Z'),
+        decision: 'PASS',
+        id: 'assessment_tag_skipped',
+        providerStatus: 'SKIPPED',
+        targetId: 'resource_1:tag:1',
+        targetType: 'CUSTOM_TAG',
+      },
+      {
+        adminSignals: ['标签需要人工确认'],
+        categories: ['广告垃圾'],
+        createdAt: new Date('2026-07-14T09:02:00Z'),
+        decision: 'REVIEW',
+        id: 'assessment_tag_review',
+        providerStatus: 'COMPLETED',
+        reasonZh: '自定义标签可能包含推广信息',
+        riskScore: 58,
+        targetId: 'resource_1:tag:0',
+        targetType: 'CUSTOM_TAG',
+      },
+      {
+        adminSignals: [],
+        categories: [],
+        createdAt: new Date('2026-07-14T09:01:00Z'),
+        decision: 'PASS',
+        id: 'assessment_main_pass',
+        providerStatus: 'COMPLETED',
+        riskScore: 2,
+        targetId: 'resource_1',
+        targetType: 'RESOURCE',
+      },
+    ]);
+
+    const items = await listModerationContent(
+      db,
+      { ...moderator, role: 'ADMIN' },
+      { providerStatus: 'SKIPPED', status: 'PENDING' },
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      assessment: {
+        decision: 'REVIEW',
+        id: 'assessment_tag_review',
+        targetType: 'CUSTOM_TAG',
+      },
+      hasSkippedAssessment: true,
+      subjectType: 'RESOURCE',
+    });
+    expect(db.contentAssessment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            expect.objectContaining({ targetType: 'CUSTOM_TAG' }),
+          ]),
+        }),
+      }),
+    );
+  });
+
+  it('moderates a forum comment through its parent campus boundary', async () => {
+    const db = adapter();
+
+    await moderateContent(db, moderator, {
+      action: 'APPROVE',
+      reason: '评论内容符合校园社区规范。',
+      subjectId: 'comment_1',
+      subjectType: 'FORUM_COMMENT',
+    });
+
+    expect(db.forumComment.updateMany).toHaveBeenCalledWith({
+      data: { status: 'PUBLISHED' },
+      where: {
+        id: 'comment_1',
+        post: { campusId: moderator.campusId },
+        status: 'PENDING',
+      },
+    });
   });
 });
 

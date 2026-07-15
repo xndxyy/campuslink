@@ -20,6 +20,7 @@ import {
   updateForumPost,
 } from '@/lib/domain/forum';
 import type { AnonymousIdentityKeyring } from '@/lib/security/anonymous-identity';
+import type { PreparedAssessmentBatch } from '@/lib/moderation/content-assessment';
 
 import {
   createForumCommentSchema,
@@ -124,6 +125,10 @@ function forumAdapter() {
         slug: 'campuslink',
       })),
     },
+    auditLog: { create: vi.fn(async () => ({})) },
+    contentAssessment: {
+      create: vi.fn(async () => ({ id: 'assessment_1' })),
+    },
     forumCategory: {
       findFirst: vi.fn(async (args: Record<string, unknown>) => {
         const where = args.where as { slug: string };
@@ -136,7 +141,9 @@ function forumAdapter() {
     },
     forumComment: {
       count: vi.fn(async () => 1),
-      create: vi.fn(async () => commentRecord()),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
+        commentRecord(data),
+      ),
       delete: vi.fn(async () => ({ id: 'comment_1' })),
       findFirst: vi.fn(async () => commentRecord()),
       findMany: vi.fn(async () => [commentRecord()]),
@@ -150,7 +157,11 @@ function forumAdapter() {
     },
     forumPost: {
       count: vi.fn(async () => 1),
-      create: vi.fn(async () => discussionRecord()),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
+        data.kind === 'TREE_HOLE'
+          ? treeHoleRecord(data)
+          : discussionRecord(data),
+      ),
       delete: vi.fn(async () => ({ id: 'post_1' })),
       findFirst: vi.fn(async () => discussionRecord()),
       findMany: vi.fn(async () => [discussionRecord()]),
@@ -168,6 +179,39 @@ function forumAdapter() {
     },
   };
   return value as unknown as ForumAdapter;
+}
+
+function forumPublishingPolicy(
+  outcome:
+    | { kind: 'pass' }
+    | { kind: 'review'; reasonZh: string }
+    | { kind: 'skipped' },
+  targetId: string,
+) {
+  const skipped = outcome.kind === 'skipped';
+  const prepared = {
+    assessments: [
+      {
+        auditSkipped: skipped,
+        data: {
+          campusId: actor.campusId,
+          decision: outcome.kind === 'review' ? 'REVIEW' : 'PASS',
+          providerStatus: skipped ? 'SKIPPED' : 'COMPLETED',
+          targetId,
+          targetType: 'FORUM_POST',
+        },
+        outcome,
+        targetId,
+        targetType: 'FORUM_POST',
+      },
+    ],
+    campusId: actor.campusId,
+    outcome,
+  } as unknown as PreparedAssessmentBatch;
+  return {
+    generateTargetId: () => targetId,
+    prepare: vi.fn(async () => prepared),
+  };
 }
 
 describe('forum validation', () => {
@@ -419,6 +463,69 @@ describe('forum reads', () => {
 });
 
 describe('forum creation', () => {
+  it('publishes a passing discussion with its assessment in the same transaction', async () => {
+    const db = forumAdapter();
+    const policy = forumPublishingPolicy({ kind: 'pass' }, 'post_1');
+
+    const result = await createForumPost(
+      db,
+      actor,
+      {
+        body: '这是一个满足长度要求的公开校园讨论正文。',
+        category: 'campus-life',
+        kind: 'DISCUSSION',
+        title: '校园讨论主题',
+      },
+      keys,
+      {},
+      policy,
+    );
+
+    expect(policy.prepare).toHaveBeenCalledWith({
+      campusId: actor.campusId,
+      requests: [
+        {
+          content: {
+            body: '这是一个满足长度要求的公开校园讨论正文。',
+            title: '校园讨论主题',
+          },
+          targetId: 'post_1',
+          targetType: 'FORUM_POST',
+        },
+      ],
+    });
+    expect(db.contentAssessment.create).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ id: 'post_1', status: 'PUBLISHED' });
+  });
+
+  it('keeps a reviewed tree-hole pending without sending anonymous identity', async () => {
+    const db = forumAdapter();
+    const policy = forumPublishingPolicy(
+      { kind: 'review', reasonZh: '需要人工确认树洞内容' },
+      'tree_1',
+    );
+
+    const result = await createForumPost(
+      db,
+      actor,
+      {
+        body: '这是一个满足长度要求的匿名树洞正文。',
+        category: 'tree-hole',
+        kind: 'TREE_HOLE',
+        title: '匿名树洞主题',
+      },
+      keys,
+      { generatePublicCode: () => 'AbCdEf123_-x' },
+      policy,
+    );
+
+    const serialized = JSON.stringify(policy.prepare.mock.calls);
+    expect(serialized).not.toContain(actor.id);
+    expect(serialized).not.toContain('anonymous');
+    expect(result).toMatchObject({ id: 'tree_1', status: 'PENDING' });
+    expect(result).not.toHaveProperty('authorId');
+  });
+
   it('defensively requires a verified ACTIVE actor before querying categories', async () => {
     const db = forumAdapter();
     await expect(
@@ -606,6 +713,83 @@ describe('forum creation', () => {
 });
 
 describe('forum owner management', () => {
+  it.each(['HIDDEN', 'ARCHIVED'] as const)(
+    'does not let an owner republish a moderator-controlled %s post by editing it',
+    async (status) => {
+      const db = forumAdapter();
+      const policy = forumPublishingPolicy({ kind: 'pass' }, 'post_1');
+      vi.mocked(db.forumPost.findFirst).mockResolvedValue(
+        discussionRecord({ authorId: actor.id, status }),
+      );
+
+      await expect(
+        updateForumPost(
+          db,
+          actor,
+          {
+            changes: { title: '试图重新公开的标题' },
+            id: 'post_1',
+            view: 'discussion',
+          },
+          keys,
+          policy,
+        ),
+      ).rejects.toBeInstanceOf(ForumConflictError);
+      expect(policy.prepare).not.toHaveBeenCalled();
+      expect(db.forumPost.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reassesses the complete post when an owner edits public content', async () => {
+    const db = forumAdapter();
+    const policy = forumPublishingPolicy(
+      { kind: 'review', reasonZh: '编辑内容需要人工确认' },
+      'post_1',
+    );
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue(
+      discussionRecord({ authorId: actor.id }),
+    );
+    vi.mocked(db.forumPost.update).mockImplementation(
+      async (args: Record<string, unknown>) =>
+        discussionRecord({
+          authorId: actor.id,
+          ...((args.data as Record<string, unknown>) ?? {}),
+        }),
+    );
+
+    const result = await updateForumPost(
+      db,
+      actor,
+      {
+        changes: { title: '更新后的校园讨论标题' },
+        id: 'post_1',
+        view: 'discussion',
+      },
+      keys,
+      policy,
+    );
+
+    expect(policy.prepare).toHaveBeenCalledWith({
+      campusId: actor.campusId,
+      requests: [
+        {
+          content: {
+            body: '这是一个满足长度要求的公开校园讨论正文。',
+            title: '更新后的校园讨论标题',
+          },
+          targetId: 'post_1',
+          targetType: 'FORUM_POST',
+        },
+      ],
+    });
+    expect(db.forumPost.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'PENDING' }),
+      }),
+    );
+    expect(result).toMatchObject({ id: 'post_1', status: 'PENDING' });
+  });
+
   it('lists owned discussion and tree-hole posts without selecting anonymous secrets', async () => {
     const db = forumAdapter();
     vi.mocked(db.forumPost.findMany)
@@ -956,6 +1140,96 @@ describe('forum owner management', () => {
 });
 
 describe('forum comments', () => {
+  it('keeps a reviewed discussion comment pending', async () => {
+    const db = forumAdapter();
+    const policy = forumPublishingPolicy(
+      { kind: 'review', reasonZh: '需要人工确认评论内容' },
+      'comment_1',
+    );
+
+    const result = await createForumComment(
+      db,
+      actor,
+      { body: '这是一条需要审核的有效评论。', postId: 'post_1' },
+      policy,
+    );
+
+    expect(policy.prepare).toHaveBeenCalledWith({
+      campusId: actor.campusId,
+      requests: [
+        {
+          content: { comment: '这是一条需要审核的有效评论。' },
+          targetId: 'comment_1',
+          targetType: 'FORUM_COMMENT',
+        },
+      ],
+    });
+    expect(result).toMatchObject({ id: 'comment_1', status: 'PENDING' });
+  });
+
+  it('reassesses a comment edit before keeping it public', async () => {
+    const db = forumAdapter();
+    const policy = forumPublishingPolicy({ kind: 'pass' }, 'comment_1');
+    vi.mocked(db.forumComment.update).mockImplementation(
+      async (args: Record<string, unknown>) =>
+        commentRecord((args.data as Record<string, unknown>) ?? {}),
+    );
+
+    const result = await updateForumComment(
+      db,
+      actor,
+      {
+        body: '更新后的合规评论内容。',
+        commentId: 'comment_1',
+        postId: 'post_1',
+      },
+      policy,
+    );
+
+    expect(policy.prepare).toHaveBeenCalledWith({
+      campusId: actor.campusId,
+      requests: [
+        {
+          content: { comment: '更新后的合规评论内容。' },
+          targetId: 'comment_1',
+          targetType: 'FORUM_COMMENT',
+        },
+      ],
+    });
+    expect(db.forumComment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { body: '更新后的合规评论内容。', status: 'PUBLISHED' },
+      }),
+    );
+    expect(result).toMatchObject({ status: 'PUBLISHED' });
+  });
+
+  it.each(['HIDDEN', 'ARCHIVED'] as const)(
+    'does not let an author republish a moderator-controlled %s comment by editing it',
+    async (status) => {
+      const db = forumAdapter();
+      const policy = forumPublishingPolicy({ kind: 'pass' }, 'comment_1');
+      vi.mocked(db.forumComment.findFirst).mockResolvedValue(
+        commentRecord({ status }),
+      );
+
+      await expect(
+        updateForumComment(
+          db,
+          actor,
+          {
+            body: '试图重新公开的评论内容。',
+            commentId: 'comment_1',
+            postId: 'post_1',
+          },
+          policy,
+        ),
+      ).rejects.toBeInstanceOf(ForumConflictError);
+      expect(policy.prepare).not.toHaveBeenCalled();
+      expect(db.forumComment.update).not.toHaveBeenCalled();
+    },
+  );
+
   it('discovers comments through a discussion-only query and hides forged tree-hole records', async () => {
     const db = forumAdapter();
     vi.mocked(db.forumPost.findFirst).mockResolvedValue(treeHoleRecord());

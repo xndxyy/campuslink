@@ -22,13 +22,13 @@ export const assessmentSchema = z
   .strict();
 export type AssessmentOutput = z.infer<typeof assessmentSchema>;
 export type PublishAssessment =
-  | { kind: 'pass'; assessmentId: string }
-  | { kind: 'review'; assessmentId: string; reasonZh: string }
+  | { kind: 'pass'; assessmentId?: string }
+  | { kind: 'review'; assessmentId?: string; reasonZh: string }
   | {
       kind: 'block';
-      assessmentId: string;
+      assessmentId?: string;
       categories: string[];
       reasonZh: string;
       suggestionZh: string;
     }
-  | { kind: 'skipped'; assessmentId: string };
+  | { kind: 'skipped'; assessmentId?: string };

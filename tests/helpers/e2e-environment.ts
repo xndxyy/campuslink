@@ -18,6 +18,16 @@ export const requiredSharedAccountE2eEnvironment = [
   'E2E_PUBLISHED_MARKETPLACE_ID',
 ] as const;
 
+export const requiredAiModerationE2eEnvironment = [
+  ...requiredE2eEnvironment,
+  'AI_CONFIG_ENCRYPTION_KEY_V1',
+  'AI_ALLOWED_HOSTS',
+  'E2E_AI_BASE_URL',
+  'E2E_AI_FAILURE_BASE_URL',
+  'E2E_AI_API_KEY',
+  'E2E_AI_MODEL',
+] as const;
+
 type Environment = Record<string, string | undefined>;
 
 export function hasCompleteE2eEnvironment(environment: Environment) {
@@ -28,6 +38,14 @@ export function hasCompleteE2eEnvironment(environment: Environment) {
 
 export function hasCompleteGovernanceE2eEnvironment(environment: Environment) {
   return requiredE2eEnvironment.every((name) =>
+    Boolean(environment[name]?.trim()),
+  );
+}
+
+export function hasCompleteAiModerationE2eEnvironment(
+  environment: Environment,
+) {
+  return requiredAiModerationE2eEnvironment.every((name) =>
     Boolean(environment[name]?.trim()),
   );
 }

@@ -158,14 +158,38 @@ describe('forum UI contract', () => {
   it('resets comment forms only after success and validates delete outcomes', () => {
     const comments = source('components/forum/comment-list.tsx');
     const actions = source('components/forum/forum-actions.tsx');
-    expect(comments).toContain('return true');
-    expect(comments).toContain('return false');
+    expect(comments).toContain('ok: true');
+    expect(comments).toContain('ok: false');
     expect(comments).toMatch(
-      /if \(await mutate\('POST',[\s\S]*?form\.reset\(\)/,
+      /const outcome = await mutate\('POST',[\s\S]*?if \(outcome\.ok\)[\s\S]*?form\.reset\(\)/,
     );
     expect(comments).not.toMatch(/mutate\('POST'[\s\S]{0,120}\.then/);
     expect(actions).toContain('parseForumDeleteResult');
     expect(actions).toContain("outcome.kind === 'archived'");
+    expect(comments).toContain('parseForumCommentDeleteResult');
+    expect(comments).toContain('commentPageAfterDelete');
+  });
+
+  it('clamps out-of-range comment pages without swallowing redirects', () => {
+    const detail = source('app/forum/[id]/page.tsx');
+    expect(detail).toContain('lastCommentPage');
+    expect(detail).toContain('commentPageHref');
+    expect(detail).toContain('redirect(');
+    expect(detail.indexOf('redirect(')).toBeGreaterThan(
+      detail.indexOf('catch {'),
+    );
+  });
+
+  it('renders a distinct comment failure state without misleading controls', () => {
+    const detail = source('app/forum/[id]/page.tsx');
+    const comments = source('components/forum/comment-list.tsx');
+    expect(detail).toContain('commentError');
+    expect(detail).toContain('error={commentError}');
+    expect(comments).toContain('if (error)');
+    expect(comments).toContain('role="alert"');
+    expect(comments.indexOf('if (error)')).toBeLessThan(
+      comments.indexOf('<form className="comment-form"'),
+    );
   });
 
   it('hides owner reports and provides keyboard-safe modal focus management', () => {

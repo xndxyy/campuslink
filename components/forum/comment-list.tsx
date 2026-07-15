@@ -4,7 +4,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 
-import { commentPageHref, lastCommentPage } from './comment-pagination';
+import {
+  commentPageAfterDelete,
+  commentPageHref,
+  lastCommentPage,
+} from './comment-pagination';
+import { parseForumCommentDeleteResult } from './forum-action-result';
 import type { ForumView } from './forum-tabs';
 
 export interface PresentedComment {
@@ -17,6 +22,7 @@ export interface PresentedComment {
 
 export function CommentList({
   comments,
+  error,
   owner,
   page,
   pageSize,
@@ -25,6 +31,7 @@ export function CommentList({
   view,
 }: {
   comments: PresentedComment[];
+  error?: string;
   owner: boolean;
   page: number;
   pageSize: number;
@@ -61,20 +68,16 @@ export function CommentList({
             ? result.message
             : '评论操作失败，请稍后重试。',
         );
-      setEditing(null);
-      setMessage(
-        method === 'POST'
-          ? '评论已发布。'
-          : method === 'PATCH'
-            ? '评论已更新。'
-            : '评论已删除。',
-      );
-      return true;
+      if (method !== 'DELETE') {
+        setEditing(null);
+        setMessage(method === 'POST' ? '评论已发布。' : '评论已更新。');
+      }
+      return { body: result, ok: true as const };
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : '评论操作失败，请稍后重试。',
       );
-      return false;
+      return { ok: false as const };
     } finally {
       setPending(false);
     }
@@ -84,7 +87,10 @@ export function CommentList({
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    if (await mutate('POST', { body: String(data.get('body') ?? '') })) {
+    const outcome = await mutate('POST', {
+      body: String(data.get('body') ?? ''),
+    });
+    if (outcome.ok) {
       form.reset();
       const destination = lastCommentPage(total + 1, pageSize);
       router.push(commentPageHref({ owner, page: destination, postId, view }));
@@ -95,20 +101,54 @@ export function CommentList({
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     if (
-      await mutate('PATCH', {
-        body: String(data.get('body') ?? ''),
-        commentId,
-      })
+      (
+        await mutate('PATCH', {
+          body: String(data.get('body') ?? ''),
+          commentId,
+        })
+      ).ok
     ) {
       router.refresh();
     }
   }
 
   async function removeComment(commentId: string) {
-    if (await mutate('DELETE', { commentId })) router.refresh();
+    const mutation = await mutate('DELETE', { commentId });
+    if (!mutation.ok) return;
+    try {
+      const outcome = parseForumCommentDeleteResult(mutation.body);
+      setMessage(outcome.message);
+      const destination = commentPageAfterDelete({ page, pageSize, total });
+      if (destination < page) {
+        router.push(
+          commentPageHref({ owner, page: destination, postId, view }),
+        );
+      } else {
+        router.refresh();
+      }
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : '评论删除结果无效，请稍后重试。',
+      );
+    }
   }
 
   const pageCount = lastCommentPage(total, pageSize);
+
+  if (error) {
+    return (
+      <section className="comment-section">
+        <header>
+          <h2>评论</h2>
+        </header>
+        <p className="notice error-state" role="alert">
+          {error}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="comment-section">

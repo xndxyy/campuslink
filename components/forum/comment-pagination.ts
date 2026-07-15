@@ -10,6 +10,18 @@ export function lastCommentPage(total: number, pageSize: number) {
   return Math.max(1, Math.ceil(total / pageSize));
 }
 
+export function commentPageAfterDelete({
+  page,
+  pageSize,
+  total,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+}) {
+  return Math.min(page, lastCommentPage(Math.max(0, total - 1), pageSize));
+}
+
 export function commentPageHref({
   owner,
   page,

@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  commentPageAfterDelete,
   commentPageHref,
   lastCommentPage,
   parseCommentPage,
 } from '@/components/forum/comment-pagination';
-import { parseForumDeleteResult } from '@/components/forum/forum-action-result';
+import {
+  parseForumCommentDeleteResult,
+  parseForumDeleteResult,
+} from '@/components/forum/forum-action-result';
 
 describe('forum comment pagination', () => {
   it('accepts only safe positive comment pages', () => {
@@ -27,6 +31,18 @@ describe('forum comment pagination', () => {
         view: 'discussion',
       }),
     ).toBe('/forum/post_1?view=discussion&owner=true&commentPage=3');
+  });
+
+  it('clamps the current page after deleting the last comment on a page', () => {
+    expect(commentPageAfterDelete({ page: 3, pageSize: 20, total: 41 })).toBe(
+      2,
+    );
+    expect(commentPageAfterDelete({ page: 2, pageSize: 20, total: 21 })).toBe(
+      1,
+    );
+    expect(commentPageAfterDelete({ page: 2, pageSize: 20, total: 40 })).toBe(
+      2,
+    );
   });
 });
 
@@ -51,6 +67,31 @@ describe('forum delete results', () => {
   ])('rejects invalid successful payloads', (payload) => {
     expect(() => parseForumDeleteResult(payload)).toThrow(
       '删除结果无效，请稍后重试。',
+    );
+  });
+});
+
+describe('forum comment delete results', () => {
+  it('distinguishes archived and permanently deleted comment outcomes', () => {
+    expect(
+      parseForumCommentDeleteResult({ archived: true, deleted: false }),
+    ).toStrictEqual({
+      kind: 'archived',
+      message: '评论有处理中举报，已归档并停止展示。',
+    });
+    expect(
+      parseForumCommentDeleteResult({ archived: false, deleted: true }),
+    ).toStrictEqual({ kind: 'deleted', message: '评论已删除。' });
+  });
+
+  it.each([
+    null,
+    {},
+    { archived: true, deleted: true },
+    { archived: false, deleted: false },
+  ])('rejects invalid comment delete payloads', (payload) => {
+    expect(() => parseForumCommentDeleteResult(payload)).toThrow(
+      '评论删除结果无效，请稍后重试。',
     );
   });
 });

@@ -1,8 +1,12 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 
 import { CommentList } from '@/components/forum/comment-list';
-import { parseCommentPage } from '@/components/forum/comment-pagination';
+import {
+  commentPageHref,
+  lastCommentPage,
+  parseCommentPage,
+} from '@/components/forum/comment-pagination';
 import { ForumActions } from '@/components/forum/forum-actions';
 import { ForumPostForm } from '@/components/forum/forum-post-form';
 import { forumStatusLabel } from '@/components/forum/forum-status';
@@ -86,6 +90,7 @@ export default async function ForumDetailPage({
     pageSize: commentPageSize,
     total: 0,
   };
+  let commentError: string | undefined;
   let viewerId: string | null = actor?.id ?? null;
   if (!viewerId && post.status === 'PUBLISHED') {
     try {
@@ -104,26 +109,37 @@ export default async function ForumDetailPage({
         )
       : false;
   if (view === 'discussion' && post.status === 'PUBLISHED') {
+    let commentResult: Awaited<ReturnType<typeof listForumComments>> | null =
+      null;
     try {
-      const result = await listForumComments(
+      commentResult = await listForumComments(
         db as unknown as ForumAdapter,
         null,
         { page: commentPage, pageSize: 20, postId: id },
       );
+    } catch {
+      commentError = '评论暂时无法加载，请稍后重试。';
+    }
+    if (commentResult) {
+      const finalPage = lastCommentPage(
+        commentResult.total,
+        commentResult.pageSize,
+      );
+      if (commentPage > finalPage) {
+        redirect(commentPageHref({ owner, page: finalPage, postId: id, view }));
+      }
       commentPagination = {
-        page: result.page,
-        pageSize: result.pageSize,
-        total: result.total,
+        page: commentResult.page,
+        pageSize: commentResult.pageSize,
+        total: commentResult.total,
       };
-      comments = result.items.map((comment) => ({
+      comments = commentResult.items.map((comment) => ({
         authorName: comment.author.name ?? '校园同学',
         body: comment.body,
         canManage: comment.author.id === viewerId,
         createdAt: comment.createdAt.toISOString(),
         id: comment.id,
       }));
-    } catch {
-      comments = [];
     }
   }
   const categories = owner
@@ -182,6 +198,7 @@ export default async function ForumDetailPage({
       {view === 'discussion' && post.status === 'PUBLISHED' ? (
         <CommentList
           comments={comments}
+          error={commentError}
           owner={owner}
           page={commentPagination.page}
           pageSize={commentPagination.pageSize}

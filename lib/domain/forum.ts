@@ -1047,7 +1047,7 @@ export async function createForumComment(
       actor.campusId,
       rawInput.postId,
     );
-    if (post.kind === 'TREE_HOLE') throw new ForumConflictError();
+    if (post.kind === 'TREE_HOLE') throw new ForumNotFoundError();
     const created = await tx.forumComment.create({
       data: {
         authorId: actor.id,

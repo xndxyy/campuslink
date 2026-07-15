@@ -1,8 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
 
+const layoutUrl = process.env.FORUM_LAYOUT_URL?.trim();
+const runLiveE2e = layoutUrl ? false : shouldRunSharedAccountE2e(process.env);
 test.skip(
-  !process.env.FORUM_LAYOUT_URL,
-  'Requires an explicitly started forum visual harness server.',
+  !layoutUrl && !runLiveE2e,
+  'Requires an explicit visual harness or complete live E2E services.',
 );
 
 async function expectForumMastheadSpacing(page: Page) {
@@ -32,7 +35,7 @@ for (const viewport of [
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await page.goto(process.env.FORUM_LAYOUT_URL ?? '/forum');
+    await page.goto(layoutUrl || '/forum');
     await expectForumMastheadSpacing(page);
   });
 }

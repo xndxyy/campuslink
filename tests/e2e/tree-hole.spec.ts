@@ -127,7 +127,10 @@ test('verified users publish and manage a private tree-hole surface without comm
       .fill(`${title} 已修改`);
     await page.getByRole('button', { name: '保存修改' }).click();
     await expect(page.getByText('修改已保存。')).toBeVisible();
-    await page.getByRole('button', { name: /^点赞/ }).click();
+    await expect(page.locator('.forum-detail header')).toContainText('已发布');
+    await expect(page.locator('.forum-detail header')).not.toContainText(
+      'PUBLISHED',
+    );
 
     const row = await value.db.query<{ id: string }>(
       `SELECT id FROM "ForumPost" WHERE "anonymousFingerprint" IS NOT NULL AND title=$1`,
@@ -135,6 +138,24 @@ test('verified users publish and manage a private tree-hole surface without comm
     );
     const id = row.rows[0]?.id;
     if (!id) throw new Error('Run-scoped tree-hole unavailable.');
+    await page.getByRole('button', { name: /^点赞/ }).click();
+    await expect(page.getByText('已点赞。', { exact: true })).toBeVisible();
+    const likes = await value.db.query<{ postId: string; userId: string }>(
+      `SELECT "postId", "userId" FROM "ForumLike" WHERE "postId"=$1 AND "userId"=$2`,
+      [id, value.users[0]!.id],
+    );
+    expect(likes.rows).toEqual([{ postId: id, userId: value.users[0]!.id }]);
+    const knownTreeComment = await page.request.post(
+      `/api/forum/posts/${id}/comments`,
+      { data: { body: '不应允许发布的树洞评论。' } },
+    );
+    const unknownComment = await page.request.post(
+      `/api/forum/posts/missing_${value.runId}/comments`,
+      { data: { body: '不应允许发布的未知评论。' } },
+    );
+    expect(knownTreeComment.status()).toBe(404);
+    expect(unknownComment.status()).toBe(404);
+    expect(await knownTreeComment.json()).toEqual(await unknownComment.json());
     const ownerHtml = await page.content();
     const ownerApi = await page.request.get(
       `/api/forum/posts/${id}?view=tree-hole&owner=true`,
@@ -155,14 +176,19 @@ test('verified users publish and manage a private tree-hole surface without comm
     );
     expect(publicApi.status()).toBe(200);
     const serialized = `${ownerHtml}${await ownerApi.text()}${publicHtml}${await publicApi.text()}`;
+    const serializedLower = serialized.toLowerCase();
     for (const secret of [
-      value.users[0]!.id,
-      'authorId',
-      'anonymousCiphertext',
-      'anonymousFingerprint',
-      'anonymousKeyVersion',
+      value.users[0]!.id.toLowerCase(),
+      'authorid',
+      'anonymousciphertext',
+      'anonymousfingerprint',
+      'anonymouskeyversion',
+      'ciphertext',
+      'fingerprint',
+      'envelope',
+      'keyversion',
     ]) {
-      expect(serialized).not.toContain(secret);
+      expect(serializedLower).not.toContain(secret);
     }
     expect(commentRequests).toEqual([]);
   } finally {

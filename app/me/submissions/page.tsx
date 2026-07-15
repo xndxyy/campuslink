@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { OwnerActions } from '@/components/content/owner-actions';
+import { forumStatusLabel } from '@/components/forum/forum-status';
 import { requireVerifiedUser } from '@/lib/auth/guards';
 import { getDb } from '@/lib/db';
 import {
@@ -78,7 +79,7 @@ export default async function MySubmissionsPage() {
                 <span
                   className={`status status-${String(item.status).toLowerCase()}`}
                 >
-                  {String(item.status)}
+                  {forumStatusLabel(String(item.status))}
                 </span>
                 {contentTagsForPresentation(item).length > 0 ? (
                   <ul className="content-tag-list" aria-label="内容标签">
@@ -126,7 +127,7 @@ export default async function MySubmissionsPage() {
                 <span
                   className={`status status-${String(item.status).toLowerCase()}`}
                 >
-                  {String(item.status)}
+                  {forumStatusLabel(String(item.status))}
                 </span>
                 <Link href={`/forum/${item.id}?view=${view}&owner=true`}>
                   查看并管理

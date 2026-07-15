@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { type FormEvent, useState } from 'react';
 
 import type { ForumView } from './forum-tabs';
+import { forumStatusLabel } from './forum-status';
 
 export function ForumActions({
   id,
@@ -139,7 +140,7 @@ export function ForumActions({
     <section aria-label="帖子操作" className="forum-actions">
       {!interactive ? (
         <p className="forum-status-note">
-          当前状态：{status}。此帖子不再开放互动。
+          当前状态：{forumStatusLabel(status)}。此帖子不再开放互动。
         </p>
       ) : (
         <div className="forum-action-buttons">

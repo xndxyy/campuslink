@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { CommentList } from '@/components/forum/comment-list';
 import { ForumActions } from '@/components/forum/forum-actions';
 import { ForumPostForm } from '@/components/forum/forum-post-form';
+import { forumStatusLabel } from '@/components/forum/forum-status';
 import type { ForumView } from '@/components/forum/forum-tabs';
 import { requireVerifiedPageUser } from '@/lib/auth/page-access';
 import { requireVerifiedUser } from '@/lib/auth/guards';
@@ -124,7 +125,7 @@ export default async function ForumDetailPage({
             <time dateTime={post.createdAt.toISOString()}>
               {post.createdAt.toLocaleString('zh-CN')}
             </time>
-            {owner ? ` · 本人发布 · ${post.status}` : ''}
+            {owner ? ` · 本人发布 · ${forumStatusLabel(post.status)}` : ''}
           </p>
         </header>
         <div className="forum-post-body">{post.body}</div>

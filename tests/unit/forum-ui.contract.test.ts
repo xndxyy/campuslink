@@ -92,6 +92,38 @@ describe('forum UI contract', () => {
     expect(page).not.toContain('anonymousKeyVersion');
   });
 
+  it('renders every forum status through one Chinese mapping with a safe fallback', () => {
+    const labels = source('components/forum/forum-status.ts');
+    const detail = source('app/forum/[id]/page.tsx');
+    const actions = source('components/forum/forum-actions.tsx');
+    const submissions = source('app/me/submissions/page.tsx');
+    for (const label of [
+      '草稿',
+      '待审核',
+      '已发布',
+      '未通过',
+      '已隐藏',
+      '已归档',
+      '未知状态',
+    ]) {
+      expect(labels).toContain(label);
+    }
+    for (const consumer of [detail, actions, submissions]) {
+      expect(consumer).toContain('forumStatusLabel');
+    }
+    expect(detail).not.toContain('${post.status}');
+    expect(actions).not.toContain('{status}。');
+    expect(submissions).not.toMatch(/>\s*\{String\(item\.status\)\}\s*</);
+  });
+
+  it('runs layout checks for either an explicit harness or complete live E2E', () => {
+    const layout = source('tests/e2e/forum-layout.spec.ts');
+    expect(layout).toContain('shouldRunSharedAccountE2e');
+    expect(layout).toContain('FORUM_LAYOUT_URL');
+    expect(layout).toMatch(/!layoutUrl\s*&&\s*!runLiveE2e/);
+    expect(layout).toContain("layoutUrl || '/forum'");
+  });
+
   it('adds dense responsive forum styling without horizontal overflow hazards', () => {
     const css = source('app/globals.css');
     expect(css).toContain('.forum-shell');

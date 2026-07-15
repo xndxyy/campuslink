@@ -1030,7 +1030,7 @@ describe('forum comments', () => {
     expect(db.forumPost.findFirst).not.toHaveBeenCalled();
   });
 
-  it('explicitly rejects comments on a visible tree-hole post', async () => {
+  it('hides a visible tree-hole behind the same not-found comment boundary', async () => {
     const db = forumAdapter();
     vi.mocked(db.forumPost.findFirst).mockResolvedValue(
       treeHoleRecord({ _count: undefined }),
@@ -1040,7 +1040,7 @@ describe('forum comments', () => {
         body: '不应允许的评论',
         postId: 'tree_1',
       }),
-    ).rejects.toBeInstanceOf(ForumConflictError);
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
     expect(db.forumComment.create).not.toHaveBeenCalled();
   });
 

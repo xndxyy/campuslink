@@ -33,6 +33,11 @@ const input = {
 
 function adapter(ownerId = 'seller_1') {
   const value = {
+    $queryRawUnsafe: vi.fn(async (query: string, ...values: unknown[]) =>
+      query.includes('FROM "ForumPost"')
+        ? [{ campusId: values[1], id: values[0] }]
+        : [{ id: values[0], postId: values[1] }],
+    ),
     $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
       operation(value),
     ),
@@ -190,6 +195,18 @@ describe('reports domain', () => {
     expect(JSON.stringify(call)).not.toContain('anonymousFingerprint');
     expect(JSON.stringify(call)).not.toContain('anonymousCiphertext');
     expect(JSON.stringify(call)).not.toContain('anonymousKeyVersion');
+    expect(db.$queryRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('FOR KEY SHARE'),
+      'post_1',
+      actor.campusId,
+    );
+    expect(
+      vi.mocked(db.$queryRawUnsafe).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(db.forumPost.findFirst).mock.invocationCallOrder[0] ??
+        Number.POSITIVE_INFINITY,
+    );
   });
 
   it('blocks a tree-hole self-report by fingerprint without decrypting identity', async () => {
@@ -224,6 +241,25 @@ describe('reports domain', () => {
     expect(serialized).not.toContain('authorId');
     expect(serialized).not.toContain('anonymousCiphertext');
     expect(serialized).not.toContain('anonymousKeyVersion');
+  });
+
+  it('rejects a forum-post report when the shared lock row is absent', async () => {
+    const db = adapter();
+    vi.mocked(db.$queryRawUnsafe).mockResolvedValue([]);
+    await expect(
+      createReport(
+        db,
+        actor,
+        {
+          reason: 'SPAM',
+          targetId: 'post_1',
+          targetType: 'FORUM_POST',
+        },
+        keys,
+      ),
+    ).rejects.toBeInstanceOf(ReportNotFoundError);
+    expect(db.forumPost.findFirst).not.toHaveBeenCalled();
+    expect(db.report.create).not.toHaveBeenCalled();
   });
 
   it('rejects a defensive cross-campus, hidden, or wrong-kind forum post record', async () => {
@@ -272,6 +308,28 @@ describe('reports domain', () => {
       }),
     ).rejects.toBeInstanceOf(ReportOwnContentError);
     expect(db.report.create).not.toHaveBeenCalled();
+    expect(db.forumComment.findFirst).toHaveBeenNthCalledWith(1, {
+      select: { postId: true },
+      where: { id: 'comment_1' },
+    });
+    expect(db.$queryRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('FROM "ForumPost"'),
+      'post_1',
+      actor.campusId,
+    );
+    expect(db.$queryRawUnsafe).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('FROM "ForumComment"'),
+      'comment_1',
+      'post_1',
+    );
+    expect(
+      vi.mocked(db.$queryRawUnsafe).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(db.$queryRawUnsafe).mock.invocationCallOrder[1] ??
+        Number.POSITIVE_INFINITY,
+    );
   });
 
   it('rejects a forum comment attached to a tree-hole post', async () => {
@@ -295,5 +353,23 @@ describe('reports domain', () => {
         targetType: 'FORUM_COMMENT',
       }),
     ).rejects.toBeInstanceOf(ReportNotFoundError);
+  });
+
+  it('stops a forum-comment report when the parent lock row is absent', async () => {
+    const db = adapter();
+    vi.mocked(db.forumComment.findFirst).mockResolvedValue({
+      postId: 'post_1',
+    });
+    vi.mocked(db.$queryRawUnsafe).mockResolvedValueOnce([]);
+    await expect(
+      createReport(db, actor, {
+        reason: 'SPAM',
+        targetId: 'comment_1',
+        targetType: 'FORUM_COMMENT',
+      }),
+    ).rejects.toBeInstanceOf(ReportNotFoundError);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(db.forumComment.findFirst).toHaveBeenCalledTimes(1);
+    expect(db.report.create).not.toHaveBeenCalled();
   });
 });

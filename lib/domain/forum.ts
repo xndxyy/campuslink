@@ -53,6 +53,7 @@ interface CommentDelegate {
 }
 
 export interface ForumAdapter {
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
   $transaction<T>(
     operation: (tx: ForumAdapter) => Promise<T>,
     options?: { isolationLevel: 'Serializable' },
@@ -119,6 +120,119 @@ export class ForumValidationError extends Error {
   }
 }
 
+async function lockForumPost(
+  adapter: ForumAdapter,
+  campusId: string,
+  postId: string,
+  mode: 'key-share' | 'update',
+) {
+  const rows =
+    mode === 'update'
+      ? await adapter.$queryRawUnsafe<Array<{ campusId: string; id: string }>>(
+          `SELECT id, "campusId"
+           FROM "ForumPost"
+           WHERE id = $1 AND "campusId" = $2
+           FOR UPDATE`,
+          postId,
+          campusId,
+        )
+      : await adapter.$queryRawUnsafe<Array<{ campusId: string; id: string }>>(
+          `SELECT id, "campusId"
+           FROM "ForumPost"
+           WHERE id = $1 AND "campusId" = $2
+           FOR KEY SHARE`,
+          postId,
+          campusId,
+        );
+  if (
+    rows.length !== 1 ||
+    rows[0]?.id !== postId ||
+    rows[0]?.campusId !== campusId
+  ) {
+    throw new ForumNotFoundError();
+  }
+}
+
+async function lockForumCommentForUpdate(
+  adapter: ForumAdapter,
+  commentId: string,
+  postId: string,
+) {
+  const rows = await adapter.$queryRawUnsafe<
+    Array<{ id: string; postId: string }>
+  >(
+    `SELECT id, "postId"
+     FROM "ForumComment"
+     WHERE id = $1 AND "postId" = $2
+     FOR UPDATE`,
+    commentId,
+    postId,
+  );
+  if (
+    rows.length !== 1 ||
+    rows[0]?.id !== commentId ||
+    rows[0]?.postId !== postId
+  ) {
+    throw new ForumNotFoundError();
+  }
+}
+
+interface ForumReportEvidence {
+  campusId: string;
+  commentPostId: string | null;
+  id: string;
+  status: string;
+  targetId: string;
+  targetType: string;
+}
+
+async function findActivePostEvidence(
+  adapter: ForumAdapter,
+  campusId: string,
+  postId: string,
+) {
+  const rows = await adapter.$queryRawUnsafe<ForumReportEvidence[]>(
+    `SELECT report.id,
+            report."campusId" AS "campusId",
+            report.status,
+            report."targetId" AS "targetId",
+            report."targetType" AS "targetType",
+            comment."postId" AS "commentPostId"
+     FROM "Report" AS report
+     LEFT JOIN "ForumComment" AS comment
+       ON report."targetType" = 'FORUM_COMMENT'
+      AND comment.id = report."targetId"
+     WHERE report."campusId" = $1
+       AND report.status IN ('OPEN', 'TRIAGED')
+       AND (
+         (report."targetType" = 'FORUM_POST' AND report."targetId" = $2)
+         OR
+         (report."targetType" = 'FORUM_COMMENT' AND comment."postId" = $2)
+       )
+     ORDER BY report.id
+     LIMIT 1`,
+    campusId,
+    postId,
+  );
+  if (rows.length === 0) return null;
+  const evidence = rows[0];
+  if (
+    rows.length !== 1 ||
+    !evidence ||
+    evidence.campusId !== campusId ||
+    typeof evidence.id !== 'string' ||
+    (evidence.status !== 'OPEN' && evidence.status !== 'TRIAGED') ||
+    (evidence.targetType === 'FORUM_POST'
+      ? evidence.targetId !== postId
+      : evidence.targetType !== 'FORUM_COMMENT' ||
+        typeof evidence.targetId !== 'string' ||
+        evidence.commentPostId !== postId)
+  ) {
+    throw new ForumConflictError();
+  }
+  return evidence;
+}
+
 function requireVerifiedForumActor(
   actor: ForumActor | null | undefined,
 ): asserts actor is ForumActor & { emailVerifiedAt: Date; status: 'ACTIVE' } {
@@ -138,20 +252,52 @@ function kindForView(view: ForumView): ForumPostKind {
   return view === 'tree-hole' ? 'TREE_HOLE' : 'DISCUSSION';
 }
 
-function isRetryableTransactionError(error: unknown) {
+type UniqueRetryScope = 'forum-like' | 'public-code';
+
+function isSerializationFailure(error: unknown) {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: unknown; meta?: { code?: unknown } };
   return (
-    candidate.code === 'P2002' ||
     candidate.code === 'P2034' ||
     candidate.code === '40001' ||
     candidate.meta?.code === '40001'
   );
 }
 
+function matchesUniqueRetryScope(
+  error: unknown,
+  scope: UniqueRetryScope | undefined,
+) {
+  if (!scope || !error || typeof error !== 'object') return false;
+  const candidate = error as {
+    code?: unknown;
+    meta?: { constraint?: unknown; target?: unknown };
+  };
+  if (candidate.code !== 'P2002') return false;
+  const target = candidate.meta?.target ?? candidate.meta?.constraint;
+  if (scope === 'public-code') {
+    return (
+      target === 'ForumPost_publicCode_key' ||
+      target === 'publicCode' ||
+      (Array.isArray(target) &&
+        target.length === 1 &&
+        target[0] === 'publicCode')
+    );
+  }
+  return (
+    target === 'ForumLike_userId_postId_key' ||
+    target === 'userId+postId' ||
+    (Array.isArray(target) &&
+      target.length === 2 &&
+      target[0] === 'userId' &&
+      target[1] === 'postId')
+  );
+}
+
 async function serializableForumTransaction<T>(
   adapter: ForumAdapter,
   operation: (tx: ForumAdapter) => Promise<T>,
+  uniqueRetryScope?: UniqueRetryScope,
 ) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -159,8 +305,11 @@ async function serializableForumTransaction<T>(
         isolationLevel: 'Serializable',
       });
     } catch (error) {
-      if (isRetryableTransactionError(error) && attempt < 2) continue;
-      if (isRetryableTransactionError(error)) throw new ForumConflictError();
+      const retryable =
+        isSerializationFailure(error) ||
+        matchesUniqueRetryScope(error, uniqueRetryScope);
+      if (retryable && attempt < 2) continue;
+      if (retryable) throw new ForumConflictError();
       throw error;
     }
   }
@@ -515,47 +664,51 @@ export async function createForumPost(
   if (!parsed.success) throw new ForumValidationError();
   const input = parsed.data;
 
-  return serializableForumTransaction(adapter, async (tx) => {
-    await requireActiveCategory(tx, actor.campusId, input.category);
-    if (input.kind === 'DISCUSSION') {
+  return serializableForumTransaction(
+    adapter,
+    async (tx) => {
+      await requireActiveCategory(tx, actor.campusId, input.category);
+      if (input.kind === 'DISCUSSION') {
+        const record = await tx.forumPost.create({
+          data: {
+            authorId: actor.id,
+            body: input.body,
+            campusId: actor.campusId,
+            category: input.category,
+            kind: 'DISCUSSION',
+            status: 'PUBLISHED',
+            title: input.title,
+          },
+          select: publicPostSelect('DISCUSSION'),
+        });
+        return presentPublishedPost(record, actor.campusId, 'DISCUSSION');
+      }
+
+      if (!keys) throw new ForumConflictError();
+      const envelope = sealAnonymousIdentity(actor.id, keys);
+      const publicCode = (options.generatePublicCode ?? defaultPublicCode)();
+      if (!/^[A-Za-z0-9_-]{12}$/.test(publicCode)) {
+        throw new ForumValidationError();
+      }
       const record = await tx.forumPost.create({
         data: {
-          authorId: actor.id,
+          anonymousCiphertext: serializeAnonymousIdentityEnvelope(envelope),
+          anonymousFingerprint: fingerprintAnonymousUser(actor.id, keys),
+          anonymousKeyVersion: envelope.keyVersion,
           body: input.body,
           campusId: actor.campusId,
           category: input.category,
-          kind: 'DISCUSSION',
+          kind: 'TREE_HOLE',
+          publicCode,
           status: 'PUBLISHED',
           title: input.title,
         },
-        select: publicPostSelect('DISCUSSION'),
+        select: publicPostSelect('TREE_HOLE'),
       });
-      return presentPublishedPost(record, actor.campusId, 'DISCUSSION');
-    }
-
-    if (!keys) throw new ForumConflictError();
-    const envelope = sealAnonymousIdentity(actor.id, keys);
-    const publicCode = (options.generatePublicCode ?? defaultPublicCode)();
-    if (!/^[A-Za-z0-9_-]{12}$/.test(publicCode)) {
-      throw new ForumValidationError();
-    }
-    const record = await tx.forumPost.create({
-      data: {
-        anonymousCiphertext: serializeAnonymousIdentityEnvelope(envelope),
-        anonymousFingerprint: fingerprintAnonymousUser(actor.id, keys),
-        anonymousKeyVersion: envelope.keyVersion,
-        body: input.body,
-        campusId: actor.campusId,
-        category: input.category,
-        kind: 'TREE_HOLE',
-        publicCode,
-        status: 'PUBLISHED',
-        title: input.title,
-      },
-      select: publicPostSelect('TREE_HOLE'),
-    });
-    return presentPublishedPost(record, actor.campusId, 'TREE_HOLE');
-  });
+      return presentPublishedPost(record, actor.campusId, 'TREE_HOLE');
+    },
+    input.kind === 'TREE_HOLE' ? 'public-code' : undefined,
+  );
 }
 
 export async function updateForumPost(
@@ -626,31 +779,14 @@ export async function deleteForumPost(
     throw new ForumValidationError();
   }
   return serializableForumTransaction(adapter, async (tx) => {
+    await lockForumPost(tx, actor.campusId, input.id, 'update');
     await findOwnedPost(tx, actor, input.id, input.view, keys);
-    const activeReport = await tx.report.findFirst({
-      select: {
-        campusId: true,
-        id: true,
-        status: true,
-        targetId: true,
-        targetType: true,
-      },
-      where: {
-        campusId: actor.campusId,
-        status: { in: ['OPEN', 'TRIAGED'] },
-        targetId: input.id,
-        targetType: 'FORUM_POST',
-      },
-    });
+    const activeReport = await findActivePostEvidence(
+      tx,
+      actor.campusId,
+      input.id,
+    );
     if (activeReport) {
-      if (
-        activeReport.campusId !== actor.campusId ||
-        activeReport.targetId !== input.id ||
-        activeReport.targetType !== 'FORUM_POST' ||
-        (activeReport.status !== 'OPEN' && activeReport.status !== 'TRIAGED')
-      ) {
-        throw new ForumConflictError();
-      }
       await tx.forumPost.update({
         data: { status: 'ARCHIVED' },
         select: { id: true },
@@ -915,6 +1051,8 @@ export async function deleteForumComment(
     throw new ForumValidationError();
   }
   return serializableForumTransaction(adapter, async (tx) => {
+    await lockForumPost(tx, actor.campusId, rawInput.postId, 'key-share');
+    await lockForumCommentForUpdate(tx, parsed.data.commentId, rawInput.postId);
     await findOwnedComment(tx, actor, rawInput.postId, parsed.data.commentId);
     const activeReport = await tx.report.findFirst({
       select: {
@@ -964,38 +1102,42 @@ export async function toggleForumLike(
   if (!/^[A-Za-z0-9_-]{1,191}$/.test(input.postId)) {
     throw new ForumValidationError();
   }
-  return serializableForumTransaction(adapter, async (tx) => {
-    await findVisibleInteractionPost(tx, actor.campusId, input.postId);
-    const existing = await tx.forumLike.findUnique({
-      select: { id: true, postId: true, userId: true },
-      where: {
-        userId_postId: { postId: input.postId, userId: actor.id },
-      },
-    });
-    let liked: boolean;
-    if (existing) {
-      if (existing.postId !== input.postId || existing.userId !== actor.id) {
-        throw new ForumConflictError();
-      }
-      const removed = await tx.forumLike.deleteMany({
-        where: { postId: input.postId, userId: actor.id },
-      });
-      if (removed.count !== 1) throw new ForumConflictError();
-      liked = false;
-    } else {
-      const created = await tx.forumLike.create({
-        data: { postId: input.postId, userId: actor.id },
+  return serializableForumTransaction(
+    adapter,
+    async (tx) => {
+      await findVisibleInteractionPost(tx, actor.campusId, input.postId);
+      const existing = await tx.forumLike.findUnique({
         select: { id: true, postId: true, userId: true },
+        where: {
+          userId_postId: { postId: input.postId, userId: actor.id },
+        },
       });
-      if (created.postId !== input.postId || created.userId !== actor.id) {
-        throw new ForumConflictError();
+      let liked: boolean;
+      if (existing) {
+        if (existing.postId !== input.postId || existing.userId !== actor.id) {
+          throw new ForumConflictError();
+        }
+        const removed = await tx.forumLike.deleteMany({
+          where: { postId: input.postId, userId: actor.id },
+        });
+        if (removed.count !== 1) throw new ForumConflictError();
+        liked = false;
+      } else {
+        const created = await tx.forumLike.create({
+          data: { postId: input.postId, userId: actor.id },
+          select: { id: true, postId: true, userId: true },
+        });
+        if (created.postId !== input.postId || created.userId !== actor.id) {
+          throw new ForumConflictError();
+        }
+        liked = true;
       }
-      liked = true;
-    }
-    const likeCount = await tx.forumLike.count({
-      where: { postId: input.postId },
-    });
-    if (!validCount(likeCount)) throw new ForumConflictError();
-    return { liked, likeCount };
-  });
+      const likeCount = await tx.forumLike.count({
+        where: { postId: input.postId },
+      });
+      if (!validCount(likeCount)) throw new ForumConflictError();
+      return { liked, likeCount };
+    },
+    'forum-like',
+  );
 }

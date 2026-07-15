@@ -99,6 +99,19 @@ function commentRecord(overrides: Record<string, unknown> = {}) {
 
 function forumAdapter() {
   const value = {
+    $queryRawUnsafe: vi.fn(async (query: string, ...values: unknown[]) => {
+      if (query.includes('FROM "ForumPost"')) {
+        return [{ campusId: values[1], id: values[0] }];
+      }
+      if (query.includes('FROM "ForumComment"')) {
+        return [{ id: values[0], postId: values[1] }];
+      }
+      if (query.includes('FROM "Report"')) {
+        const report = await value.report.findFirst({});
+        return report ? [{ ...report, commentPostId: null }] : [];
+      }
+      return [];
+    }),
     $transaction: vi.fn(
       async (operation: (tx: ForumAdapter) => Promise<unknown>) =>
         operation(value as unknown as ForumAdapter),
@@ -142,7 +155,16 @@ function forumAdapter() {
       findMany: vi.fn(async () => [discussionRecord()]),
       update: vi.fn(async () => discussionRecord()),
     },
-    report: { findFirst: vi.fn(async () => null) },
+    report: {
+      findFirst: vi.fn(
+        async (
+          args?: Record<string, unknown>,
+        ): Promise<Record<string, unknown> | null> => {
+          void args;
+          return null;
+        },
+      ),
+    },
   };
   return value as unknown as ForumAdapter;
 }
@@ -557,6 +579,29 @@ describe('forum creation', () => {
     ).rejects.toEqual(new ForumConflictError());
     expect(db.$transaction).toHaveBeenCalledTimes(3);
   });
+
+  it('does not retry or remap an unrelated P2002 during tree-hole creation', async () => {
+    const db = forumAdapter();
+    const unrelated = {
+      code: 'P2002',
+      meta: { target: ['ForumCategory_campusId_slug_key'] },
+    };
+    vi.mocked(db.$transaction).mockRejectedValue(unrelated);
+    await expect(
+      createForumPost(
+        db,
+        actor,
+        {
+          body: '这是一个满足长度要求的匿名树洞正文。',
+          category: 'tree-hole',
+          kind: 'TREE_HOLE',
+          title: '匿名树洞主题',
+        },
+        keys,
+      ),
+    ).rejects.toBe(unrelated);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('forum owner management', () => {
@@ -746,6 +791,87 @@ describe('forum owner management', () => {
     },
   );
 
+  it('archives a post when an active report targets a descendant comment', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue(
+      discussionRecord({ authorId: actor.id }),
+    );
+    vi.mocked(db.$queryRawUnsafe).mockImplementation(
+      async (query: string, ...values: unknown[]) => {
+        if (query.includes('FROM "ForumPost"')) {
+          return [{ campusId: values[1], id: values[0] }];
+        }
+        return [
+          {
+            campusId: actor.campusId,
+            commentPostId: 'post_1',
+            id: 'report_1',
+            status: 'OPEN',
+            targetId: 'comment_1',
+            targetType: 'FORUM_COMMENT',
+          },
+        ];
+      },
+    );
+    vi.mocked(db.forumPost.update).mockResolvedValue({ id: 'post_1' });
+
+    await expect(
+      deleteForumPost(db, actor, { id: 'post_1', view: 'discussion' }, keys),
+    ).resolves.toStrictEqual({
+      archived: true,
+      deleted: false,
+      id: 'post_1',
+    });
+    expect(db.forumPost.delete).not.toHaveBeenCalled();
+    expect(db.$queryRawUnsafe).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('FROM "Report"'),
+      actor.campusId,
+      'post_1',
+    );
+  });
+
+  it('locks the post FOR UPDATE before ownership and rejects an absent lock row', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.$queryRawUnsafe).mockResolvedValueOnce([]);
+
+    await expect(
+      deleteForumPost(db, actor, { id: 'post_1', view: 'discussion' }, keys),
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
+    expect(db.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('FOR UPDATE'),
+      'post_1',
+      actor.campusId,
+    );
+    expect(db.forumPost.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects forged descendant evidence instead of deleting the post', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.forumPost.findFirst).mockResolvedValue(
+      discussionRecord({ authorId: actor.id }),
+    );
+    vi.mocked(db.$queryRawUnsafe).mockImplementation(
+      async (query: string, ...values: unknown[]) =>
+        query.includes('FROM "ForumPost"')
+          ? [{ campusId: values[1], id: values[0] }]
+          : [
+              {
+                campusId: 'campus_2',
+                commentPostId: 'post_1',
+                id: 'report_1',
+                status: 'OPEN',
+                targetId: 'comment_1',
+                targetType: 'FORUM_COMMENT',
+              },
+            ],
+    );
+    await expect(
+      deleteForumPost(db, actor, { id: 'post_1', view: 'discussion' }, keys),
+    ).rejects.toBeInstanceOf(ForumConflictError);
+    expect(db.forumPost.delete).not.toHaveBeenCalled();
+  });
+
   it('physically deletes an owned post only when no active report exists', async () => {
     const db = forumAdapter();
     vi.mocked(db.forumPost.findFirst).mockResolvedValue(
@@ -770,7 +896,10 @@ describe('forum owner management', () => {
       discussionRecord({ authorId: actor.id }),
     );
     vi.mocked(db.$transaction)
-      .mockRejectedValueOnce({ code: 'P2034' })
+      .mockImplementationOnce(async (operation) => {
+        await operation(db);
+        throw { code: 'P2034' };
+      })
       .mockImplementationOnce(async (operation) => operation(db));
     await deleteForumPost(
       db,
@@ -779,7 +908,11 @@ describe('forum owner management', () => {
       keys,
     );
     expect(db.$transaction).toHaveBeenCalledTimes(2);
-    expect(db.report.findFirst).toHaveBeenCalledTimes(1);
+    expect(db.report.findFirst).toHaveBeenCalledTimes(2);
+    const lockCalls = vi
+      .mocked(db.$queryRawUnsafe)
+      .mock.calls.filter(([query]) => String(query).includes('FOR UPDATE'));
+    expect(lockCalls).toHaveLength(2);
   });
 });
 
@@ -921,6 +1054,24 @@ describe('forum comments', () => {
       deleted: true,
       id: 'comment_1',
     });
+    expect(db.$queryRawUnsafe).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('FOR KEY SHARE'),
+      'post_1',
+      actor.campusId,
+    );
+    expect(db.$queryRawUnsafe).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('FOR UPDATE'),
+      'comment_1',
+      'post_1',
+    );
+    expect(
+      vi.mocked(db.$queryRawUnsafe).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(db.forumComment.findFirst).mock.invocationCallOrder[1] ??
+        Number.POSITIVE_INFINITY,
+    );
   });
 
   it('rejects defensive comments owned by another user', async () => {
@@ -936,6 +1087,41 @@ describe('forum comments', () => {
       }),
     ).rejects.toBeInstanceOf(ForumForbiddenError);
     expect(db.forumComment.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects comment deletion when the parent lock row is absent', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.$queryRawUnsafe).mockResolvedValueOnce([]);
+    await expect(
+      deleteForumComment(db, actor, {
+        commentId: 'comment_1',
+        postId: 'post_1',
+      }),
+    ).rejects.toBeInstanceOf(ForumNotFoundError);
+    expect(db.forumComment.findFirst).not.toHaveBeenCalled();
+    expect(db.forumComment.delete).not.toHaveBeenCalled();
+  });
+
+  it('reacquires parent and comment locks after a comment-delete serialization retry', async () => {
+    const db = forumAdapter();
+    vi.mocked(db.$transaction)
+      .mockImplementationOnce(async (operation) => {
+        await operation(db);
+        throw { meta: { code: '40001' } };
+      })
+      .mockImplementationOnce(async (operation) => operation(db));
+    await deleteForumComment(db, actor, {
+      commentId: 'comment_1',
+      postId: 'post_1',
+    });
+    const parentLocks = vi
+      .mocked(db.$queryRawUnsafe)
+      .mock.calls.filter(([query]) => String(query).includes('FOR KEY SHARE'));
+    const commentLocks = vi
+      .mocked(db.$queryRawUnsafe)
+      .mock.calls.filter(([query]) => String(query).includes('FOR UPDATE'));
+    expect(parentLocks).toHaveLength(2);
+    expect(commentLocks).toHaveLength(2);
   });
 
   it('rejects hidden discussion records before creating interactions', async () => {
@@ -995,7 +1181,10 @@ describe('forum likes', () => {
     vi.mocked(db.$transaction)
       .mockImplementationOnce(async (operation) => {
         await operation(db);
-        throw { code: 'P2002' };
+        throw {
+          code: 'P2002',
+          meta: { target: ['userId', 'postId'] },
+        };
       })
       .mockImplementationOnce(async (operation) => {
         vi.mocked(db.forumLike.findUnique).mockResolvedValue({
@@ -1013,6 +1202,38 @@ describe('forum likes', () => {
     expect(db.$transaction).toHaveBeenCalledTimes(2);
     expect(db.forumPost.findFirst).toHaveBeenCalledTimes(2);
   });
+
+  it('does not retry or map an unrelated like P2002', async () => {
+    const db = forumAdapter();
+    const unrelated = {
+      code: 'P2002',
+      meta: { target: ['ForumPost_publicCode_key'] },
+    };
+    vi.mocked(db.$transaction).mockRejectedValue(unrelated);
+    await expect(toggleForumLike(db, actor, { postId: 'post_1' })).rejects.toBe(
+      unrelated,
+    );
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ code: 'P2034' }, { code: '40001' }, { meta: { code: '40001' } }])(
+    'always retries serialization failures %#',
+    async (failure) => {
+      const db = forumAdapter();
+      vi.mocked(db.forumLike.create).mockResolvedValue({
+        id: 'like_1',
+        postId: 'post_1',
+        userId: actor.id,
+      });
+      vi.mocked(db.$transaction)
+        .mockRejectedValueOnce(failure)
+        .mockImplementationOnce(async (operation) => operation(db));
+      await expect(
+        toggleForumLike(db, actor, { postId: 'post_1' }),
+      ).resolves.toStrictEqual({ liked: true, likeCount: 0 });
+      expect(db.$transaction).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it('allows likes on tree-hole posts without exposing identity or like users', async () => {
     const db = forumAdapter();

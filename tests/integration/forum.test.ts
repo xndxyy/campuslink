@@ -8,6 +8,7 @@ import { getDefaultCampusSlug } from '@/lib/config';
 import {
   createForumComment,
   createForumPost,
+  deleteForumComment,
   deleteForumPost,
   type ForumAdapter,
   ForumConflictError,
@@ -117,6 +118,104 @@ function auditBarrierAdapter(
   } as unknown as TreeHoleIdentityAdapter;
 }
 
+function reportCreateBarrierAdapter(
+  client: ReturnType<typeof createDbClient>,
+  afterCreate: () => Promise<void>,
+) {
+  return {
+    $transaction: <T>(operation: (tx: ReportsAdapter) => Promise<T>) =>
+      client.$transaction((tx) =>
+        operation({
+          $queryRawUnsafe: <Result = unknown>(
+            query: string,
+            ...values: unknown[]
+          ) => tx.$queryRawUnsafe<Result>(query, ...values),
+          forumComment: {
+            findFirst: (args: Record<string, unknown>) =>
+              tx.forumComment.findFirst(args as never),
+          },
+          forumPost: {
+            findFirst: (args: Record<string, unknown>) =>
+              tx.forumPost.findFirst(args as never),
+          },
+          jobPost: tx.jobPost,
+          marketplaceItem: tx.marketplaceItem,
+          report: {
+            create: async (args: Record<string, unknown>) => {
+              const report = await tx.report.create(args as never);
+              await afterCreate();
+              return report;
+            },
+            findMany: (args: Record<string, unknown>) =>
+              tx.report.findMany(args as never),
+          },
+          resource: tx.resource,
+        } as unknown as ReportsAdapter),
+      ),
+  } as unknown as ReportsAdapter;
+}
+
+function deleteBarrierAdapter(
+  client: ReturnType<typeof createDbClient>,
+  subject: 'comment' | 'post',
+  afterDelete: () => Promise<void>,
+) {
+  return {
+    $transaction: <T>(
+      operation: (tx: ForumAdapter) => Promise<T>,
+      options?: { isolationLevel: 'Serializable' },
+    ) =>
+      client.$transaction(
+        (tx) =>
+          operation({
+            $queryRawUnsafe: <Result = unknown>(
+              query: string,
+              ...values: unknown[]
+            ) => tx.$queryRawUnsafe<Result>(query, ...values),
+            forumComment: {
+              count: (args: Record<string, unknown>) =>
+                tx.forumComment.count(args as never),
+              create: (args: Record<string, unknown>) =>
+                tx.forumComment.create(args as never),
+              delete: async (args: Record<string, unknown>) => {
+                const deleted = await tx.forumComment.delete(args as never);
+                if (subject === 'comment') await afterDelete();
+                return deleted;
+              },
+              findFirst: (args: Record<string, unknown>) =>
+                tx.forumComment.findFirst(args as never),
+              findMany: (args: Record<string, unknown>) =>
+                tx.forumComment.findMany(args as never),
+              update: (args: Record<string, unknown>) =>
+                tx.forumComment.update(args as never),
+            },
+            forumPost: {
+              count: (args: Record<string, unknown>) =>
+                tx.forumPost.count(args as never),
+              create: (args: Record<string, unknown>) =>
+                tx.forumPost.create(args as never),
+              delete: async (args: Record<string, unknown>) => {
+                const deleted = await tx.forumPost.delete(args as never);
+                if (subject === 'post') await afterDelete();
+                return deleted;
+              },
+              findFirst: (args: Record<string, unknown>) =>
+                tx.forumPost.findFirst(args as never),
+              findMany: (args: Record<string, unknown>) =>
+                tx.forumPost.findMany(args as never),
+              update: (args: Record<string, unknown>) =>
+                tx.forumPost.update(args as never),
+            },
+            report: {
+              findFirst: (args: Record<string, unknown>) =>
+                tx.report.findFirst(args as never),
+            },
+          } as unknown as ForumAdapter),
+        options,
+      ),
+  } as unknown as ForumAdapter;
+}
+
 describeWithDatabase('forum anonymous identity persistence', () => {
   let db: ReturnType<typeof createDbClient>;
   let campusId = '';
@@ -224,6 +323,32 @@ describeWithDatabase('forum anonymous identity persistence', () => {
         targetType: 'FORUM_POST',
       },
     });
+  }
+
+  async function createDiscussionSubject(withComment: boolean) {
+    const suffix = randomUUID().replaceAll('-', '');
+    const post = await db.forumPost.create({
+      data: {
+        authorId: anonymousUserId,
+        body: `Run-scoped lock subject body ${suffix}.`,
+        campusId,
+        category: categorySlug,
+        kind: 'DISCUSSION',
+        status: 'PUBLISHED',
+        title: `Run-scoped lock subject ${suffix}`,
+      },
+    });
+    const comment = withComment
+      ? await db.forumComment.create({
+          data: {
+            authorId: anonymousUserId,
+            body: `Run-scoped lock comment ${suffix}.`,
+            postId: post.id,
+            status: 'PUBLISHED',
+          },
+        })
+      : null;
+    return { comment, post };
   }
 
   afterAll(async () => {
@@ -712,4 +837,203 @@ describeWithDatabase('forum anonymous identity persistence', () => {
       createReport(reportsDb, { ...reporter, id: adminId }, target, testKeys),
     ).rejects.toBeInstanceOf(ReportNotFoundError);
   });
+
+  it('archives a post and retains a descendant comment with active report evidence', async () => {
+    const { comment, post } = await createDiscussionSubject(true);
+    if (!comment) throw new Error('Expected a run-scoped comment fixture.');
+    const reporter = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: moderatorId,
+      status: 'ACTIVE' as const,
+    };
+    const owner = {
+      campusId,
+      emailVerifiedAt: new Date(),
+      id: anonymousUserId,
+      role: 'STUDENT' as const,
+      status: 'ACTIVE' as const,
+    };
+    const report = await createReport(
+      db as unknown as ReportsAdapter,
+      reporter,
+      {
+        reason: 'HARASSMENT',
+        targetId: comment.id,
+        targetType: 'FORUM_COMMENT',
+      },
+    );
+
+    await expect(
+      deleteForumPost(db as unknown as ForumAdapter, owner, {
+        id: post.id,
+        view: 'discussion',
+      }),
+    ).resolves.toStrictEqual({
+      archived: true,
+      deleted: false,
+      id: post.id,
+    });
+    await expect(
+      db.forumPost.findUniqueOrThrow({ where: { id: post.id } }),
+    ).resolves.toMatchObject({ status: 'ARCHIVED' });
+    await expect(
+      db.forumComment.findUniqueOrThrow({ where: { id: comment.id } }),
+    ).resolves.toMatchObject({ postId: post.id });
+    await expect(
+      db.report.findUniqueOrThrow({ where: { id: String(report.id) } }),
+    ).resolves.toMatchObject({
+      status: 'OPEN',
+      targetId: comment.id,
+      targetType: 'FORUM_COMMENT',
+    });
+  });
+
+  it.each([
+    { subject: 'post' as const, winner: 'report' as const },
+    { subject: 'post' as const, winner: 'delete' as const },
+    { subject: 'comment' as const, winner: 'report' as const },
+    { subject: 'comment' as const, winner: 'delete' as const },
+  ])(
+    'keeps $subject report/delete race consistent when $winner wins',
+    async ({ subject, winner }) => {
+      const { comment, post } = await createDiscussionSubject(
+        subject === 'comment',
+      );
+      if (subject === 'comment' && !comment) {
+        throw new Error('Expected a run-scoped comment race fixture.');
+      }
+      const targetId = subject === 'post' ? post.id : String(comment?.id);
+      const reporter = {
+        campusId,
+        emailVerifiedAt: new Date(),
+        id: moderatorId,
+        status: 'ACTIVE' as const,
+      };
+      const owner = {
+        campusId,
+        emailVerifiedAt: new Date(),
+        id: anonymousUserId,
+        role: 'STUDENT' as const,
+        status: 'ACTIVE' as const,
+      };
+      const suffix = randomUUID().replaceAll('-', '');
+      const reportName = `forum-report-${winner}-${subject}-${suffix}`;
+      const deleteName = `forum-delete-${winner}-${subject}-${suffix}`;
+      const reportDb = createDbClient(namedDatabaseUrl(reportName));
+      const deleteDb = createDbClient(namedDatabaseUrl(deleteName));
+      let signalPaused!: () => void;
+      const paused = new Promise<void>((resolve) => {
+        signalPaused = resolve;
+      });
+      let releasePaused!: () => void;
+      const mayCommit = new Promise<void>((resolve) => {
+        releasePaused = resolve;
+      });
+      const barrier = async () => {
+        signalPaused();
+        await mayCommit;
+      };
+      const reportInput = {
+        reason: 'SPAM' as const,
+        targetId,
+        targetType:
+          subject === 'post'
+            ? ('FORUM_POST' as const)
+            : ('FORUM_COMMENT' as const),
+      };
+      const remove = (adapter: ForumAdapter) =>
+        subject === 'post'
+          ? deleteForumPost(adapter, owner, {
+              id: post.id,
+              view: 'discussion',
+            })
+          : deleteForumComment(adapter, owner, {
+              commentId: targetId,
+              postId: post.id,
+            });
+
+      try {
+        if (winner === 'report') {
+          const reportOutcome = createReport(
+            reportCreateBarrierAdapter(reportDb, barrier),
+            reporter,
+            reportInput,
+          );
+          await paused;
+          const deleteOutcome = remove(deleteDb as unknown as ForumAdapter);
+          await waitForForumDatabaseLock(db, deleteName);
+          releasePaused();
+
+          await expect(reportOutcome).resolves.toMatchObject({
+            status: 'OPEN',
+          });
+          await expect(deleteOutcome).resolves.toMatchObject({
+            archived: true,
+            deleted: false,
+          });
+          if (subject === 'post') {
+            await expect(
+              db.forumPost.findUniqueOrThrow({ where: { id: post.id } }),
+            ).resolves.toMatchObject({ status: 'ARCHIVED' });
+          } else {
+            await expect(
+              db.forumComment.findUniqueOrThrow({ where: { id: targetId } }),
+            ).resolves.toMatchObject({ status: 'ARCHIVED' });
+          }
+          await expect(
+            db.report.count({
+              where: {
+                status: 'OPEN',
+                targetId,
+                targetType: reportInput.targetType,
+              },
+            }),
+          ).resolves.toBe(1);
+        } else {
+          const deleteOutcome = remove(
+            deleteBarrierAdapter(deleteDb, subject, barrier),
+          );
+          await paused;
+          const reportOutcome = createReport(
+            reportDb as unknown as ReportsAdapter,
+            reporter,
+            reportInput,
+          );
+          await waitForForumDatabaseLock(db, reportName);
+          releasePaused();
+
+          await expect(deleteOutcome).resolves.toMatchObject({
+            archived: false,
+            deleted: true,
+          });
+          await expect(reportOutcome).rejects.toBeInstanceOf(
+            ReportNotFoundError,
+          );
+          await expect(
+            db.report.count({
+              where: {
+                status: 'OPEN',
+                targetId,
+                targetType: reportInput.targetType,
+              },
+            }),
+          ).resolves.toBe(0);
+          if (subject === 'post') {
+            await expect(
+              db.forumPost.findUnique({ where: { id: post.id } }),
+            ).resolves.toBeNull();
+          } else {
+            await expect(
+              db.forumComment.findUnique({ where: { id: targetId } }),
+            ).resolves.toBeNull();
+          }
+        }
+      } finally {
+        releasePaused?.();
+        await Promise.all([reportDb.$disconnect(), deleteDb.$disconnect()]);
+      }
+    },
+    15_000,
+  );
 });

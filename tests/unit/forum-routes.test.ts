@@ -359,4 +359,28 @@ describe('forum routes', () => {
     expect(text).not.toContain('anonymousCiphertext');
     expect(text).not.toContain('secret');
   });
+
+  it('maps an unrelated create P2002 to a generic 500 without retry details', async () => {
+    const response = await handleForumPostCollectionPost(
+      mutation('POST', '/api/forum/posts', {
+        body: '这是一个满足长度要求的匿名树洞正文。',
+        category: 'tree-hole',
+        kind: 'TREE_HOLE',
+        title: '匿名树洞主题',
+      }),
+      {
+        create: vi.fn(async () => {
+          throw {
+            code: 'P2002',
+            meta: { target: ['unrelated_database_unique_key'] },
+          };
+        }),
+        resolveUser: async () => user,
+      },
+    );
+    expect(response.status).toBe(500);
+    const text = await response.text();
+    expect(text).not.toContain('P2002');
+    expect(text).not.toContain('unrelated_database_unique_key');
+  });
 });

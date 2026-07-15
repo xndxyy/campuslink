@@ -35,6 +35,7 @@ interface TargetDelegate {
 }
 
 export interface ReportsAdapter {
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
   $transaction<T>(operation: (tx: ReportsAdapter) => Promise<T>): Promise<T>;
   forumComment: TargetDelegate;
   forumPost: TargetDelegate;
@@ -71,6 +72,54 @@ export class ReportVerificationRequiredError extends Error {
   }
 }
 
+async function lockReportedPost(
+  adapter: ReportsAdapter,
+  actor: ReportActor,
+  postId: string,
+) {
+  const rows = await adapter.$queryRawUnsafe<
+    Array<{ campusId: string; id: string }>
+  >(
+    `SELECT id, "campusId"
+     FROM "ForumPost"
+     WHERE id = $1 AND "campusId" = $2
+     FOR KEY SHARE`,
+    postId,
+    actor.campusId,
+  );
+  if (
+    rows.length !== 1 ||
+    rows[0]?.id !== postId ||
+    rows[0]?.campusId !== actor.campusId
+  ) {
+    throw new ReportNotFoundError();
+  }
+}
+
+async function lockReportedComment(
+  adapter: ReportsAdapter,
+  commentId: string,
+  postId: string,
+) {
+  const rows = await adapter.$queryRawUnsafe<
+    Array<{ id: string; postId: string }>
+  >(
+    `SELECT id, "postId"
+     FROM "ForumComment"
+     WHERE id = $1 AND "postId" = $2
+     FOR KEY SHARE`,
+    commentId,
+    postId,
+  );
+  if (
+    rows.length !== 1 ||
+    rows[0]?.id !== commentId ||
+    rows[0]?.postId !== postId
+  ) {
+    throw new ReportNotFoundError();
+  }
+}
+
 function targetPolicy(targetType: ReportTargetType) {
   if (targetType === 'MARKETPLACE_ITEM') {
     return { delegate: 'marketplaceItem' as const, ownerField: 'sellerId' };
@@ -98,6 +147,7 @@ async function validateForumTarget(
   keySource?: AnonymousIdentityKeySource,
 ) {
   if (input.targetType === 'FORUM_POST') {
+    await lockReportedPost(tx, actor, input.targetId);
     const post = await tx.forumPost.findFirst({
       select: {
         campusId: true,
@@ -185,6 +235,16 @@ async function validateForumTarget(
     }
     return;
   }
+
+  const discovered = await tx.forumComment.findFirst({
+    select: { postId: true },
+    where: { id: input.targetId },
+  });
+  if (!discovered || typeof discovered.postId !== 'string') {
+    throw new ReportNotFoundError();
+  }
+  await lockReportedPost(tx, actor, discovered.postId);
+  await lockReportedComment(tx, input.targetId, discovered.postId);
 
   const comment = await tx.forumComment.findFirst({
     select: {

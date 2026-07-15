@@ -68,18 +68,25 @@ describe('announcement administration UI contract', () => {
 });
 
 describe('public announcement UI contract', () => {
-  it('places one safely queried announcement at the bottom of Hero', () => {
+  it('replaces the Hero slogan with one safely queried announcement card', () => {
     expect(home).toContain('getHomeAnnouncement');
-    expect(home).toContain('className="hero-announcement"');
+    expect(home).toContain('className="hero-announcement-card"');
+    expect(home).toContain(
+      'className="hero-announcement-card hero-announcement-card-empty"',
+    );
     expect(home).toContain(
       'href={`/announcements?announcement=${announcement.id}`}',
     );
-    expect(home.indexOf('className="hero-announcement"')).toBeGreaterThan(
-      home.indexOf('className="hero"'),
+    expect(home.indexOf('className="hero-announcement-card"')).toBeGreaterThan(
+      home.indexOf('className="hero-copy"'),
     );
-    expect(home.indexOf('className="hero-announcement"')).toBeLessThan(
-      home.indexOf('<CategoryStrip />'),
+    expect(home.indexOf('className="hero-announcement-card"')).toBeLessThan(
+      home.indexOf('CampusLink'),
     );
+    expect(home).not.toContain('让知识、物品与互助');
+    expect(home).not.toContain('className="hero-announcement"');
+    expect(styles).toContain('.hero-announcement-card');
+    expect(styles).not.toMatch(/\.hero-announcement\s*\{/);
     expect(home).not.toContain('recent-section');
     expect(home).not.toContain('刚刚贴上公告板');
     expect(e2e).toContain("page.locator('.category-strip')");

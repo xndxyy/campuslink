@@ -156,12 +156,11 @@ h2 {
 }
 .hero {
   min-height: 620px;
-  padding: clamp(3rem, 5vw, 4rem) clamp(1rem, 8vw, 9rem) 0;
+  padding: clamp(3rem, 5vw, 4rem) clamp(1rem, 8vw, 9rem);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 230px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   column-gap: clamp(3rem, 10vw, 10rem);
-  row-gap: clamp(2rem, 4vw, 3.5rem);
   background: linear-gradient(125deg, var(--sky), var(--paper) 64%);
   border-bottom: 1px solid var(--navy);
   overflow: hidden;
@@ -169,16 +168,55 @@ h2 {
 .hero-copy {
   max-width: 800px;
 }
-.hero h1 {
-  font-size: 5.2rem;
-  line-height: 1.03;
-  letter-spacing: 0;
-  margin: 0.2rem 0 2rem;
+.hero-announcement-card {
+  width: min(100%, 760px);
+  min-height: 14rem;
+  padding: 1.5rem 1.65rem;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1.2rem;
+  background: rgb(255 255 255 / 78%);
+  color: var(--navy);
+  border: 1px solid var(--navy);
+  box-shadow: 7px 7px 0 rgb(11 123 59 / 18%);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
 }
-.hero h1 em {
-  display: block;
-  color: #0b7b3b;
-  font-style: normal;
+.hero-announcement-card:not(.hero-announcement-card-empty):hover,
+.hero-announcement-card:not(.hero-announcement-card-empty):focus-visible {
+  background: white;
+  box-shadow: 10px 10px 0 rgb(11 123 59 / 24%);
+  transform: translate(-3px, -3px);
+}
+.hero-announcement-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.hero-announcement-card-meta > span {
+  color: var(--green);
+  font-weight: 850;
+}
+.hero-announcement-card h1 {
+  letter-spacing: 0;
+  max-width: 16ch;
+  margin: 0;
+  font-size: 3rem;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+.hero-announcement-card-action {
+  width: fit-content;
+  padding-top: 0.7rem;
+  color: var(--navy);
+  border-top: 2px solid var(--green);
+  font-size: 0.82rem;
+  font-weight: 850;
 }
 .hero-copy > p:not(.eyebrow) {
   font-size: clamp(1rem, 1.6vw, 1.3rem);
@@ -218,38 +256,6 @@ h2 {
 .hero aside p {
   line-height: 2;
   color: var(--muted);
-}
-.hero-announcement {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: 8rem minmax(0, 1fr) auto;
-  gap: 1.25rem;
-  align-items: center;
-  min-height: 5.5rem;
-  margin-inline: calc(clamp(1rem, 8vw, 9rem) * -1);
-  padding: 1rem clamp(1rem, 8vw, 9rem);
-  background: var(--navy);
-  color: white;
-  border-top: 1px solid var(--navy);
-}
-.hero-announcement > span {
-  color: #7cf09f;
-  font-size: 0.75rem;
-  font-weight: 850;
-}
-.hero-announcement > strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font: 750 1.25rem/1.4 var(--serif);
-}
-.hero-announcement > time,
-.hero-announcement > a {
-  color: #c8d6e5;
-  font-size: 0.78rem;
-}
-.hero-announcement:not(.hero-announcement-empty):hover,
-.hero-announcement:not(.hero-announcement-empty):focus-visible {
-  background: #0d2a54;
 }
 .category-strip {
   display: grid;
@@ -2153,12 +2159,9 @@ select {
   .hero aside {
     display: none;
   }
-  .hero-announcement {
-    grid-template-columns: 1fr auto;
-    gap: 0.35rem 1rem;
-  }
-  .hero-announcement > span {
-    grid-column: 1 / -1;
+  .hero-announcement-card {
+    width: 100%;
+    min-height: 12.5rem;
   }
   .category-strip {
     grid-template-columns: 1fr;
@@ -2318,7 +2321,7 @@ select {
   .hero {
     padding-top: 2.25rem;
   }
-  .hero h1,
+  .hero-announcement-card h1,
   .publish-masthead h1 {
     font-size: 2.45rem;
   }
@@ -2337,12 +2340,15 @@ select {
   .hero-copy > p:not(.eyebrow) {
     line-height: 1.65;
   }
-  .hero-announcement {
-    grid-template-columns: 1fr;
+  .hero-announcement-card {
+    min-height: 11.5rem;
+    padding: 1.1rem;
+    gap: 0.9rem;
   }
-  .hero-announcement > time,
-  .hero-announcement > a {
-    justify-self: start;
+  .hero-announcement-card-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.3rem;
   }
   .announcement-center {
     width: min(100% - 1.25rem, 1180px);

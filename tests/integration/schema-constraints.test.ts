@@ -236,6 +236,15 @@ describeWithDatabase('database schema constraints', () => {
       await db.announcement.deleteMany({ where: { authorId: reporterId } });
     }
     if (cleanupCampusIds.length > 0) {
+      await db.contentAssessment.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.blockedWord.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
+      await db.aiModerationConfig.deleteMany({
+        where: { campusId: { in: cleanupCampusIds } },
+      });
       await db.forumLike.deleteMany({
         where: { post: { campusId: { in: cleanupCampusIds } } },
       });
@@ -361,6 +370,59 @@ describeWithDatabase('database schema constraints', () => {
     });
 
     expect(reopenedReport.status).toBe('OPEN');
+  });
+
+  it('rejects invalid AI moderation thresholds at the database boundary', async () => {
+    if (!campusId) {
+      throw new Error('Test campus setup failed');
+    }
+
+    const directClient = new Client({
+      connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
+    });
+    await directClient.connect();
+    try {
+      const insertConfig = `
+        INSERT INTO "AiModerationConfig" (
+          id,
+          "campusId",
+          "baseUrl",
+          model,
+          "encryptedApiKey",
+          "apiKeyLastFour",
+          "encryptionVersion",
+          "reviewThreshold",
+          "blockThreshold",
+          "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+      `;
+
+      for (const [reviewThreshold, blockThreshold] of [
+        [-1, 80],
+        [40, 40],
+        [81, 80],
+        [40, 101],
+      ]) {
+        await expect(
+          directClient.query(insertConfig, [
+            `invalid-thresholds-${randomUUID()}`,
+            campusId,
+            'https://moderation.example.test/v1',
+            'moderation-model',
+            'encrypted-key-envelope',
+            'test',
+            1,
+            reviewThreshold,
+            blockThreshold,
+          ]),
+        ).rejects.toMatchObject({
+          code: '23514',
+          constraint: 'AiModerationConfig_thresholds_check',
+        });
+      }
+    } finally {
+      await directClient.end();
+    }
   });
 
   it('enforces campus-scoped forum categories while allowing an inactive existing category', async () => {

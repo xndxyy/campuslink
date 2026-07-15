@@ -123,12 +123,32 @@ enum ModerationActionType {
   RESOLVE
 }
 
+enum ContentAssessmentTarget {
+  RESOURCE
+  MARKETPLACE_ITEM
+  CAMPUS_WORK
+  FORUM_POST
+  FORUM_COMMENT
+  CUSTOM_TAG
+}
+
+enum ContentAssessmentDecision {
+  PASS
+  REVIEW
+  BLOCK
+}
+
+enum ProviderExecutionStatus {
+  COMPLETED
+  SKIPPED
+}
+
 model Campus {
-  id                 String            @id @default(cuid())
-  slug               String            @unique @db.VarChar(64)
-  name               String            @db.VarChar(200)
-  allowedEmailDomain String?           @unique @db.VarChar(255)
-  isActive           Boolean           @default(true)
+  id                 String              @id @default(cuid())
+  slug               String              @unique @db.VarChar(64)
+  name               String              @db.VarChar(200)
+  allowedEmailDomain String?             @unique @db.VarChar(255)
+  isActive           Boolean             @default(true)
   users              User[]
   resources          Resource[]
   marketplaceItems   MarketplaceItem[]
@@ -136,11 +156,73 @@ model Campus {
   campusWorkPosts    CampusWorkPost[]
   forumCategories    ForumCategory[]
   tagDefinitions     TagDefinition[]
-  announcements      Announcement[]    @relation("AnnouncementCampus")
+  announcements      Announcement[]      @relation("AnnouncementCampus")
   reports            Report[]
   auditLogs          AuditLog[]
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  blockedWords       BlockedWord[]
+  aiModerationConfig AiModerationConfig?
+  contentAssessments ContentAssessment[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+}
+
+model BlockedWord {
+  id         String   @id @default(cuid())
+  campusId   String
+  original   String   @db.VarChar(200)
+  normalized String   @db.VarChar(200)
+  category   String   @db.VarChar(100)
+  reason     String   @db.VarChar(1000)
+  enabled    Boolean  @default(true)
+  campus     Campus   @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([campusId, normalized])
+  @@index([campusId, enabled, category])
+}
+
+model AiModerationConfig {
+  id                String              @id @default(cuid())
+  campusId          String              @unique
+  enabled           Boolean             @default(false)
+  baseUrl           String              @db.VarChar(500)
+  model             String              @db.VarChar(200)
+  encryptedApiKey   String              @db.Text
+  apiKeyLastFour    String              @db.VarChar(4)
+  encryptionVersion Int
+  timeoutMs         Int                 @default(8000)
+  reviewThreshold   Int                 @default(40)
+  blockThreshold    Int                 @default(80)
+  campus            Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assessments       ContentAssessment[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+}
+
+model ContentAssessment {
+  id             String                    @id @default(cuid())
+  campusId       String
+  configId       String?
+  targetType     ContentAssessmentTarget
+  targetId       String                    @db.VarChar(200)
+  decision       ContentAssessmentDecision
+  providerStatus ProviderExecutionStatus
+  riskScore      Int?
+  categories     String[]                  @default([])
+  reasonZh       String?                   @db.Text
+  suggestionZh   String?                   @db.Text
+  adminSignals   Json?
+  model          String?                   @db.VarChar(200)
+  campus         Campus                    @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  config         AiModerationConfig?       @relation(fields: [configId], references: [id], onDelete: SetNull)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([campusId, decision, createdAt, id])
+  @@index([campusId, providerStatus, createdAt, id])
+  @@index([targetType, targetId, createdAt, id])
+  @@index([configId])
 }
 
 model User {
@@ -489,20 +571,20 @@ model Favourite {
 }
 
 model Report {
-  id            String           @id @default(cuid())
-  campusId      String
-  reporterId    String
-  targetType    ReportTargetType
-  targetId      String
-  reason        ReportReason
-  details       String?          @db.Text
-  status        ReportStatus     @default(OPEN)
-  assigneeId    String?
-  campus        Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  reporter      User             @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
-  assignee      User?            @relation("ReportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  id         String           @id @default(cuid())
+  campusId   String
+  reporterId String
+  targetType ReportTargetType
+  targetId   String
+  reason     ReportReason
+  details    String?          @db.Text
+  status     ReportStatus     @default(OPEN)
+  assigneeId String?
+  campus     Campus           @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  reporter   User             @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  assignee   User?            @relation("ReportAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
 
   @@index([targetType, targetId, status])
   @@index([assigneeId, status])

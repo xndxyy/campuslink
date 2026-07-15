@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { loadAnonymousIdentityKeyring } from './anonymous-identity';
+import { loadAiEncryptionKey } from './encrypted-secret';
+import { loadOutboundAiPolicy } from './outbound-url';
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
   const value = environment[name]?.trim();
@@ -20,6 +22,10 @@ export function validateProductionConfig(environment = process.env) {
   if (environment.NODE_ENV !== 'production') {
     return { scannerRequired: false, trustedProxy: false };
   }
+  required(environment, 'AI_CONFIG_ENCRYPTION_KEY_V1');
+  required(environment, 'AI_ALLOWED_HOSTS');
+  loadAiEncryptionKey(environment);
+  loadOutboundAiPolicy(environment);
   loadAnonymousIdentityKeyring(environment);
   const appUrl = new URL(required(environment, 'APP_URL'));
   if (appUrl.protocol !== 'https:' || appUrl.username || appUrl.password) {

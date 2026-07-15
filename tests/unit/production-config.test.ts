@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { validateProductionConfig } from '@/lib/security/runtime-config';
 
 const production = {
+  AI_ALLOWED_HOSTS: 'api.example.test',
+  AI_CONFIG_ENCRYPTION_KEY_V1: Buffer.alloc(32, 0x35).toString('base64'),
   ANONYMOUS_FINGERPRINT_KEY: Buffer.alloc(32, 0x32).toString('base64'),
   ANONYMOUS_IDENTITY_KEY_V1: Buffer.alloc(32, 0x31).toString('base64'),
   NODE_ENV: 'production',
@@ -62,6 +64,8 @@ describe('production runtime configuration', () => {
 
   it('requires HTTPS, database, storage, SMTP, cleanup, and explicit proxy policy', () => {
     for (const name of [
+      'AI_ALLOWED_HOSTS',
+      'AI_CONFIG_ENCRYPTION_KEY_V1',
       'ANONYMOUS_FINGERPRINT_KEY',
       'ANONYMOUS_IDENTITY_KEY_V1',
       'APP_URL',
@@ -94,6 +98,18 @@ describe('production runtime configuration', () => {
         S3_FORCE_PATH_STYLE: 'sometimes',
       }),
     ).toThrow(/S3_FORCE_PATH_STYLE/);
+  });
+
+  it('rejects malformed AI encryption keys and empty provider allowlists', () => {
+    expect(() =>
+      validateProductionConfig({
+        ...production,
+        AI_CONFIG_ENCRYPTION_KEY_V1: Buffer.alloc(31).toString('base64'),
+      }),
+    ).toThrow();
+    expect(() =>
+      validateProductionConfig({ ...production, AI_ALLOWED_HOSTS: ' ' }),
+    ).toThrow(/AI_ALLOWED_HOSTS/);
   });
 
   it('rejects a production PostgreSQL connection without explicit TLS', () => {

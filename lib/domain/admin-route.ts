@@ -31,6 +31,11 @@ import {
   BlockedWordForbiddenError,
   BlockedWordValidationError,
 } from './blocked-words';
+import {
+  AiSettingsConflictError,
+  AiSettingsForbiddenError,
+  AiSettingsValidationError,
+} from './ai-settings';
 import { TagValidationError } from '../validation/tags';
 
 const noStoreHeaders = { 'cache-control': 'no-store' };
@@ -57,6 +62,7 @@ export function adminErrorResponse(error: unknown) {
     error instanceof AdminForbiddenError ||
     error instanceof TagForbiddenError ||
     error instanceof BlockedWordForbiddenError ||
+    error instanceof AiSettingsForbiddenError ||
     error instanceof TreeHoleIdentityForbiddenError
   ) {
     return adminJson({ message: 'Insufficient permissions.' }, { status: 403 });
@@ -67,6 +73,7 @@ export function adminErrorResponse(error: unknown) {
     error instanceof AdminValidationError ||
     error instanceof TagValidationError ||
     error instanceof BlockedWordValidationError ||
+    error instanceof AiSettingsValidationError ||
     error instanceof TreeHoleIdentityValidationError
   ) {
     return adminJson(
@@ -104,6 +111,12 @@ export function adminErrorResponse(error: unknown) {
   if (error instanceof BlockedWordConflictError) {
     return adminJson(
       { message: 'Blocked word state conflict.' },
+      { status: 409 },
+    );
+  }
+  if (error instanceof AiSettingsConflictError) {
+    return adminJson(
+      { message: 'AI provider configuration is unavailable.' },
       { status: 409 },
     );
   }

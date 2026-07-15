@@ -425,6 +425,97 @@ describeWithDatabase('database schema constraints', () => {
     }
   });
 
+  it('rejects cross-campus assessment configuration references at the database boundary', async () => {
+    const suffix = randomUUID();
+    const campusAId = `assessment-campus-a-${suffix}`;
+    const campusBId = `assessment-campus-b-${suffix}`;
+    const configAId = `assessment-config-a-${suffix}`;
+    const configBId = `assessment-config-b-${suffix}`;
+    const directClient = new Client({
+      connectionString: safeIntegrationDatabaseUrl(process.env.DATABASE_URL),
+    });
+    let transactionStarted = false;
+
+    await directClient.connect();
+    try {
+      await directClient.query('BEGIN');
+      transactionStarted = true;
+      await directClient.query(
+        `INSERT INTO "Campus" (id, slug, name, "updatedAt")
+         VALUES
+           ($1, $2, 'Assessment Campus A', now()),
+           ($3, $4, 'Assessment Campus B', now())`,
+        [
+          campusAId,
+          `assessment-campus-a-${suffix}`,
+          campusBId,
+          `assessment-campus-b-${suffix}`,
+        ],
+      );
+
+      const insertConfig = `
+        INSERT INTO "AiModerationConfig" (
+          id,
+          "campusId",
+          "baseUrl",
+          model,
+          "encryptedApiKey",
+          "apiKeyLastFour",
+          "encryptionVersion",
+          "updatedAt"
+        ) VALUES ($1, $2, $3, 'moderation-model', 'encrypted-key-envelope', 'test', 1, now())
+      `;
+      await directClient.query(insertConfig, [
+        configAId,
+        campusAId,
+        'https://campus-a.example.test/v1',
+      ]);
+      await directClient.query(insertConfig, [
+        configBId,
+        campusBId,
+        'https://campus-b.example.test/v1',
+      ]);
+
+      const insertAssessment = `
+        INSERT INTO "ContentAssessment" (
+          id,
+          "campusId",
+          "configId",
+          "targetType",
+          "targetId",
+          decision,
+          "providerStatus",
+          "updatedAt"
+        ) VALUES ($1, $2, $3, 'RESOURCE', $4, 'PASS', 'COMPLETED', now())
+      `;
+      await expect(
+        directClient.query(insertAssessment, [
+          `same-campus-assessment-${suffix}`,
+          campusAId,
+          configAId,
+          `same-campus-target-${suffix}`,
+        ]),
+      ).resolves.toMatchObject({ rowCount: 1 });
+
+      await expect(
+        directClient.query(insertAssessment, [
+          `cross-campus-assessment-${suffix}`,
+          campusAId,
+          configBId,
+          `cross-campus-target-${suffix}`,
+        ]),
+      ).rejects.toMatchObject({
+        code: '23503',
+        constraint: 'ContentAssessment_configId_campusId_fkey',
+      });
+    } finally {
+      if (transactionStarted) {
+        await directClient.query('ROLLBACK');
+      }
+      await directClient.end();
+    }
+  });
+
   it('enforces campus-scoped forum categories while allowing an inactive existing category', async () => {
     if (!reporterId || !campusId) {
       throw new Error('Test reporter setup failed');

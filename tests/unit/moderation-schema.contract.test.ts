@@ -80,6 +80,7 @@ describe('content assessment persistence schema contract', () => {
     expect(config).toMatch(
       /campus\s+Campus\s+@relation\(fields: \[campusId\], references: \[id\], onDelete: Restrict\)/,
     );
+    expect(config).toContain('@@unique([id, campusId])');
     expect(config).toMatch(/createdAt\s+DateTime\s+@default\(now\(\)\)/);
     expect(config).toMatch(/updatedAt\s+DateTime\s+@updatedAt/);
     expect(block('model', 'Campus')).toMatch(
@@ -107,7 +108,7 @@ describe('content assessment persistence schema contract', () => {
       /campus\s+Campus\s+@relation\(fields: \[campusId\], references: \[id\], onDelete: Restrict\)/,
     );
     expect(assessment).toMatch(
-      /config\s+AiModerationConfig\?\s+@relation\(fields: \[configId\], references: \[id\], onDelete: SetNull\)/,
+      /config\s+AiModerationConfig\?\s+@relation\(fields: \[configId, campusId\], references: \[id, campusId\], onDelete: Restrict\)/,
     );
     expect(assessment).toContain(
       '@@index([campusId, decision, createdAt, id])',
@@ -149,6 +150,15 @@ describe('content assessment persistence schema contract', () => {
     expect(migration).toContain(
       'ContentAssessment_campusId_providerStatus_createdAt_id_idx',
     );
+    expect(migration).toMatch(
+      /CREATE UNIQUE INDEX "AiModerationConfig_id_campusId_key"\s+ON "AiModerationConfig"\("id", "campusId"\);/,
+    );
+    expect(migration).toMatch(
+      /ADD CONSTRAINT "ContentAssessment_configId_campusId_fkey"\s+FOREIGN KEY \("configId", "campusId"\) REFERENCES "AiModerationConfig"\("id", "campusId"\)\s+ON DELETE RESTRICT ON UPDATE CASCADE;/,
+    );
+    expect(migration).not.toMatch(
+      /ADD CONSTRAINT "ContentAssessment_configId_fkey"/,
+    );
   });
 
   it('proves threshold rejection through direct PostgreSQL integration', () => {
@@ -159,6 +169,16 @@ describe('content assessment persistence schema contract', () => {
       'INSERT INTO "AiModerationConfig"',
     );
     expect(integrationSchemaSource).toContain("code: '23514'");
+  });
+
+  it('proves assessment configuration campus ownership through direct PostgreSQL integration', () => {
+    expect(integrationSchemaSource).toContain(
+      "it('rejects cross-campus assessment configuration references at the database boundary'",
+    );
+    expect(integrationSchemaSource).toContain(
+      "constraint: 'ContentAssessment_configId_campusId_fkey'",
+    );
+    expect(integrationSchemaSource).toContain("code: '23503'");
   });
 
   it('keeps the content assessment migration expand-only and atomic', () => {

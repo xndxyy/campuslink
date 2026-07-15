@@ -105,6 +105,8 @@ CREATE INDEX "BlockedWord_campusId_enabled_category_idx"
 
 CREATE UNIQUE INDEX "AiModerationConfig_campusId_key"
   ON "AiModerationConfig"("campusId");
+CREATE UNIQUE INDEX "AiModerationConfig_id_campusId_key"
+  ON "AiModerationConfig"("id", "campusId");
 
 CREATE INDEX "ContentAssessment_campusId_decision_createdAt_id_idx"
   ON "ContentAssessment"("campusId", "decision", "createdAt", "id");
@@ -131,8 +133,8 @@ ALTER TABLE "ContentAssessment"
   ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "ContentAssessment"
-  ADD CONSTRAINT "ContentAssessment_configId_fkey"
-  FOREIGN KEY ("configId") REFERENCES "AiModerationConfig"("id")
-  ON DELETE SET NULL ON UPDATE CASCADE;
+  ADD CONSTRAINT "ContentAssessment_configId_campusId_fkey"
+  FOREIGN KEY ("configId", "campusId") REFERENCES "AiModerationConfig"("id", "campusId")
+  ON DELETE RESTRICT ON UPDATE CASCADE;
 
 COMMIT;

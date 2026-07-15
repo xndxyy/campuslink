@@ -198,6 +198,8 @@ model AiModerationConfig {
   assessments       ContentAssessment[]
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
+
+  @@unique([id, campusId])
 }
 
 model ContentAssessment {
@@ -215,7 +217,7 @@ model ContentAssessment {
   adminSignals   Json?
   model          String?                   @db.VarChar(200)
   campus         Campus                    @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  config         AiModerationConfig?       @relation(fields: [configId], references: [id], onDelete: SetNull)
+  config         AiModerationConfig?       @relation(fields: [configId, campusId], references: [id, campusId], onDelete: Restrict)
   createdAt      DateTime                  @default(now())
   updatedAt      DateTime                  @updatedAt
 

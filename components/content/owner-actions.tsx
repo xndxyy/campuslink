@@ -40,6 +40,29 @@ export function OwnerActions({
     }
     setPending(false);
   }
+  async function remove() {
+    if (!window.confirm('确认永久删除这条内容吗？此操作不可撤销。')) return;
+    setPending(true);
+    setMessage('');
+    try {
+      const response = await fetch(`/api/${endpoint}/${id}`, {
+        method: 'DELETE',
+      });
+      const body = (await response.json().catch(() => null)) as {
+        message?: string;
+      } | null;
+      if (!response.ok) {
+        setMessage(body?.message ?? '删除失败，请重试。');
+      } else {
+        setMessage(body?.message ?? '内容已删除。');
+        router.refresh();
+      }
+    } catch {
+      setMessage('网络连接失败，请重试。');
+    } finally {
+      setPending(false);
+    }
+  }
   return (
     <div className="owner-actions">
       {status === 'DRAFT' || status === 'REJECTED' ? (
@@ -63,6 +86,14 @@ export function OwnerActions({
           归档
         </button>
       ) : null}
+      <button
+        className="owner-action-danger"
+        disabled={pending}
+        onClick={() => void remove()}
+        type="button"
+      >
+        删除
+      </button>
       <span aria-live="polite">{message}</span>
     </div>
   );

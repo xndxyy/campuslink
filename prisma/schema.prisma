@@ -369,64 +369,70 @@ model TagDefinition {
 }
 
 model Resource {
-  id             String        @id @default(cuid())
-  authorId       String
-  campusId       String
-  title          String        @db.VarChar(200)
-  summary        String        @db.Text
-  tags           String[]      @default([])
-  status         ContentStatus @default(DRAFT)
-  author         User          @relation("ResourceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  campus         Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  assets         Asset[]       @relation("ResourceAssets")
-  tagAssignments ResourceTag[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id                       String        @id @default(cuid())
+  authorId                 String
+  campusId                 String
+  title                    String        @db.VarChar(200)
+  summary                  String        @db.Text
+  tags                     String[]      @default([])
+  status                   ContentStatus @default(DRAFT)
+  ownerDeletionRequestedAt DateTime?
+  author                   User          @relation("ResourceAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  campus                   Campus        @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assets                   Asset[]       @relation("ResourceAssets")
+  tagAssignments           ResourceTag[]
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
 
   @@index([campusId, status, createdAt])
   @@index([authorId, status])
+  @@index([campusId, authorId, ownerDeletionRequestedAt, createdAt, id], map: "Resource_owner_delete_idx")
 }
 
 model MarketplaceItem {
-  id             String               @id @default(cuid())
-  sellerId       String
-  campusId       String
-  title          String               @db.VarChar(200)
-  description    String               @db.Text
-  priceCents     Int
-  condition      MarketplaceCondition
-  pickupArea     String               @db.VarChar(200)
-  contact        String               @db.Text
-  status         ContentStatus        @default(DRAFT)
-  seller         User                 @relation("MarketplaceSeller", fields: [sellerId], references: [id], onDelete: Cascade)
-  campus         Campus               @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  assets         Asset[]              @relation("MarketplaceItemAssets")
-  tagAssignments MarketplaceTag[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id                       String               @id @default(cuid())
+  sellerId                 String
+  campusId                 String
+  title                    String               @db.VarChar(200)
+  description              String               @db.Text
+  priceCents               Int
+  condition                MarketplaceCondition
+  pickupArea               String               @db.VarChar(200)
+  contact                  String               @db.Text
+  status                   ContentStatus        @default(DRAFT)
+  ownerDeletionRequestedAt DateTime?
+  seller                   User                 @relation("MarketplaceSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  campus                   Campus               @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  assets                   Asset[]              @relation("MarketplaceItemAssets")
+  tagAssignments           MarketplaceTag[]
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
 
   @@index([campusId, status, createdAt])
   @@index([sellerId, status])
+  @@index([campusId, sellerId, ownerDeletionRequestedAt, createdAt, id], map: "MarketplaceItem_owner_delete_idx")
 }
 
 model CampusWorkPost {
-  id             String          @id @default(cuid())
-  authorId       String
-  campusId       String
-  title          String          @db.VarChar(200)
-  description    String          @db.Text
-  location       String          @db.VarChar(200)
-  payText        String          @db.VarChar(200)
-  contact        String?         @db.Text
-  status         ContentStatus   @default(DRAFT)
-  author         User            @relation("CampusWorkAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  campus         Campus          @relation(fields: [campusId], references: [id], onDelete: Restrict)
-  tagAssignments CampusWorkTag[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                       String          @id @default(cuid())
+  authorId                 String
+  campusId                 String
+  title                    String          @db.VarChar(200)
+  description              String          @db.Text
+  location                 String          @db.VarChar(200)
+  payText                  String          @db.VarChar(200)
+  contact                  String?         @db.Text
+  status                   ContentStatus   @default(DRAFT)
+  ownerDeletionRequestedAt DateTime?
+  author                   User            @relation("CampusWorkAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  campus                   Campus          @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  tagAssignments           CampusWorkTag[]
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
 
   @@index([campusId, status, createdAt, id])
   @@index([authorId, status])
+  @@index([campusId, authorId, ownerDeletionRequestedAt, createdAt, id], map: "CampusWorkPost_owner_delete_idx")
 }
 
 model ForumCategory {
@@ -445,30 +451,33 @@ model ForumCategory {
 }
 
 model ForumPost {
-  id                   String         @id @default(cuid())
-  campusId             String
-  kind                 ForumPostKind
-  authorId             String?
+  id                       String         @id @default(cuid())
+  campusId                 String
+  kind                     ForumPostKind
+  authorId                 String?
   /// Complete authenticated encryption envelope; IV and tag are serialized inside.
-  anonymousCiphertext  String?        @db.Text
-  anonymousFingerprint String?        @db.VarChar(64)
-  anonymousKeyVersion  Int?
-  publicCode           String?        @unique @db.VarChar(12)
-  title                String         @db.VarChar(200)
-  body                 String         @db.Text
-  category             String         @db.VarChar(64)
-  status               ContentStatus  @default(DRAFT)
-  author               User?          @relation("ForumPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  categoryDefinition   ForumCategory  @relation("ForumPostCategory", fields: [campusId, category], references: [campusId, slug], onDelete: Restrict)
-  comments             ForumComment[]
-  likes                ForumLike[]
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  anonymousCiphertext      String?        @db.Text
+  anonymousFingerprint     String?        @db.VarChar(64)
+  anonymousKeyVersion      Int?
+  publicCode               String?        @unique @db.VarChar(12)
+  title                    String         @db.VarChar(200)
+  body                     String         @db.Text
+  category                 String         @db.VarChar(64)
+  status                   ContentStatus  @default(DRAFT)
+  ownerDeletionRequestedAt DateTime?
+  author                   User?          @relation("ForumPostAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  categoryDefinition       ForumCategory  @relation("ForumPostCategory", fields: [campusId, category], references: [campusId, slug], onDelete: Restrict)
+  comments                 ForumComment[]
+  likes                    ForumLike[]
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
 
   @@index([campusId, kind, status, createdAt, id])
   @@index([campusId, kind, status, category, createdAt, id], map: "ForumPost_campusId_kind_status_category_createdAt_id_idx")
   @@index([campusId, anonymousFingerprint, createdAt, id], map: "ForumPost_campusId_anonymousFingerprint_createdAt_id_idx")
   @@index([authorId, status, createdAt, id])
+  @@index([campusId, authorId, ownerDeletionRequestedAt, createdAt, id], map: "ForumPost_author_owner_delete_idx")
+  @@index([campusId, anonymousFingerprint, ownerDeletionRequestedAt, createdAt, id], map: "ForumPost_anon_owner_delete_idx")
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "ForumPost_title_trgm_idx")
   @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "ForumPost_body_trgm_idx")
 }

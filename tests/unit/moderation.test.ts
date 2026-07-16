@@ -24,6 +24,7 @@ function adapter(
   options: { contentCount?: number; reportCount?: number } = {},
 ) {
   const value = {
+    $queryRawUnsafe: vi.fn(async () => []),
     $transaction: vi.fn(async (operation: (tx: unknown) => Promise<unknown>) =>
       operation(value),
     ),
@@ -34,18 +35,26 @@ function adapter(
       findMany: vi.fn(async () => []),
     },
     forumComment: {
+      deleteMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+      findFirst: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },
     forumPost: {
+      deleteMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+      findFirst: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },
     campusWorkPost: {
+      deleteMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+      findFirst: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },
     marketplaceItem: {
+      deleteMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+      findFirst: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
     },
@@ -54,18 +63,35 @@ function adapter(
       findMany: vi.fn(async () => []),
     },
     report: {
-      findFirst: vi.fn(async () => ({
-        id: 'report_1',
-        status: 'TRIAGED',
-        targetId: 'resource_1',
-        targetType: 'RESOURCE',
-      })),
+      findFirst: vi.fn(async (args: Record<string, unknown>) => {
+        const where = (args.where ?? {}) as {
+          status?: string | { in?: string[] };
+        };
+        if (typeof where.status === 'object' && where.status?.in) return null;
+        return {
+          id: 'report_1',
+          status: 'TRIAGED',
+          targetId: 'resource_1',
+          targetType: 'RESOURCE',
+        };
+      }),
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.reportCount ?? 1 })),
     },
     resource: {
+      deleteMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+      findFirst: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       updateMany: vi.fn(async () => ({ count: options.contentCount ?? 1 })),
+    },
+    asset: {
+      deleteMany: vi.fn(async () => ({ count: 1 })),
+    },
+    favourite: {
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    storageDeletionJob: {
+      upsert: vi.fn(async () => ({ id: 'deletion_1' })),
     },
   };
   return value as unknown as ModerationAdapter;
@@ -131,7 +157,7 @@ describe('audited content moderation', () => {
     expect(db.auditLog.create).not.toHaveBeenCalled();
   });
 
-  it('atomically refuses to publish a resource unless every document is clean', async () => {
+  it('allows a text-only resource while still rejecting any unclean document', async () => {
     const db = adapter();
     await moderateContent(
       db,
@@ -152,11 +178,6 @@ describe('audited content moderation', () => {
           none: {
             kind: 'RESOURCE_DOCUMENT',
             scanStatus: { not: 'CLEAN' },
-          },
-          some: {
-            kind: 'RESOURCE_DOCUMENT',
-            scanStatus: 'CLEAN',
-            status: 'READY',
           },
         },
         campusId: moderator.campusId,
@@ -551,6 +572,120 @@ describe('report resolution', () => {
     );
     expect(db.moderationAction.create).toHaveBeenCalledTimes(2);
     expect(db.auditLog.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('purges an owner-deleted target after its report is resolved', async () => {
+    const db = adapter();
+    vi.mocked(db.resource.findFirst).mockResolvedValue({
+      assets: [
+        {
+          id: 'asset_1',
+          status: 'READY',
+          storageKey: 'resource/asset_1.pdf',
+        },
+      ],
+      campusId: moderator.campusId,
+      id: 'resource_1',
+      ownerDeletionRequestedAt: new Date('2026-07-17T00:00:00Z'),
+    });
+
+    const result = await resolveReport(db, moderator, {
+      hideTarget: true,
+      reason: 'Confirmed report and completed evidence review.',
+      reportId: 'report_1',
+    });
+
+    expect(result).toMatchObject({ purgedTarget: true, status: 'RESOLVED' });
+    expect(db.storageDeletionJob.upsert).toHaveBeenCalledWith({
+      create: { storageKey: 'resource/asset_1.pdf' },
+      update: {},
+      where: { storageKey: 'resource/asset_1.pdf' },
+    });
+    expect(db.asset.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['asset_1'] } },
+    });
+    expect(db.favourite.deleteMany).toHaveBeenCalledWith({
+      where: { targetId: 'resource_1', targetType: 'RESOURCE' },
+    });
+    expect(db.resource.deleteMany).toHaveBeenCalledWith({
+      where: {
+        campusId: moderator.campusId,
+        id: 'resource_1',
+        ownerDeletionRequestedAt: { not: null },
+      },
+    });
+    expect(db.resource.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'HIDDEN' } }),
+    );
+  });
+
+  it('retains owner-deleted evidence while another active report remains', async () => {
+    const db = adapter();
+    vi.mocked(db.resource.findFirst).mockResolvedValue({
+      assets: [],
+      campusId: moderator.campusId,
+      id: 'resource_1',
+      ownerDeletionRequestedAt: new Date('2026-07-17T00:00:00Z'),
+    });
+    vi.mocked(db.report.findFirst)
+      .mockResolvedValueOnce({
+        id: 'report_1',
+        status: 'TRIAGED',
+        targetId: 'resource_1',
+        targetType: 'RESOURCE',
+      })
+      .mockResolvedValueOnce({ id: 'report_2' });
+
+    const result = await resolveReport(db, moderator, {
+      hideTarget: true,
+      reason: 'Resolved one report while another review remains active.',
+      reportId: 'report_1',
+    });
+
+    expect(result).toMatchObject({ purgedTarget: false, status: 'RESOLVED' });
+    expect(db.resource.deleteMany).not.toHaveBeenCalled();
+    expect(db.resource.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'HIDDEN' } }),
+    );
+  });
+
+  it('purges a retained forum post after its descendant comment report is resolved', async () => {
+    const db = adapter();
+    vi.mocked(db.report.findFirst).mockResolvedValueOnce({
+      id: 'report_1',
+      status: 'TRIAGED',
+      targetId: 'comment_1',
+      targetType: 'FORUM_COMMENT',
+    });
+    vi.mocked(db.forumComment.findFirst).mockResolvedValue({
+      id: 'comment_1',
+      post: {
+        campusId: moderator.campusId,
+        id: 'post_1',
+        ownerDeletionRequestedAt: new Date('2026-07-17T00:00:00Z'),
+      },
+    });
+
+    const result = await resolveReport(db, moderator, {
+      hideTarget: false,
+      reason: 'Resolved the reported comment and completed evidence review.',
+      reportId: 'report_1',
+    });
+
+    expect(result).toMatchObject({ purgedTarget: true, status: 'RESOLVED' });
+    expect(db.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('LEFT JOIN "ForumComment"'),
+      moderator.campusId,
+      'post_1',
+      'report_1',
+    );
+    expect(db.forumPost.deleteMany).toHaveBeenCalledWith({
+      where: {
+        campusId: moderator.campusId,
+        id: 'post_1',
+        ownerDeletionRequestedAt: { not: null },
+      },
+    });
   });
 
   it('denies direct OPEN to RESOLVED transitions without writing history', async () => {

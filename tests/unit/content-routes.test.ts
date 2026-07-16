@@ -3,8 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { POST as redirectLegacyJobCreate } from '@/app/api/jobs/route';
 import { handleCreateMarketplaceItem } from '@/app/api/marketplace/route';
 import { handleCreateResource } from '@/app/api/resources/route';
-import { handleContentAction } from '@/lib/domain/content-action-route';
-import { ContentConflictError } from '@/lib/domain/content-service';
+import {
+  handleContentAction,
+  handleContentDelete,
+} from '@/lib/domain/content-action-route';
+import {
+  type ContentAdapter,
+  ContentConflictError,
+} from '@/lib/domain/content-service';
 import { ContentBlockedError } from '@/lib/moderation/content-assessment';
 
 const user = {
@@ -204,5 +210,80 @@ describe('content creation routes', () => {
       'resource_1',
       expect.objectContaining({ customTags: ['算法'], presetTagIds: [] }),
     );
+  });
+
+  it.each([
+    ['resource', 'resources'],
+    ['marketplace', 'marketplace'],
+    ['campus-work', 'campus-work'],
+  ] as const)('deletes owned %s content through a same-origin request', async (kind, endpoint) => {
+    const remove = vi.fn(async () => ({
+      archived: false,
+      deleted: true,
+      id: 'content_1',
+    }));
+    const deleteRequest = new Request(
+      `http://localhost/api/${endpoint}/content_1`,
+      {
+        headers: {
+          origin: new URL(process.env.APP_URL ?? 'http://localhost:3000')
+            .origin,
+        },
+        method: 'DELETE',
+      },
+    );
+
+    const response = await handleContentDelete(
+      deleteRequest,
+      kind,
+      'content_1',
+      { adapter: {} as ContentAdapter, remove, resolveUser: async () => user },
+    );
+
+    expect(response.status).toBe(200);
+    expect(remove).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        campusId: user.campusId,
+        id: user.id,
+        role: user.role,
+      },
+      kind,
+      'content_1',
+    );
+    await expect(response.json()).resolves.toStrictEqual({
+      archived: false,
+      deleted: true,
+      id: 'content_1',
+      message: '内容已永久删除。',
+    });
+  });
+
+  it('explains evidence retention after an owner deletion request', async () => {
+    const response = await handleContentDelete(
+      new Request('http://localhost/api/resources/content_1', {
+        headers: {
+          origin: new URL(process.env.APP_URL ?? 'http://localhost:3000')
+            .origin,
+        },
+        method: 'DELETE',
+      }),
+      'resource',
+      'content_1',
+      {
+        adapter: {} as ContentAdapter,
+        remove: vi.fn(async () => ({
+          archived: true,
+          deleted: false,
+          id: 'content_1',
+        })),
+        resolveUser: async () => user,
+      },
+    );
+
+    await expect(response.json()).resolves.toMatchObject({
+      archived: true,
+      message: '内容已从你的发布中移除；举报处理完成后将永久删除。',
+    });
   });
 });

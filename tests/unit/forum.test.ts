@@ -813,9 +813,17 @@ describe('forum owner management', () => {
     });
     const calls = vi.mocked(db.forumPost.findMany).mock.calls;
     expect(calls[0]?.[0]).toHaveProperty('where.authorId', actor.id);
+    expect(calls[0]?.[0]).toHaveProperty(
+      'where.ownerDeletionRequestedAt',
+      null,
+    );
     expect(calls[1]?.[0]).toHaveProperty(
       'where.anonymousFingerprint',
       expect.stringMatching(/^[a-f0-9]{64}$/),
+    );
+    expect(calls[1]?.[0]).toHaveProperty(
+      'where.ownerDeletionRequestedAt',
+      null,
     );
     for (const call of calls) {
       const serialized = JSON.stringify(call);
@@ -1006,7 +1014,10 @@ describe('forum owner management', () => {
         id: 'post_1',
       });
       expect(db.forumPost.update).toHaveBeenCalledWith({
-        data: { status: 'ARCHIVED' },
+        data: {
+          ownerDeletionRequestedAt: expect.any(Date),
+          status: 'ARCHIVED',
+        },
         select: { id: true },
         where: { id: 'post_1' },
       });

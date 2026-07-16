@@ -4,7 +4,9 @@ import {
   archiveOwnedContent,
   type ContentAdapter,
   ContentConflictError,
+  ContentNotFoundError,
   type ContentPublishingPolicy,
+  deleteOwnedContent,
   editOwnedContent,
   submitOwnedDraft,
 } from '@/lib/domain/content-service';
@@ -22,8 +24,19 @@ function adapter(updateCount = 1) {
   const updateMany = vi.fn(async () => ({ count: updateCount }));
   const delegate = {
     create: vi.fn(),
+    deleteMany: vi.fn(async () => ({ count: 1 })),
     findFirst: vi.fn(async () => ({
+      assets: [
+        {
+          id: 'asset_1',
+          status: 'READY',
+          storageKey: 'resource/asset_1.pdf',
+        },
+      ],
+      authorId: actor.id,
+      campusId: actor.campusId,
       id: 'resource_1',
+      sellerId: actor.id,
       status: 'DRAFT',
       summary: 'Complete notes with worked examples.',
       tagAssignments: [{ tag: { isPreset: false, label: '算法' } }],
@@ -37,7 +50,11 @@ function adapter(updateCount = 1) {
       async (operation: (tx: ContentAdapter) => Promise<unknown>) =>
         operation(value as unknown as ContentAdapter),
     ),
-    asset: { findMany: vi.fn(), updateMany: vi.fn() },
+    asset: {
+      deleteMany: vi.fn(async () => ({ count: 1 })),
+      findMany: vi.fn(),
+      updateMany: vi.fn(),
+    },
     auditLog: { create: vi.fn(async () => ({})) },
     contentAssessment: {
       create: vi.fn(async () => ({ id: 'assessment_1' })),
@@ -48,7 +65,16 @@ function adapter(updateCount = 1) {
       deleteMany: vi.fn(async () => ({ count: 0 })),
     },
     marketplaceItem: { ...delegate, updateMany },
+    favourite: {
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    report: {
+      findFirst: vi.fn(async () => null),
+    },
     resource: { ...delegate, updateMany },
+    storageDeletionJob: {
+      upsert: vi.fn(async () => ({ id: 'deletion_1' })),
+    },
     tagDefinition: {
       findMany: vi.fn(async () => []),
       findUnique: vi.fn(async () => null),
@@ -208,6 +234,114 @@ describe('owned content workflows', () => {
         id: 'resource_1',
         status: 'DRAFT',
       },
+    });
+  });
+
+  it.each([
+    ['resource', 'RESOURCE', 'authorId'],
+    ['marketplace', 'MARKETPLACE_ITEM', 'sellerId'],
+    ['campus-work', 'JOB_POST', 'authorId'],
+  ] as const)(
+    'physically deletes owned %s content and queues attached storage',
+    async (kind, targetType, ownerField) => {
+      const { db } = adapter();
+
+      await expect(
+        deleteOwnedContent(db, actor, kind, 'resource_1'),
+      ).resolves.toStrictEqual({
+        archived: false,
+        deleted: true,
+        id: 'resource_1',
+      });
+
+      expect(db.report.findFirst).toHaveBeenCalledWith({
+        select: { id: true },
+        where: {
+          campusId: actor.campusId,
+          status: { in: ['OPEN', 'TRIAGED'] },
+          targetId: 'resource_1',
+          targetType,
+        },
+      });
+      expect(db.storageDeletionJob.upsert).toHaveBeenCalledWith({
+        create: { storageKey: 'resource/asset_1.pdf' },
+        update: {},
+        where: { storageKey: 'resource/asset_1.pdf' },
+      });
+      expect(db.asset.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['asset_1'] } },
+      });
+      expect(db.favourite.deleteMany).toHaveBeenCalledWith({
+        where: { targetId: 'resource_1', targetType },
+      });
+      expect(db[kind === 'resource' ? 'resource' : kind === 'marketplace' ? 'marketplaceItem' : 'campusWorkPost'].deleteMany).toHaveBeenCalledWith({
+        where: {
+          campusId: actor.campusId,
+          id: 'resource_1',
+          [ownerField]: actor.id,
+        },
+      });
+    },
+  );
+
+  it('archives an owner deletion request while an active report preserves evidence', async () => {
+    const { db } = adapter();
+    vi.mocked(db.report.findFirst).mockResolvedValue({ id: 'report_1' });
+
+    await expect(
+      deleteOwnedContent(db, actor, 'resource', 'resource_1'),
+    ).resolves.toStrictEqual({
+      archived: true,
+      deleted: false,
+      id: 'resource_1',
+    });
+
+    expect(db.resource.updateMany).toHaveBeenCalledWith({
+      data: {
+        ownerDeletionRequestedAt: expect.any(Date),
+        status: 'ARCHIVED',
+      },
+      where: {
+        authorId: actor.id,
+        campusId: actor.campusId,
+        id: 'resource_1',
+      },
+    });
+    expect(db.storageDeletionJob.upsert).not.toHaveBeenCalled();
+    expect(db.resource.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects cross-user deletion without queuing a storage deletion', async () => {
+    const { db } = adapter();
+    vi.mocked(db.resource.findFirst!).mockResolvedValue(null);
+
+    await expect(
+      deleteOwnedContent(db, actor, 'resource', 'resource_1'),
+    ).rejects.toBeInstanceOf(ContentNotFoundError);
+    expect(db.storageDeletionJob.upsert).not.toHaveBeenCalled();
+  });
+
+  it('queues non-ready attached storage before deleting its asset row', async () => {
+    const { db } = adapter();
+    vi.mocked(db.resource.findFirst!).mockResolvedValue({
+      assets: [
+        {
+          id: 'pending_asset_1',
+          status: 'PENDING',
+          storageKey: 'resource/pending_asset_1.pdf',
+        },
+      ],
+      authorId: actor.id,
+      campusId: actor.campusId,
+      id: 'resource_1',
+    });
+
+    await deleteOwnedContent(db, actor, 'resource', 'resource_1');
+
+    expect(db.storageDeletionJob.upsert).toHaveBeenCalledWith({
+      create: { storageKey: 'resource/pending_asset_1.pdf' },
+      update: {},
+      where: { storageKey: 'resource/pending_asset_1.pdf' },
     });
   });
 });

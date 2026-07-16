@@ -8,8 +8,48 @@ const source = readFileSync(
   ),
   'utf8',
 );
+const deletionSource = readFileSync(
+  fileURLToPath(
+    new URL('../integration/content-deletion.test.ts', import.meta.url),
+  ),
+  'utf8',
+);
+const deletionMigration = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../prisma/migrations/20260717110000_add_owner_deletion_requests/migration.sql',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
 
 describe('content actions integration coverage', () => {
+  it('covers every owner status, evidence retention, and storage deletion jobs', () => {
+    for (const status of [
+      'DRAFT',
+      'PENDING',
+      'PUBLISHED',
+      'REJECTED',
+      'HIDDEN',
+      'ARCHIVED',
+    ]) {
+      expect(deletionSource).toContain(`'${status}'`);
+    }
+    expect(deletionSource).toContain('ownerDeletionRequestedAt');
+    expect(deletionSource).toContain('storageDeletionJob.count');
+    expect(deletionSource).toContain('ContentNotFoundError');
+  });
+
+  it('keeps owner-deletion index names inside the PostgreSQL limit', () => {
+    const names = Array.from(
+      deletionMigration.matchAll(/CREATE INDEX "([^"]+)"/g),
+      (match) => match[1],
+    );
+    expect(names).toHaveLength(5);
+    expect(names.every((name) => name.length <= 63)).toBe(true);
+  });
+
   it('uses only the contracted CampusWorkPost storage path', () => {
     expect(source).toContain('tx.campusWorkPost.create({');
     expect(source).toContain('tx.campusWorkPost.update({');

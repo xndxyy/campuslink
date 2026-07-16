@@ -1,3 +1,8 @@
+import {
+  type ContentAdapter,
+  purgeContentRecord,
+} from '@/lib/domain/content-service';
+
 export type StaffRole = 'STUDENT' | 'MODERATOR' | 'ADMIN';
 export type ContentSubjectType =
   'RESOURCE' | 'MARKETPLACE_ITEM' | 'JOB_POST' | 'FORUM_POST' | 'FORUM_COMMENT';
@@ -13,6 +18,12 @@ export interface StaffActor {
 }
 
 interface ContentDelegate {
+  deleteMany(args: {
+    where: Record<string, unknown>;
+  }): Promise<{ count: number }>;
+  findFirst(
+    args: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null>;
   findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   updateMany(args: {
     data: Record<string, unknown>;
@@ -27,14 +38,25 @@ interface CreateDelegate {
 }
 
 export interface ModerationAdapter {
+  $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>;
   $transaction<T>(operation: (tx: ModerationAdapter) => Promise<T>): Promise<T>;
   auditLog: CreateDelegate;
+  asset: {
+    deleteMany(args: {
+      where: { id: { in: string[] } };
+    }): Promise<{ count: number }>;
+  };
   contentAssessment: {
     findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   };
   campusWorkPost: ContentDelegate;
   forumComment: ContentDelegate;
   forumPost: ContentDelegate;
+  favourite: {
+    deleteMany(args: {
+      where: { targetId: string; targetType: string };
+    }): Promise<{ count: number }>;
+  };
   marketplaceItem: ContentDelegate;
   moderationAction: CreateDelegate & {
     findMany(args: Record<string, unknown>): Promise<Record<string, unknown>[]>;
@@ -50,6 +72,13 @@ export interface ModerationAdapter {
     }): Promise<{ count: number }>;
   };
   resource: ContentDelegate;
+  storageDeletionJob: {
+    upsert(args: {
+      create: { storageKey: string };
+      update: Record<string, never>;
+      where: { storageKey: string };
+    }): Promise<unknown>;
+  };
 }
 
 export class ModerationForbiddenError extends Error {
@@ -136,11 +165,6 @@ export async function moderateContent(
               none: {
                 kind: 'RESOURCE_DOCUMENT',
                 scanStatus: { not: 'CLEAN' },
-              },
-              some: {
-                kind: 'RESOURCE_DOCUMENT',
-                scanStatus: 'CLEAN',
-                status: 'READY',
               },
             },
           }
@@ -594,6 +618,146 @@ export function dismissReport(
   return changeReportStatus(adapter, actor, { ...input, action: 'DISMISS' });
 }
 
+type RetainedReportTarget = {
+  assets: unknown;
+  kind: 'resource' | 'marketplace' | 'campus-work' | 'forum';
+  targetId: string;
+};
+
+async function findRetainedReportTarget(
+  adapter: ModerationAdapter,
+  campusId: string,
+  targetId: string,
+  targetType: unknown,
+): Promise<RetainedReportTarget | null> {
+  if (targetType === 'FORUM_COMMENT') {
+    const comment = await adapter.forumComment.findFirst({
+      select: {
+        id: true,
+        post: {
+          select: {
+            campusId: true,
+            id: true,
+            ownerDeletionRequestedAt: true,
+          },
+        },
+      },
+      where: { id: targetId, post: { campusId } },
+    });
+    const post = comment?.post as Record<string, unknown> | undefined;
+    if (!comment || comment.id !== targetId || !post) return null;
+    if (post.campusId !== campusId || typeof post.id !== 'string') {
+      throw new ModerationConflictError();
+    }
+    if (post.ownerDeletionRequestedAt == null) return null;
+    return { assets: [], kind: 'forum', targetId: post.id };
+  }
+  const kind =
+    targetType === 'RESOURCE'
+      ? 'resource'
+      : targetType === 'MARKETPLACE_ITEM'
+        ? 'marketplace'
+        : targetType === 'JOB_POST'
+          ? 'campus-work'
+          : targetType === 'FORUM_POST'
+            ? 'forum'
+            : null;
+  if (!kind) return null;
+  const delegate = contentDelegate(
+    adapter,
+    targetType as ContentSubjectType,
+  );
+  const target = await delegate.findFirst({
+    select: {
+      ...(kind === 'resource' || kind === 'marketplace'
+        ? {
+            assets: {
+              select: { id: true, status: true, storageKey: true },
+            },
+          }
+        : {}),
+      campusId: true,
+      id: true,
+      ownerDeletionRequestedAt: true,
+    },
+    where: { campusId, id: targetId },
+  });
+  if (!target || target.ownerDeletionRequestedAt == null) return null;
+  if (target.id !== targetId || target.campusId !== campusId) {
+    throw new ModerationConflictError();
+  }
+  return { assets: target.assets, kind, targetId };
+}
+
+async function purgeRetainedReportTarget(
+  transaction: ModerationAdapter,
+  campusId: string,
+  reportId: string,
+  reportTargetType: string,
+  target: RetainedReportTarget,
+) {
+  if (target.kind === 'forum') {
+    const activeEvidence = await transaction.$queryRawUnsafe<
+      Array<{ id: string }>
+    >(
+      `SELECT report.id
+       FROM "Report" AS report
+       LEFT JOIN "ForumComment" AS comment
+         ON report."targetType" = 'FORUM_COMMENT'
+        AND comment.id = report."targetId"
+       WHERE report."campusId" = $1
+         AND report.id <> $3
+         AND report.status IN ('OPEN', 'TRIAGED')
+         AND (
+           (report."targetType" = 'FORUM_POST' AND report."targetId" = $2)
+           OR
+           (report."targetType" = 'FORUM_COMMENT' AND comment."postId" = $2)
+         )
+       ORDER BY report.id
+       LIMIT 1`,
+      campusId,
+      target.targetId,
+      reportId,
+    );
+    if (activeEvidence.length > 0) return false;
+    const removed = await transaction.forumPost.deleteMany({
+      where: {
+        campusId,
+        id: target.targetId,
+        ownerDeletionRequestedAt: { not: null },
+      },
+    });
+    if (removed.count !== 1) throw new ModerationConflictError();
+    return true;
+  }
+  const anotherActiveReport = await transaction.report.findFirst({
+    select: { id: true },
+    where: {
+      campusId,
+      id: { not: reportId },
+      status: { in: ['OPEN', 'TRIAGED'] },
+      targetId: target.targetId,
+      targetType: reportTargetType,
+    },
+  });
+  if (anotherActiveReport) return false;
+  await purgeContentRecord(
+    transaction as unknown as ContentAdapter,
+    target.kind,
+    {
+      assets: target.assets,
+      campusId,
+      id: target.targetId,
+      where: {
+        campusId,
+        id: target.targetId,
+        ownerDeletionRequestedAt: { not: null },
+      },
+    },
+  );
+  return true;
+}
+
 export async function resolveReport(
   adapter: ModerationAdapter,
   actor: StaffActor,
@@ -621,7 +785,24 @@ export async function resolveReport(
     });
     if (changed.count !== 1) throw new ModerationConflictError();
 
-    if (input.hideTarget) {
+    const retainedTarget = await findRetainedReportTarget(
+      tx,
+      actor.campusId,
+      String(report.targetId),
+      report.targetType,
+    );
+    const purgedTarget = retainedTarget
+      ? await purgeRetainedReportTarget(
+          tx,
+          actor.campusId,
+          input.reportId,
+          String(report.targetType),
+          retainedTarget,
+        )
+      : false;
+    const hiddenTarget = input.hideTarget && !retainedTarget;
+
+    if (hiddenTarget) {
       if (
         report.targetType !== 'RESOURCE' &&
         report.targetType !== 'MARKETPLACE_ITEM' &&
@@ -659,12 +840,12 @@ export async function resolveReport(
         action: 'REPORT_RESOLVED',
         actorId: actor.id,
         campusId: actor.campusId,
-        details: { hiddenTarget: input.hideTarget, reason },
+        details: { hiddenTarget, purgedTarget, reason },
         subjectId: input.reportId,
         subjectType: 'REPORT',
       },
     });
-    if (input.hideTarget) {
+    if (hiddenTarget) {
       await tx.moderationAction.create({
         data: {
           action: 'HIDE',
@@ -686,8 +867,9 @@ export async function resolveReport(
       });
     }
     return {
-      hiddenTarget: input.hideTarget,
+      hiddenTarget,
       id: input.reportId,
+      purgedTarget,
       status: 'RESOLVED',
     };
   });

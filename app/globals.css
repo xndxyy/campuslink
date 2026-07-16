@@ -892,6 +892,10 @@ select {
   color: var(--muted);
   font-size: 0.75rem;
 }
+.owner-actions .owner-action-danger {
+  border-color: #a21c12;
+  color: #a21c12;
+}
 .status {
   font-size: 0.72rem;
   font-weight: 850;

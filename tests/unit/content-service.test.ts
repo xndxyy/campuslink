@@ -887,6 +887,14 @@ describe('content service', () => {
   it('shows the latest immutable decision across every content moderation action', async () => {
     const { adapter, serviceAdapter } = createAdapter();
     const items = await listOwnedContent(serviceAdapter, actor, 'resource');
+    expect(adapter.resource.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          authorId: actor.id,
+          ownerDeletionRequestedAt: null,
+        },
+      }),
+    );
     expect(adapter.moderationAction.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

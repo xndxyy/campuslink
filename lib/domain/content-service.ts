@@ -69,6 +69,7 @@ interface AssetRecord {
   resourceId: string | null;
   scanStatus?: 'NOT_REQUIRED' | 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR';
   status: string;
+  storageKey?: string;
 }
 
 interface DocumentScanPolicy {
@@ -89,6 +90,9 @@ export interface ContentRecord {
 interface Delegate {
   count?: (args: Record<string, unknown>) => Promise<number>;
   create: (args: { data: Record<string, unknown> }) => Promise<ContentRecord>;
+  deleteMany?: (args: {
+    where: Record<string, unknown>;
+  }) => Promise<{ count: number }>;
   findFirst?: (args: Record<string, unknown>) => Promise<ContentRecord | null>;
   findMany?: (args: Record<string, unknown>) => Promise<ContentRecord[]>;
   update: (args: {
@@ -116,6 +120,9 @@ export interface ContentAdapter {
     options?: { isolationLevel: 'Serializable' },
   ): Promise<T>;
   asset: {
+    deleteMany(args: {
+      where: { id: { in: string[] } };
+    }): Promise<{ count: number }>;
     findFirst?(
       args: Record<string, unknown>,
     ): Promise<Record<string, unknown> | null>;
@@ -140,6 +147,21 @@ export interface ContentAdapter {
   };
   resource: Delegate;
   resourceTag: TagJoinDelegate;
+  favourite: {
+    deleteMany(args: {
+      where: { targetId: string; targetType: string };
+    }): Promise<{ count: number }>;
+  };
+  report: {
+    findFirst(args: Record<string, unknown>): Promise<ContentRecord | null>;
+  };
+  storageDeletionJob: {
+    upsert(args: {
+      create: { storageKey: string };
+      update: Record<string, never>;
+      where: { storageKey: string };
+    }): Promise<unknown>;
+  };
   tagDefinition: TagResolutionTransaction['tagDefinition'];
 }
 
@@ -888,7 +910,10 @@ export async function listOwnedContent(
         ? { contact: true }
         : {}),
     },
-    where: { [ownerField]: actor.id },
+    where: {
+      [ownerField]: actor.id,
+      ownerDeletionRequestedAt: null,
+    },
   });
   const presentedItems = items.map(presentContentRecord);
   if (!adapter.moderationAction || items.length === 0) {
@@ -994,6 +1019,143 @@ export async function archiveOwnedContent(
   });
   if (changed.count !== 1) throw new ContentConflictError();
   return { id, status: ContentStatus.ARCHIVED };
+}
+
+function deletionTargetType(kind: ContentKind) {
+  return kind === 'resource'
+    ? 'RESOURCE'
+    : kind === 'marketplace'
+      ? 'MARKETPLACE_ITEM'
+      : 'JOB_POST';
+}
+
+export async function purgeContentRecord(
+  transaction: ContentAdapter,
+  kind: ContentKind,
+  input: {
+    assets: unknown;
+    campusId: string;
+    id: string;
+    where: Record<string, unknown>;
+  },
+) {
+  const targetType = deletionTargetType(kind);
+  const assets = Array.isArray(input.assets)
+    ? input.assets.filter(
+        (asset): asset is { id: string; status: string; storageKey: string } =>
+          Boolean(
+            asset &&
+              typeof asset === 'object' &&
+              typeof (asset as { id?: unknown }).id === 'string' &&
+              typeof (asset as { status?: unknown }).status === 'string' &&
+              typeof (asset as { storageKey?: unknown }).storageKey ===
+                'string',
+          ),
+      )
+    : [];
+  for (const asset of assets) {
+    await transaction.storageDeletionJob.upsert({
+      create: { storageKey: asset.storageKey },
+      update: {},
+      where: { storageKey: asset.storageKey },
+    });
+  }
+  if (assets.length > 0) {
+    const removedAssets = await transaction.asset.deleteMany({
+      where: { id: { in: assets.map((asset) => asset.id) } },
+    });
+    if (removedAssets.count !== assets.length) {
+      throw new ContentConflictError();
+    }
+  }
+  await transaction.favourite.deleteMany({
+    where: { targetId: input.id, targetType },
+  });
+  const delegate = delegateFor(transaction, kind);
+  if (!delegate.deleteMany) throw new Error('Unsupported adapter');
+  const removed = await delegate.deleteMany({ where: input.where });
+  if (removed.count !== 1) throw new ContentConflictError();
+  return { archived: false, deleted: true, id: input.id };
+}
+
+export async function deleteOwnedContent(
+  adapter: ContentAdapter,
+  actor: ContentActor,
+  kind: ContentKind,
+  id: string,
+) {
+  return serializableContentTransaction(adapter, async (tx) => {
+    const delegate = delegateFor(tx, kind);
+    if (!delegate.findFirst || !delegate.updateMany || !delegate.deleteMany) {
+      throw new Error('Unsupported adapter');
+    }
+    const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
+    const select = {
+      ...(kind === 'campus-work'
+        ? {}
+        : {
+            assets: {
+              select: { id: true, status: true, storageKey: true },
+            },
+          }),
+      campusId: true,
+      id: true,
+      [ownerField]: true,
+    };
+    const owned = await delegate.findFirst({
+      select,
+      where: {
+        campusId: actor.campusId,
+        id,
+        [ownerField]: actor.id,
+      },
+    });
+    if (
+      !owned ||
+      owned.id !== id ||
+      owned.campusId !== actor.campusId ||
+      owned[ownerField] !== actor.id
+    ) {
+      throw new ContentNotFoundError();
+    }
+
+    const targetType = deletionTargetType(kind);
+    const activeReport = await tx.report.findFirst({
+      select: { id: true },
+      where: {
+        campusId: actor.campusId,
+        status: { in: ['OPEN', 'TRIAGED'] },
+        targetId: id,
+        targetType,
+      },
+    });
+    if (activeReport) {
+      const changed = await delegate.updateMany({
+        data: {
+          ownerDeletionRequestedAt: new Date(),
+          status: ContentStatus.ARCHIVED,
+        },
+        where: {
+          campusId: actor.campusId,
+          id,
+          [ownerField]: actor.id,
+        },
+      });
+      if (changed.count !== 1) throw new ContentConflictError();
+      return { archived: true, deleted: false, id };
+    }
+
+    return purgeContentRecord(tx, kind, {
+      assets: owned.assets,
+      campusId: actor.campusId,
+      id,
+      where: {
+        campusId: actor.campusId,
+        id,
+        [ownerField]: actor.id,
+      },
+    });
+  });
 }
 
 export async function submitOwnedDraft(

@@ -695,6 +695,7 @@ export async function listOwnedForumPosts(
         authorId: actor.id,
         campusId: actor.campusId,
         kind: 'DISCUSSION',
+        ownerDeletionRequestedAt: null,
       },
     }),
     adapter.forumPost.findMany({
@@ -705,6 +706,7 @@ export async function listOwnedForumPosts(
         anonymousFingerprint: fingerprint,
         campusId: actor.campusId,
         kind: 'TREE_HOLE',
+        ownerDeletionRequestedAt: null,
       },
     }),
   ]);
@@ -1004,7 +1006,10 @@ export async function deleteForumPost(
     );
     if (activeReport) {
       await tx.forumPost.update({
-        data: { status: 'ARCHIVED' },
+        data: {
+          ownerDeletionRequestedAt: new Date(),
+          status: 'ARCHIVED',
+        },
         select: { id: true },
         where: { id: input.id },
       });

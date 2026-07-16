@@ -14,6 +14,7 @@ import {
   type ContentKind,
   ContentConflictError,
   ContentNotFoundError,
+  deleteOwnedContent,
   editOwnedContent,
   submitOwnedDraft,
 } from './content-service';
@@ -35,7 +36,59 @@ export interface ContentActionDependencies {
   adapter?: ContentAdapter;
   edit?: typeof editOwnedContent;
   publishing?: PublishingAssessmentPolicy;
+  remove?: typeof deleteOwnedContent;
   resolveUser?: CurrentUserResolver;
+}
+
+export async function handleContentDelete(
+  request: Request,
+  kind: ContentKind,
+  id: string,
+  dependencies: ContentActionDependencies = {},
+) {
+  if (!isSameOriginAuthRequest(request)) {
+    return NextResponse.json({ message: '请求来源无效。' }, { status: 403 });
+  }
+  try {
+    const user = await requireVerifiedUser(dependencies.resolveUser);
+    const adapter =
+      dependencies.adapter ?? (getDb() as unknown as ContentAdapter);
+    const result = await (dependencies.remove ?? deleteOwnedContent)(
+      adapter,
+      { campusId: user.campusId, id: user.id, role: user.role },
+      kind,
+      id,
+    );
+    return NextResponse.json({
+      ...result,
+      message: result.archived
+        ? '内容已从你的发布中移除；举报处理完成后将永久删除。'
+        : '内容已永久删除。',
+    });
+  } catch (error) {
+    if (error instanceof AuthenticationRequiredError) {
+      return NextResponse.json({ message: '请先登录。' }, { status: 401 });
+    }
+    if (error instanceof VerificationRequiredError) {
+      return NextResponse.json(
+        { message: '需要已验证且状态正常的账号。' },
+        { status: 403 },
+      );
+    }
+    if (error instanceof ContentNotFoundError) {
+      return NextResponse.json({ message: '未找到该内容。' }, { status: 404 });
+    }
+    if (error instanceof ContentConflictError) {
+      return NextResponse.json(
+        { message: '内容状态已变化，请刷新后重试。' },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json(
+      { message: '暂时无法删除内容，请稍后重试。' },
+      { status: 500 },
+    );
+  }
 }
 
 export async function handleContentAction(

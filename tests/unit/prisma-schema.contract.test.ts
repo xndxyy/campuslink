@@ -272,19 +272,19 @@ describe('scoped tag schema contract', () => {
 describe('campus-work preset seed contract', () => {
   it('imports and iterates the shared pure preset data', () => {
     expect(seedSource).toMatch(
-      /import \{ campusWorkPresetTags \} from ['"]\.\/seed-data['"]/,
+      /import \{[\s\S]*presetTagDefaults,[\s\S]*\} from ['"]\.\/default-content-data['"]/,
     );
-    expect(seedSource).not.toMatch(/const campusWorkPresetTags\s*=/);
-    expect(seedSource).toMatch(/for \(const preset of campusWorkPresetTags\)/);
+    expect(seedSource).not.toMatch(/const presetTagDefaults\s*=/);
+    expect(seedSource).toMatch(/for \(const preset of presetTagDefaults\)/);
     expect(seedSource).toMatch(/db\.tagDefinition\.upsert\(\{/);
     expect(seedSource).toMatch(
       /where:\s*\{\s*campusId_scope_slug:\s*\{\s*campusId:\s*campus\.id,\s*scope:\s*preset\.scope,\s*slug:\s*preset\.slug/,
     );
     expect(seedSource).toMatch(
-      /update:\s*\{[\s\S]*?isActive:\s*preset\.isActive,[\s\S]*?isPreset:\s*preset\.isPreset,[\s\S]*?label:\s*preset\.label/,
+      /update:\s*\{[\s\S]*?isActive:\s*true,[\s\S]*?isPreset:\s*true,[\s\S]*?label:\s*preset\.label/,
     );
     expect(seedSource).toMatch(
-      /create:\s*\{[\s\S]*?campusId:\s*campus\.id,[\s\S]*?isActive:\s*preset\.isActive,[\s\S]*?isPreset:\s*preset\.isPreset,[\s\S]*?label:\s*preset\.label,[\s\S]*?scope:\s*preset\.scope,[\s\S]*?slug:\s*preset\.slug/,
+      /create:\s*\{[\s\S]*?campusId:\s*campus\.id,[\s\S]*?isActive:\s*true,[\s\S]*?isPreset:\s*true,[\s\S]*?label:\s*preset\.label,[\s\S]*?scope:\s*preset\.scope,[\s\S]*?slug:\s*preset\.slug/,
     );
   });
 });

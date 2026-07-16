@@ -49,7 +49,7 @@ describe('upload routes', () => {
 
       expect(response.status).toBe(403);
       await expect(response.json()).resolves.toEqual({
-        message: 'Insufficient permissions.',
+        message: '权限不足。',
       });
       expect(createIntent).not.toHaveBeenCalled();
     },
@@ -159,7 +159,7 @@ describe('upload routes', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      message: 'Invalid upload details.',
+      message: '上传信息无效。',
     });
   });
 
@@ -204,7 +204,7 @@ describe('upload routes', () => {
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      message: 'Unable to complete upload.',
+      message: '暂时无法完成上传，请稍后重试。',
     });
   });
 });

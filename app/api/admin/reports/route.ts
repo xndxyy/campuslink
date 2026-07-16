@@ -28,7 +28,7 @@ const schema = z
     if (value.hideTarget !== undefined && value.action !== 'RESOLVE') {
       context.addIssue({
         code: 'custom',
-        message: 'Only resolution may hide a target',
+        message: '只有确认举报时可以隐藏目标内容',
       });
     }
   });
@@ -48,20 +48,20 @@ export async function GET() {
 
 export async function POST(request: Request) {
   if (!isSameOriginAuthRequest(request)) {
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   }
   try {
     const user = await requireRole(['MODERATOR', 'ADMIN']);
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return adminJson(
-        { message: 'Invalid report action.' },
+        { message: '举报处理操作无效。' },
         { status: body.status },
       );
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      return adminJson({ message: 'Invalid report action.' }, { status: 400 });
+      return adminJson({ message: '举报处理操作无效。' }, { status: 400 });
     }
     const adapter = getDb() as unknown as ModerationAdapter;
     const actor = { campusId: user.campusId, id: user.id, role: user.role };

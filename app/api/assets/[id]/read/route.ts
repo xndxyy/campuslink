@@ -48,16 +48,16 @@ export async function handleAssetRead(
   } catch (error) {
     if (error instanceof ContentAuthenticationRequiredError)
       return NextResponse.json(
-        { message: 'Sign in is required to download this asset.' },
+        { message: '请先登录后下载该文件。' },
         { status: 401 },
       );
     if (error instanceof ContentForbiddenError)
       return NextResponse.json(
-        { message: 'Asset access is forbidden.' },
+        { message: '无权访问该文件。' },
         { status: 403 },
       );
     return NextResponse.json(
-      { message: 'Unable to read asset.' },
+      { message: '暂时无法读取文件，请稍后重试。' },
       { status: 500 },
     );
   }

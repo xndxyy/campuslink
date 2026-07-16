@@ -38,7 +38,7 @@ export async function handleAssetScanCallback(
   )?.trim();
   if (!secret || secret.length < 32) {
     return NextResponse.json(
-      { message: 'Scanner callback is unavailable.' },
+      { message: '文件扫描回调暂时不可用。' },
       { status: 503 },
     );
   }
@@ -48,7 +48,7 @@ export async function handleAssetScanCallback(
     : '';
   if (!token || !secureEqual(token, secret)) {
     return NextResponse.json(
-      { message: 'Authentication is required.' },
+      { message: '身份验证失败。' },
       { status: 401 },
     );
   }
@@ -58,14 +58,14 @@ export async function handleAssetScanCallback(
     body = await readBoundedJson(request);
   } catch (error) {
     return NextResponse.json(
-      { message: 'Invalid scan result.' },
+      { message: '扫描结果无效。' },
       { status: error instanceof JsonBodyError ? error.status : 400 },
     );
   }
   const parsed = scanResultSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { message: 'Invalid scan result.' },
+      { message: '扫描结果无效。' },
       { status: 400 },
     );
   }
@@ -83,7 +83,7 @@ export async function handleAssetScanCallback(
       return NextResponse.json({ message: error.message }, { status: 409 });
     }
     return NextResponse.json(
-      { message: 'Unable to record scan result.' },
+      { message: '暂时无法记录扫描结果。' },
       { status: 500 },
     );
   }

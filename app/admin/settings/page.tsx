@@ -19,9 +19,9 @@ export default async function SettingsPage() {
   return (
     <section>
       <header className="admin-masthead">
-        <p className="eyebrow">Administrator only</p>
-        <h2>Campus identity</h2>
-        <p>Campus identity changes are always audited.</p>
+        <p className="eyebrow">仅管理员可用</p>
+        <h2>校区信息</h2>
+        <p>校区信息的每次变更都会写入审计日志。</p>
       </header>
       <CampusSettingsForm name={campus.name} />
     </section>

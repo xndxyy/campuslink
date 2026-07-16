@@ -276,7 +276,7 @@ describe('admin mutation route protections', () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      message: 'Moderation state conflict.',
+      message: '审核状态已变化，请刷新后重试。',
     });
   });
 
@@ -367,7 +367,7 @@ describe('admin mutation route protections', () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      message: 'Administration state conflict.',
+      message: '管理状态已变化，请刷新后重试。',
     });
   });
 

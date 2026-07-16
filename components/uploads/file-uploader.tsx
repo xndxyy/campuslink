@@ -50,9 +50,9 @@ const acceptsByKind: Record<UploadKind, string> = {
 
 const labelsByKind: Record<UploadKind, string> = {
   ANNOUNCEMENT_IMAGE: '公告封面图',
-  MARKETPLACE_IMAGE: 'Marketplace image',
-  RESOURCE_DOCUMENT: 'Resource document',
-  RESOURCE_IMAGE: 'Resource image',
+  MARKETPLACE_IMAGE: '二手物品图片',
+  RESOURCE_DOCUMENT: '学习资料附件',
+  RESOURCE_IMAGE: '学习资料图片',
 };
 
 class UploadCancelledError extends Error {}
@@ -113,12 +113,12 @@ function putFile(
         onProgress(100);
         resolve();
       } else {
-        reject(new Error('Storage rejected the upload.'));
+        reject(new Error('存储服务拒绝了本次上传。'));
       }
     });
     xhr.addEventListener('error', () => {
       if (xhrRef.current === xhr) xhrRef.current = null;
-      reject(new Error('The upload connection failed.'));
+      reject(new Error('上传连接失败。'));
     });
     xhr.addEventListener('abort', () => {
       if (xhrRef.current === xhr) xhrRef.current = null;
@@ -245,7 +245,7 @@ export function FileUploader({
       if (!validation.success) {
         finishAttempt(
           'error',
-          validation.error.issues[0]?.message ?? 'Invalid file.',
+          validation.error.issues[0]?.message ?? '文件无效。',
         );
         return;
       }
@@ -286,7 +286,7 @@ export function FileUploader({
           }
           if (!response.ok) {
             throw new Error(
-              await responseMessage(response, 'Unable to complete upload.'),
+              await responseMessage(response, '无法完成上传。'),
             );
           }
           const completed = (await response.json()) as {
@@ -298,10 +298,10 @@ export function FileUploader({
             completed.assetId !== recovery.assetId ||
             completed.status !== 'READY'
           ) {
-            throw new Error('The server did not confirm the uploaded asset.');
+            throw new Error('服务器未确认已上传文件。');
           }
           saveCurrentRecovery(null);
-          finishAttempt('ready', 'Upload is ready.', recovery.assetId);
+          finishAttempt('ready', '文件上传完成。', recovery.assetId);
           return 'ready';
         } finally {
           releaseController(controller);
@@ -311,7 +311,7 @@ export function FileUploader({
       const putAndComplete = async (selected: File) => {
         if (!isCurrent()) return;
         const recovery = recoveryRef.current;
-        if (!recovery) throw new Error('Upload intent is unavailable.');
+        if (!recovery) throw new Error('上传任务已失效。');
         setCurrentPhase('uploading');
         await putFile(recovery, selected, xhrRef, (nextProgress) => {
           if (isCurrent()) setProgress(nextProgress);
@@ -340,12 +340,12 @@ export function FileUploader({
           if (!isCurrent()) return;
           if (!response.ok) {
             throw new Error(
-              await responseMessage(response, 'Unable to start upload.'),
+              await responseMessage(response, '无法开始上传。'),
             );
           }
           const intent = parseIntentResponse(await response.json());
           if (!intent || intent.contentType !== validation.data.contentType) {
-            throw new Error('The server returned an invalid upload intent.');
+            throw new Error('服务器返回了无效的上传任务。');
           }
           saveCurrentRecovery({
             ...intent,
@@ -391,12 +391,12 @@ export function FileUploader({
         ) {
           finishAttempt(
             'cancelled',
-            'Upload cancelled. Retry will resume this intent.',
+            '上传已取消，重试时会继续当前任务。',
           );
         } else {
           finishAttempt(
             'error',
-            error instanceof Error ? error.message : 'Upload failed.',
+            error instanceof Error ? error.message : '上传失败。',
           );
         }
       }
@@ -463,7 +463,7 @@ export function FileUploader({
       </div>
       <div className="flex min-h-10 items-center justify-between gap-3">
         <p aria-live="polite" className="min-w-0 text-sm text-slate-700">
-          {phase === 'uploading' ? `${progress}% uploaded` : message}
+          {phase === 'uploading' ? `已上传 ${progress}%` : message}
         </p>
         {active ? (
           <button
@@ -471,7 +471,7 @@ export function FileUploader({
             onClick={cancel}
             type="button"
           >
-            Cancel
+            取消
           </button>
         ) : null}
         {(phase === 'error' || phase === 'cancelled') && file ? (
@@ -480,7 +480,7 @@ export function FileUploader({
             onClick={() => startUpload(file, false)}
             type="button"
           >
-            Retry
+            重试
           </button>
         ) : null}
       </div>

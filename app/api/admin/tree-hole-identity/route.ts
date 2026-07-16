@@ -38,7 +38,7 @@ export async function handleTreeHoleIdentityPost(
   dependencies: TreeHoleIdentityRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   }
 
   try {
@@ -46,14 +46,14 @@ export async function handleTreeHoleIdentityPost(
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return adminJson(
-        { message: 'Invalid tree-hole identity request.' },
+        { message: '树洞身份核验请求无效。' },
         { status: body.status },
       );
     }
     const parsed = revealSchema.safeParse(body);
     if (!parsed.success) {
       return adminJson(
-        { message: 'Invalid tree-hole identity request.' },
+        { message: '树洞身份核验请求无效。' },
         { status: 400 },
       );
     }

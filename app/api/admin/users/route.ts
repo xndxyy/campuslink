@@ -131,21 +131,21 @@ export async function handleUserMutation(
   dependencies: UserRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   }
   try {
     const user = await requireRole(['ADMIN'], dependencies.resolveUser);
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return adminJson(
-        { message: 'Invalid user management request.' },
+        { message: '用户管理请求无效。' },
         { status: body.status },
       );
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return adminJson(
-        { message: 'Invalid user management request.' },
+        { message: '用户管理请求无效。' },
         { status: 400 },
       );
     }

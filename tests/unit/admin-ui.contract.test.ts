@@ -51,7 +51,7 @@ describe('moderator and administrator workspace contracts', () => {
     const submissions = source('../../app/me/submissions/page.tsx');
     expect(submissions).toContain('decisionReason');
     expect(submissions).toContain('decisionAction');
-    expect(submissions).toContain('Latest moderator decision');
+    expect(submissions).toContain('最新审核决定');
   });
 
   it('provides pending, published, and hidden queues with valid actions', () => {
@@ -65,7 +65,7 @@ describe('moderator and administrator workspace contracts', () => {
 
   it('shows AI review details and a skipped-provider filter in moderation', () => {
     const moderation = source('../../app/admin/moderation/page.tsx');
-    expect(moderation).toContain('AI_CHECK_SKIPPED');
+    expect(moderation).toContain('未执行 AI 自动评估');
     expect(moderation).toContain('adminSignals');
     expect(moderation).toContain('hasSkippedAssessment');
     expect(moderation).toContain('含自定义标签');
@@ -79,8 +79,8 @@ describe('moderator and administrator workspace contracts', () => {
 
   it('links report targets and renders accessible immutable history', () => {
     const reports = source('../../app/admin/reports/page.tsx');
-    expect(reports).toContain('Open target details');
-    expect(reports).toContain('Prior moderation history');
+    expect(reports).toContain('查看被举报内容');
+    expect(reports).toContain('历史审核记录');
     expect(reports).toContain('<Link');
   });
 
@@ -99,7 +99,7 @@ describe('moderator and administrator workspace contracts', () => {
       expect(audit).toContain(`name="${filter}"`);
     }
     expect(audit).toContain('defaultValue');
-    expect(audit).toContain('Next page');
+    expect(audit).toContain('下一页');
   });
 
   it('provides a Chinese URL-driven user governance workspace', () => {

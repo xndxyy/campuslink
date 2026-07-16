@@ -26,7 +26,7 @@ export async function handleUploadCleanup(
   const secret = configuredSecret?.trim();
   if (!secret || secret.length < 32) {
     return NextResponse.json(
-      { message: 'Upload cleanup is unavailable.' },
+      { message: '上传清理任务暂时不可用。' },
       { status: 503 },
     );
   }
@@ -37,7 +37,7 @@ export async function handleUploadCleanup(
     : '';
   if (!token || !secureEqual(token, secret)) {
     return NextResponse.json(
-      { message: 'Authentication is required.' },
+      { message: '身份验证失败。' },
       { status: 401 },
     );
   }
@@ -47,7 +47,7 @@ export async function handleUploadCleanup(
     return NextResponse.json(counts);
   } catch {
     return NextResponse.json(
-      { message: 'Upload cleanup failed.' },
+      { message: '上传清理任务执行失败。' },
       { status: 500 },
     );
   }

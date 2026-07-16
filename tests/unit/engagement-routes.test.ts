@@ -126,7 +126,7 @@ describe('engagement routes', () => {
     );
     expect(own.status).toBe(403);
     await expect(own.json()).resolves.toEqual({
-      message: 'Cannot report own content',
+      message: '不能举报自己发布的内容。',
     });
 
     const duplicate = await handleReportPost(
@@ -143,6 +143,9 @@ describe('engagement routes', () => {
       },
     );
     expect(duplicate.status).toBe(409);
+    await expect(duplicate.json()).resolves.toEqual({
+      message: '你已经举报过该内容。',
+    });
   });
 
   it('rate limits contact before service execution and never caches responses', async () => {

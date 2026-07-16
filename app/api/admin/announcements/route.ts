@@ -45,21 +45,21 @@ export async function handleAnnouncementPost(
   dependencies: AnnouncementRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   }
   try {
     const actor = await actorForRequest(dependencies);
     const body = await readInput(request);
     if (body instanceof JsonBodyError) {
       return adminJson(
-        { message: 'Invalid announcement request.' },
+        { message: '公告请求无效。' },
         { status: body.status },
       );
     }
     const parsed = announcementInput.safeParse(body);
     if (!parsed.success) {
       return adminJson(
-        { message: 'Invalid announcement request.' },
+        { message: '公告请求无效。' },
         { status: 400 },
       );
     }
@@ -81,21 +81,21 @@ export async function handleAnnouncementDelete(
   dependencies: AnnouncementRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   }
   try {
     const actor = await actorForRequest(dependencies);
     const body = await readInput(request);
     if (body instanceof JsonBodyError) {
       return adminJson(
-        { message: 'Invalid announcement request.' },
+        { message: '公告请求无效。' },
         { status: body.status },
       );
     }
     const parsed = deletionInput.safeParse(body);
     if (!parsed.success) {
       return adminJson(
-        { message: 'Invalid announcement request.' },
+        { message: '公告请求无效。' },
         { status: 400 },
       );
     }

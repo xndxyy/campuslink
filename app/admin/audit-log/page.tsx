@@ -11,6 +11,17 @@ import {
 
 type AuditSearchParams = Record<string, string | string[] | undefined>;
 
+const entityLabels: Record<string, string> = {
+  ASSET: '文件',
+  CAMPUS: '校区',
+  JOB_POST: '校园工作',
+  MARKETPLACE_ITEM: '二手物品',
+  REPORT: '举报',
+  RESOURCE: '学习资源',
+  SYSTEM: '系统',
+  USER: '用户',
+};
+
 function toUrlSearchParams(input: AuditSearchParams) {
   const result = new URLSearchParams();
   for (const [key, value] of Object.entries(input)) {
@@ -48,29 +59,28 @@ export default async function AuditLogPage({
   return (
     <section>
       <header className="admin-masthead">
-        <p className="eyebrow">Immutable campus record</p>
-        <h2>Audit log</h2>
+        <p className="eyebrow">不可变更的校区记录</p>
+        <h2>审计日志</h2>
         <p>
-          Stable newest-first entries; secret, credential, contact, and token
-          fields are removed before display.
+          按时间倒序展示稳定记录；密钥、凭据、联系方式和令牌字段会在显示前移除。
         </p>
       </header>
       <form className="admin-filter" method="get">
         <label>
-          Event
+          事件
           <input defaultValue={values.get('event') ?? ''} name="event" />
         </label>
         <label>
-          Actor ID
+          操作者 ID
           <input defaultValue={values.get('actor') ?? ''} name="actor" />
         </label>
         <label>
-          Entity type
+          对象类型
           <select
             defaultValue={values.get('entityType') ?? ''}
             name="entityType"
           >
-            <option value="">All</option>
+            <option value="">全部</option>
             {[
               'CAMPUS',
               'USER',
@@ -81,17 +91,17 @@ export default async function AuditLogPage({
               'REPORT',
             ].map((type) => (
               <option key={type} value={type}>
-                {type}
+                {entityLabels[type] ?? type}
               </option>
             ))}
           </select>
         </label>
         <label>
-          Entity ID
+          对象 ID
           <input defaultValue={values.get('entityId') ?? ''} name="entityId" />
         </label>
         <label>
-          From
+          开始时间
           <input
             defaultValue={values.get('from') ?? ''}
             name="from"
@@ -99,7 +109,7 @@ export default async function AuditLogPage({
           />
         </label>
         <label>
-          To
+          结束时间
           <input
             defaultValue={values.get('to') ?? ''}
             name="to"
@@ -107,7 +117,7 @@ export default async function AuditLogPage({
           />
         </label>
         <label>
-          Page size
+          每页数量
           <input
             defaultValue={values.get('pageSize') ?? '50'}
             max={100}
@@ -117,11 +127,11 @@ export default async function AuditLogPage({
           />
         </label>
         <input name="cursor" type="hidden" value="" />
-        <button type="submit">Filter</button>
+        <button type="submit">筛选</button>
       </form>
       {records.length === 0 ? (
         <div className="empty-state">
-          <h2>No audit entries match.</h2>
+          <h2>没有符合条件的审计记录</h2>
         </div>
       ) : (
         <ol className="audit-list">
@@ -130,7 +140,9 @@ export default async function AuditLogPage({
               <time>{new Date(String(record.createdAt)).toLocaleString()}</time>
               <strong>{String(record.action)}</strong>
               <span>
-                {String(record.subjectType ?? 'SYSTEM')} ·{' '}
+                {entityLabels[String(record.subjectType ?? 'SYSTEM')] ??
+                  String(record.subjectType ?? 'SYSTEM')}{' '}
+                ·{' '}
                 {String(record.subjectId ?? '—')}
               </span>
               <pre>{JSON.stringify(record.details ?? {}, null, 2)}</pre>
@@ -139,7 +151,7 @@ export default async function AuditLogPage({
         </ol>
       )}
       {nextCursor ? (
-        <Link href={`?${nextSearchParams.toString()}`}>Next page</Link>
+        <Link href={`?${nextSearchParams.toString()}`}>下一页</Link>
       ) : null}
     </section>
   );

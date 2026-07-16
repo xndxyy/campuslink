@@ -46,8 +46,8 @@ describe('published detail engagement UI', () => {
     expect(source).toContain('aria-pressed');
     expect(source).toContain('<dialog');
     expect(source).toContain('aria-labelledby');
-    expect(source).toContain('Request contact');
-    expect(source).toContain('Owner listing');
+    expect(source).toContain('查看联系方式');
+    expect(source).toContain('发布者本人');
   });
 
   it('keeps revealed contact ephemeral', () => {

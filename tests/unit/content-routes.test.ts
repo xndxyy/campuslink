@@ -151,7 +151,7 @@ describe('content creation routes', () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      message: 'Content or asset state conflict.',
+      message: '内容或附件状态已变化，请刷新后重试。',
     });
   });
 

@@ -96,7 +96,7 @@ export default async function MySubmissionsPage() {
                 ) : null}
                 {item.decisionReason ? (
                   <p className="decision-reason">
-                    Latest moderator decision ({String(item.decisionAction)}):{' '}
+                    最新审核决定（{String(item.decisionAction)}）：{' '}
                     {String(item.decisionReason)}
                   </p>
                 ) : null}

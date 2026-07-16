@@ -43,13 +43,13 @@ export async function handleCreateContent<T>(
 ) {
   if (!isSameOriginAuthRequest(request)) {
     return NextResponse.json(
-      { message: 'Invalid request origin.' },
+      { message: '请求来源无效。' },
       { status: 403 },
     );
   }
   if (!request.headers.get('content-type')?.includes('application/json')) {
     return NextResponse.json(
-      { message: 'Invalid content details.' },
+      { message: '内容信息无效。' },
       { status: 400 },
     );
   }
@@ -59,7 +59,7 @@ export async function handleCreateContent<T>(
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return NextResponse.json(
-        { message: 'Invalid content details.' },
+        { message: '内容信息无效。' },
         { status: body.status },
       );
     }
@@ -100,13 +100,13 @@ export async function handleCreateContent<T>(
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json(
-        { message: 'Authentication is required.' },
+        { message: '请先登录。' },
         { status: 401 },
       );
     }
     if (error instanceof VerificationRequiredError) {
       return NextResponse.json(
-        { message: 'A verified account is required.' },
+        { message: '需要已验证且状态正常的账号。' },
         { status: 403 },
       );
     }
@@ -123,7 +123,7 @@ export async function handleCreateContent<T>(
     }
     if (error instanceof ContentConflictError) {
       return NextResponse.json(
-        { message: 'Content or asset state conflict.' },
+        { message: '内容或附件状态已变化，请刷新后重试。' },
         { status: 409 },
       );
     }
@@ -134,7 +134,7 @@ export async function handleCreateContent<T>(
       );
     }
     return NextResponse.json(
-      { message: 'Unable to create content.' },
+      { message: '暂时无法创建内容，请稍后重试。' },
       { status: 500 },
     );
   }

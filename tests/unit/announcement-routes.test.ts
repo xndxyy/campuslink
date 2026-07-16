@@ -167,7 +167,7 @@ describe('announcement administrator route', () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
-      message: 'Announcement state conflict.',
+      message: '公告状态已变化，请刷新后重试。',
     });
   });
 });
@@ -237,7 +237,7 @@ describe('internal storage deletion route', () => {
     expect(failed.status).toBe(500);
     expect(failed.headers.get('cache-control')).toContain('no-store');
     await expect(failed.json()).resolves.toEqual({
-      message: 'Storage deletion processing failed.',
+      message: '存储清理任务执行失败。',
     });
   });
 });

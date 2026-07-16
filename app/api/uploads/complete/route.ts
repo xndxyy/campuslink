@@ -30,7 +30,7 @@ export async function handleCompleteUpload(
 ) {
   if (!isSameOriginAuthRequest(request)) {
     return NextResponse.json(
-      { message: 'Invalid request origin.' },
+      { message: '请求来源无效。' },
       { status: 403 },
     );
   }
@@ -38,7 +38,7 @@ export async function handleCompleteUpload(
     request.headers.get('content-type')?.includes('application/json') ?? false
   )) {
     return NextResponse.json(
-      { message: 'Invalid upload completion details.' },
+      { message: '上传确认信息无效。' },
       { status: 400 },
     );
   }
@@ -48,14 +48,14 @@ export async function handleCompleteUpload(
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return NextResponse.json(
-        { message: 'Invalid upload completion details.' },
+        { message: '上传确认信息无效。' },
         { status: body.status },
       );
     }
     const parsed = completeUploadSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { message: 'Invalid upload completion details.' },
+        { message: '上传确认信息无效。' },
         { status: 400 },
       );
     }
@@ -68,7 +68,7 @@ export async function handleCompleteUpload(
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json(
-        { message: 'Authentication is required.' },
+        { message: '请先登录。' },
         { status: 401 },
       );
     }
@@ -77,7 +77,7 @@ export async function handleCompleteUpload(
       error instanceof UploadForbiddenError
     ) {
       return NextResponse.json(
-        { message: 'Upload completion is forbidden.' },
+        { message: '无权确认该上传任务。' },
         { status: 403 },
       );
     }
@@ -87,12 +87,12 @@ export async function handleCompleteUpload(
       error instanceof StorageObjectNotFoundError
     ) {
       return NextResponse.json(
-        { message: 'Upload cannot be completed.' },
+        { message: '当前上传任务无法完成。' },
         { status: 409 },
       );
     }
     return NextResponse.json(
-      { message: 'Unable to complete upload.' },
+      { message: '暂时无法完成上传，请稍后重试。' },
       { status: 500 },
     );
   }

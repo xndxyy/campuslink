@@ -18,7 +18,7 @@ describe('asset read route', () => {
     expect(response.status).toBe(401);
     expect(sign).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toEqual({
-      message: 'Sign in is required to download this asset.',
+      message: '请先登录后下载该文件。',
     });
   });
 
@@ -40,7 +40,7 @@ describe('asset read route', () => {
     });
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
-      message: 'Asset access is forbidden.',
+      message: '无权访问该文件。',
     });
   });
 

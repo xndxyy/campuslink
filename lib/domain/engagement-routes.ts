@@ -67,7 +67,7 @@ const reportSchema = z
       .string()
       .trim()
       .max(1000)
-      .refine((value) => !/[<>]/.test(value), 'Plain text only')
+      .refine((value) => !/[<>]/.test(value), '仅支持纯文本')
       .optional(),
     reason: z.enum(['SPAM', 'MISLEADING', 'HARASSMENT', 'PROHIBITED', 'OTHER']),
     targetId,
@@ -95,9 +95,9 @@ function json(
 
 function preflight(request: Request) {
   if (!isSameOriginAuthRequest(request))
-    return json({ message: 'Invalid request origin.' }, 403);
+    return json({ message: '请求来源无效。' }, 403);
   if (!request.headers.get('content-type')?.includes('application/json')) {
-    return json({ message: 'Invalid request details.' }, 400);
+    return json({ message: '请求信息无效。' }, 400);
   }
   return null;
 }
@@ -124,10 +124,10 @@ async function handleFavouriteMutation(
     const user = await requireVerifiedUser(dependencies.resolveUser);
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError)
-      return json({ message: 'Invalid favourite details.' }, body.status);
+      return json({ message: '收藏信息无效。' }, body.status);
     const parsed = favouriteSchema.safeParse(body);
     if (!parsed.success)
-      return json({ message: 'Invalid favourite details.' }, 400);
+      return json({ message: '收藏信息无效。' }, 400);
     const actor = { campusId: user.campusId, id: user.id };
     const mutate =
       dependencies.mutate ??
@@ -140,12 +140,12 @@ async function handleFavouriteMutation(
     return json(await mutate(actor, parsed.data, action), 200);
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
-      return json({ message: error.message }, 401);
+      return json({ message: '请先登录。' }, 401);
     if (error instanceof VerificationRequiredError)
-      return json({ message: error.message }, 403);
+      return json({ message: '需要已验证且状态正常的账号。' }, 403);
     if (error instanceof FavouriteNotFoundError)
-      return json({ message: error.message }, 404);
-    return json({ message: 'Unable to update favourite.' }, 500);
+      return json({ message: '未找到可收藏的已发布内容。' }, 404);
+    return json({ message: '暂时无法更新收藏，请稍后重试。' }, 500);
   }
 }
 
@@ -178,10 +178,10 @@ export async function handleReportPost(
     const user = await requireVerifiedUser(dependencies.resolveUser);
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError)
-      return json({ message: 'Invalid report details.' }, body.status);
+      return json({ message: '举报信息无效。' }, body.status);
     const parsed = reportSchema.safeParse(body);
     if (!parsed.success)
-      return json({ message: 'Invalid report details.' }, 400);
+      return json({ message: '举报信息无效。' }, 400);
     const actor = {
       campusId: user.campusId,
       emailVerifiedAt: user.emailVerifiedAt,
@@ -201,18 +201,18 @@ export async function handleReportPost(
     return json(created, 201);
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
-      return json({ message: error.message }, 401);
+      return json({ message: '请先登录。' }, 401);
     if (error instanceof VerificationRequiredError)
-      return json({ message: error.message }, 403);
+      return json({ message: '需要已验证且状态正常的账号。' }, 403);
     if (error instanceof ReportVerificationRequiredError)
-      return json({ message: 'A verified account is required.' }, 403);
+      return json({ message: '需要已验证且状态正常的账号。' }, 403);
     if (error instanceof ReportOwnContentError)
-      return json({ message: error.message }, 403);
+      return json({ message: '不能举报自己发布的内容。' }, 403);
     if (error instanceof ReportNotFoundError)
-      return json({ message: error.message }, 404);
+      return json({ message: '未找到可举报的已发布内容。' }, 404);
     if (error instanceof ReportDuplicateError)
-      return json({ message: error.message }, 409);
-    return json({ message: 'Unable to submit report.' }, 500);
+      return json({ message: '你已经举报过该内容。' }, 409);
+    return json({ message: '暂时无法提交举报，请稍后重试。' }, 500);
   }
 }
 
@@ -232,9 +232,9 @@ export async function handleMarketplaceContactPost(
   dependencies: ContactRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request))
-    return json({ message: 'Invalid request origin.' }, 403);
+    return json({ message: '请求来源无效。' }, 403);
   if (!targetId.safeParse(id).success)
-    return json({ message: 'Invalid marketplace listing.' }, 400);
+    return json({ message: '二手物品记录无效。' }, 400);
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
     const rate = await (dependencies.limiter ?? contactLimiter).consume(
@@ -242,7 +242,7 @@ export async function handleMarketplaceContactPost(
     );
     if (!rate.allowed) {
       return json(
-        { message: 'Too many contact requests. Please try again later.' },
+        { message: '查看联系方式过于频繁，请稍后再试。' },
         429,
         { 'Retry-After': String(rate.retryAfterSeconds) },
       );
@@ -258,14 +258,14 @@ export async function handleMarketplaceContactPost(
     return json(result, 200);
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
-      return json({ message: error.message }, 401);
+      return json({ message: '请先登录。' }, 401);
     if (error instanceof VerificationRequiredError)
-      return json({ message: error.message }, 403);
+      return json({ message: '需要已验证且状态正常的账号。' }, 403);
     if (error instanceof MarketplaceContactOwnListingError)
-      return json({ message: error.message }, 403);
+      return json({ message: '不能查看自己发布内容的联系方式。' }, 403);
     if (error instanceof MarketplaceContactNotFoundError)
-      return json({ message: error.message }, 404);
-    return json({ message: 'Unable to request marketplace contact.' }, 500);
+      return json({ message: '未找到可联系的已发布二手物品。' }, 404);
+    return json({ message: '暂时无法获取联系方式，请稍后重试。' }, 500);
   }
 }
 

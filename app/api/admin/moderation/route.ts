@@ -44,7 +44,7 @@ export async function handleModerationMutation(
   dependencies: ModerationRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   }
   try {
     const user = await requireRole(
@@ -54,14 +54,14 @@ export async function handleModerationMutation(
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return adminJson(
-        { message: 'Invalid moderation request.' },
+        { message: '内容审核请求无效。' },
         { status: body.status },
       );
     }
     const parsed = mutationSchema.safeParse(body);
     if (!parsed.success) {
       return adminJson(
-        { message: 'Invalid moderation request.' },
+        { message: '内容审核请求无效。' },
         { status: 400 },
       );
     }
@@ -97,7 +97,7 @@ export async function GET(request: Request) {
     );
     if (!parsed.success) {
       return adminJson(
-        { message: 'Invalid moderation queue request.' },
+        { message: '审核队列请求无效。' },
         { status: 400 },
       );
     }

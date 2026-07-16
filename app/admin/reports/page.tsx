@@ -8,6 +8,25 @@ import {
   type ModerationAdapter,
 } from '@/lib/domain/moderation';
 
+const reasonLabels: Record<string, string> = {
+  HARASSMENT: '骚扰行为',
+  MISLEADING: '虚假或误导信息',
+  OTHER: '其他',
+  PROHIBITED: '违规内容',
+  SPAM: '垃圾信息',
+};
+const statusLabels: Record<string, string> = {
+  OPEN: '待处理',
+  TRIAGED: '处理中',
+};
+const targetLabels: Record<string, string> = {
+  FORUM_COMMENT: '论坛评论',
+  FORUM_POST: '论坛帖子',
+  JOB_POST: '校园工作',
+  MARKETPLACE_ITEM: '二手物品',
+  RESOURCE: '学习资源',
+};
+
 async function loadReports() {
   try {
     const user = await requireRole(['MODERATOR', 'ADMIN']);
@@ -35,34 +54,37 @@ export default async function ReportsPage() {
   return (
     <section>
       <header className="admin-masthead">
-        <p className="eyebrow">Severity, then age</p>
-        <h2>Reports queue</h2>
-        <p>
-          Internal evidence stays here; reporters receive only a neutral
-          outcome.
-        </p>
+        <p className="eyebrow">按严重程度和时间排序</p>
+        <h2>举报队列</h2>
+        <p>证据仅供内部审核；举报人只会收到中立的处理结果。</p>
       </header>
       {queue.error ? (
         <div className="empty-state error-state">
-          <h2>Reports unavailable</h2>
+          <h2>举报队列暂时不可用</h2>
         </div>
       ) : queue.items.length === 0 ? (
         <div className="empty-state">
-          <h2>No open reports.</h2>
+          <h2>当前没有待处理举报</h2>
         </div>
       ) : (
         <div className="admin-card-grid">
           {queue.items.map((report) => (
             <article className="admin-report-card" key={String(report.id)}>
               <div>
-                <span className="status">{String(report.reason)}</span>
-                <span>{String(report.status)}</span>
+                <span className="status">
+                  {reasonLabels[String(report.reason)] ?? String(report.reason)}
+                </span>
+                <span>
+                  {statusLabels[String(report.status)] ?? String(report.status)}
+                </span>
               </div>
               <h3>
-                {String(report.targetType)} · {String(report.targetId)}
+                {targetLabels[String(report.targetType)] ??
+                  String(report.targetType)}{' '}
+                · {String(report.targetId)}
               </h3>
               <p>
-                {String(report.details ?? 'No additional reporter details.')}
+                {String(report.details ?? '举报人未提供补充说明。')}
               </p>
               <Link
                 href={targetHref(
@@ -72,12 +94,12 @@ export default async function ReportsPage() {
                 rel="noreferrer"
                 target="_blank"
               >
-                Open target details
+                查看被举报内容
               </Link>
               <small>
-                Received {new Date(String(report.createdAt)).toLocaleString()}
+                收到时间：{new Date(String(report.createdAt)).toLocaleString()}
               </small>
-              <ol aria-label="Prior moderation history" className="audit-list">
+              <ol aria-label="历史审核记录" className="audit-list">
                 {((report.history ?? []) as Array<Record<string, unknown>>).map(
                   (entry) => (
                     <li key={String(entry.id)}>
@@ -85,7 +107,10 @@ export default async function ReportsPage() {
                         {new Date(String(entry.createdAt)).toLocaleString()}
                       </time>
                       <strong>{String(entry.action)}</strong>
-                      <span>{String(entry.subjectType)}</span>
+                      <span>
+                        {targetLabels[String(entry.subjectType)] ??
+                          String(entry.subjectType)}
+                      </span>
                       <p>{String(entry.reason)}</p>
                     </li>
                   ),

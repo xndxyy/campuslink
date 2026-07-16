@@ -97,7 +97,7 @@ export default async function ModerationPage({
 
       {hasSkipped ? (
         <div className="empty-state error-state" role="status">
-          <h2>存在 AI_CHECK_SKIPPED 内容</h2>
+          <h2>存在未执行 AI 自动评估的内容</h2>
           <p>本地硬性规则已通过，但外部模型未完成评估，请优先人工复核。</p>
         </div>
       ) : null}

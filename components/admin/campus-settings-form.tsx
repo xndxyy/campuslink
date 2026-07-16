@@ -22,12 +22,12 @@ export function CampusSettingsForm({ name }: { name: string }) {
       });
       const result = (await response.json()) as { message?: string };
       if (!response.ok)
-        throw new Error(result.message ?? 'Settings change failed.');
-      setMessage('Campus settings updated and audited.');
+        throw new Error(result.message ?? '设置更新失败。');
+      setMessage('校区设置已更新并写入审计日志。');
       router.refresh();
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : 'Settings change failed.',
+        error instanceof Error ? error.message : '设置更新失败。',
       );
     } finally {
       setPending(false);
@@ -37,7 +37,7 @@ export function CampusSettingsForm({ name }: { name: string }) {
   return (
     <form action={submit} className="admin-settings-form">
       <label>
-        Campus name
+        校区名称
         <input
           defaultValue={name}
           maxLength={200}
@@ -47,7 +47,7 @@ export function CampusSettingsForm({ name }: { name: string }) {
         />
       </label>
       <label>
-        Change reason
+        变更原因
         <textarea
           maxLength={1000}
           minLength={5}
@@ -57,7 +57,7 @@ export function CampusSettingsForm({ name }: { name: string }) {
         />
       </label>
       <button disabled={pending} type="submit">
-        {pending ? 'Saving…' : 'Save audited settings'}
+        {pending ? '保存中...' : '保存设置'}
       </button>
       <p aria-live="polite" className="admin-action-message">
         {message}

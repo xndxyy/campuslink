@@ -37,13 +37,13 @@ export async function handleUploadIntent(
 ) {
   if (!isSameOriginAuthRequest(request)) {
     return NextResponse.json(
-      { message: 'Invalid request origin.' },
+      { message: '请求来源无效。' },
       { status: 403 },
     );
   }
   if (!jsonRequest(request)) {
     return NextResponse.json(
-      { message: 'Invalid upload details.' },
+      { message: '上传信息无效。' },
       { status: 400 },
     );
   }
@@ -53,20 +53,20 @@ export async function handleUploadIntent(
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
       return NextResponse.json(
-        { message: 'Invalid upload details.' },
+        { message: '上传信息无效。' },
         { status: body.status },
       );
     }
     const parsed = uploadIntentSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { message: 'Invalid upload details.' },
+        { message: '上传信息无效。' },
         { status: 400 },
       );
     }
     if (!canCreateUploadIntent(user.role, parsed.data.kind)) {
       return NextResponse.json(
-        { message: 'Insufficient permissions.' },
+        { message: '权限不足。' },
         { status: 403 },
       );
     }
@@ -79,18 +79,18 @@ export async function handleUploadIntent(
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
       return NextResponse.json(
-        { message: 'Authentication is required.' },
+        { message: '请先登录。' },
         { status: 401 },
       );
     }
     if (error instanceof VerificationRequiredError) {
       return NextResponse.json(
-        { message: 'A verified account is required.' },
+        { message: '需要已验证且状态正常的账号。' },
         { status: 403 },
       );
     }
     return NextResponse.json(
-      { message: 'Unable to create upload.' },
+      { message: '暂时无法创建上传任务，请稍后重试。' },
       { status: 500 },
     );
   }

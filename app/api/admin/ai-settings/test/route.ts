@@ -24,13 +24,13 @@ export async function handleAiSettingsTestPost(
   dependencies: Dependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request))
-    return adminJson({ message: 'Invalid request origin.' }, { status: 403 });
+    return adminJson({ message: '请求来源无效。' }, { status: 403 });
   try {
     const user = await requireRole(['ADMIN'], dependencies.resolveUser);
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError || !empty.safeParse(body).success)
       return adminJson(
-        { message: 'Invalid AI connection test request.' },
+        { message: 'AI 连接测试请求无效。' },
         { status: body instanceof JsonBodyError ? body.status : 400 },
       );
     const actor = { campusId: user.campusId, id: user.id, role: user.role };

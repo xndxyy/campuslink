@@ -35,13 +35,13 @@ export function ReportActionForm({
       });
       const result = (await response.json()) as { message?: string };
       if (!response.ok)
-        throw new Error(result.message ?? 'Report action failed.');
-      setMessage('Report outcome recorded.');
+        throw new Error(result.message ?? '举报处理失败。');
+      setMessage('举报处理结果已记录。');
       dialog.current?.close();
       router.refresh();
     } catch (error) {
       setMessage(
-        error instanceof Error ? error.message : 'Report action failed.',
+        error instanceof Error ? error.message : '举报处理失败。',
       );
     } finally {
       setPending(false);
@@ -51,30 +51,30 @@ export function ReportActionForm({
   return (
     <div className="admin-inline-action">
       <button type="button" onClick={() => dialog.current?.showModal()}>
-        Review report
+        处理举报
       </button>
       <dialog aria-labelledby={titleId} ref={dialog}>
         <form action={submit} className="admin-dialog-form">
-          <p className="eyebrow">Neutral reporter outcome</p>
-          <h2 id={titleId}>Resolve report</h2>
+          <p className="eyebrow">中立处理结果</p>
+          <h2 id={titleId}>处理举报</h2>
           <label>
-            Outcome
+            处理方式
             <select
               defaultValue={status === 'OPEN' ? 'TRIAGE' : 'RESOLVE'}
               name="action"
             >
               {status === 'OPEN' ? (
-                <option value="TRIAGE">Triage and assign to me</option>
+                <option value="TRIAGE">标记处理中并分配给我</option>
               ) : (
                 <>
-                  <option value="RESOLVE">Resolve</option>
-                  <option value="DISMISS">Dismiss</option>
+                  <option value="RESOLVE">确认举报</option>
+                  <option value="DISMISS">驳回举报</option>
                 </>
               )}
             </select>
           </label>
           <label>
-            Resolution reason
+            处理原因
             <textarea
               maxLength={1000}
               minLength={5}
@@ -85,18 +85,18 @@ export function ReportActionForm({
           </label>
           <label className="checkbox-label">
             <input name="hideTarget" type="checkbox" />
-            Hide the published target when resolving
+            确认举报时隐藏已发布内容
           </label>
           <div className="dialog-actions">
             <button disabled={pending} type="submit">
-              {pending ? 'Recording…' : 'Record outcome'}
+              {pending ? '记录中...' : '记录处理结果'}
             </button>
             <button
               disabled={pending}
               onClick={() => dialog.current?.close()}
               type="button"
             >
-              Cancel
+              取消
             </button>
           </div>
         </form>

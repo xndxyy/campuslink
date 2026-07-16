@@ -36,7 +36,7 @@ describe('scheduled upload cleanup route', () => {
 
       expect(response.status).toBe(503);
       await expect(response.json()).resolves.toEqual({
-        message: 'Upload cleanup is unavailable.',
+        message: '上传清理任务暂时不可用。',
       });
     } finally {
       vi.unstubAllEnvs();

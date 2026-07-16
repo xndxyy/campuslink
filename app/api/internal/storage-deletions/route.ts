@@ -44,7 +44,7 @@ export async function handleStorageDeletions(
   const secret = configuredSecret?.trim();
   if (!secret || secret.length < 32) {
     return json(
-      { message: 'Storage deletion processing is unavailable.' },
+      { message: '存储清理任务暂时不可用。' },
       503,
     );
   }
@@ -53,7 +53,7 @@ export async function handleStorageDeletions(
     ? authorization.slice('Bearer '.length)
     : '';
   if (!token || !secureEqual(token, secret)) {
-    return json({ message: 'Authentication is required.' }, 401);
+    return json({ message: '身份验证失败。' }, 401);
   }
   try {
     const counts = await (
@@ -65,7 +65,7 @@ export async function handleStorageDeletions(
     )();
     return json(counts);
   } catch {
-    return json({ message: 'Storage deletion processing failed.' }, 500);
+    return json({ message: '存储清理任务执行失败。' }, 500);
   }
 }
 

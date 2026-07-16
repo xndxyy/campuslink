@@ -596,7 +596,7 @@ describe('tree-hole identity admin route', () => {
     expect(response.status).toBe(403);
     expect(response.headers.get('cache-control')).toContain('no-store');
     await expect(response.json()).resolves.toEqual({
-      message: 'Invalid request origin.',
+      message: '请求来源无效。',
     });
     expect(resolveUser).not.toHaveBeenCalled();
     expect(reveal).not.toHaveBeenCalled();
@@ -658,7 +658,7 @@ describe('tree-hole identity admin route', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      message: 'Invalid tree-hole identity request.',
+      message: '树洞身份核验请求无效。',
     });
     expect(reveal).not.toHaveBeenCalled();
   });
@@ -707,11 +707,11 @@ describe('tree-hole identity admin route', () => {
 
     expect(forbidden.status).toBe(403);
     await expect(forbidden.json()).resolves.toEqual({
-      message: 'Insufficient permissions.',
+      message: '权限不足。',
     });
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toEqual({
-      message: 'Invalid administration request.',
+      message: '管理请求无效。',
     });
   });
 
@@ -731,7 +731,7 @@ describe('tree-hole identity admin route', () => {
 
     expect(response.status).toBe(500);
     const body = await response.text();
-    expect(body).toContain('Unable to complete administration request.');
+    expect(body).toContain('暂时无法完成管理操作，请稍后重试。');
     expect(body).not.toContain('private_user_1');
     expect(body).not.toContain('ciphertext');
     expect(body).not.toContain('iv');

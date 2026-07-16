@@ -50,7 +50,7 @@ export function adminJson(body: unknown, init?: ResponseInit) {
 export function adminErrorResponse(error: unknown) {
   if (error instanceof AuthenticationRequiredError) {
     return adminJson(
-      { message: 'Authentication is required.' },
+      { message: '请先登录。' },
       { status: 401 },
     );
   }
@@ -65,7 +65,7 @@ export function adminErrorResponse(error: unknown) {
     error instanceof AiSettingsForbiddenError ||
     error instanceof TreeHoleIdentityForbiddenError
   ) {
-    return adminJson({ message: 'Insufficient permissions.' }, { status: 403 });
+    return adminJson({ message: '权限不足。' }, { status: 403 });
   }
   if (
     error instanceof ModerationValidationError ||
@@ -77,51 +77,51 @@ export function adminErrorResponse(error: unknown) {
     error instanceof TreeHoleIdentityValidationError
   ) {
     return adminJson(
-      { message: 'Invalid administration request.' },
+      { message: '管理请求无效。' },
       { status: 400 },
     );
   }
   if (error instanceof ModerationConflictError) {
     return adminJson(
-      { message: 'Moderation state conflict.' },
+      { message: '审核状态已变化，请刷新后重试。' },
       { status: 409 },
     );
   }
   if (error instanceof AnnouncementConflictError) {
     return adminJson(
-      { message: 'Announcement state conflict.' },
+      { message: '公告状态已变化，请刷新后重试。' },
       { status: 409 },
     );
   }
   if (error instanceof AnnouncementNotFoundError) {
     return adminJson(
-      { message: 'Announcement was not found.' },
+      { message: '未找到该公告。' },
       { status: 404 },
     );
   }
   if (error instanceof AdminConflictError) {
     return adminJson(
-      { message: 'Administration state conflict.' },
+      { message: '管理状态已变化，请刷新后重试。' },
       { status: 409 },
     );
   }
   if (error instanceof TagConflictError) {
-    return adminJson({ message: 'Tag state conflict.' }, { status: 409 });
+    return adminJson({ message: '标签状态已变化，请刷新后重试。' }, { status: 409 });
   }
   if (error instanceof BlockedWordConflictError) {
     return adminJson(
-      { message: 'Blocked word state conflict.' },
+      { message: '屏蔽词状态已变化，请刷新后重试。' },
       { status: 409 },
     );
   }
   if (error instanceof AiSettingsConflictError) {
     return adminJson(
-      { message: 'AI provider configuration is unavailable.' },
+      { message: 'AI 服务配置暂时不可用。' },
       { status: 409 },
     );
   }
   return adminJson(
-    { message: 'Unable to complete administration request.' },
+    { message: '暂时无法完成管理操作，请稍后重试。' },
     { status: 500 },
   );
 }

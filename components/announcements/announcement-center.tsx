@@ -19,7 +19,7 @@ export function AnnouncementCenter({
   return (
     <main className="announcement-center page-shell">
       <header className="announcement-center-masthead">
-        <p className="eyebrow">CampusLink Notices</p>
+        <p className="eyebrow">CampusLink 公告</p>
         <h1>校园公告</h1>
         <p>查看站务更新、校园安全提醒与近期公共信息。</p>
       </header>

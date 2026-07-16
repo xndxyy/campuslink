@@ -99,7 +99,7 @@ export async function handleContentAction(
 ) {
   if (!isSameOriginAuthRequest(request))
     return NextResponse.json(
-      { message: 'Invalid request origin.' },
+      { message: '请求来源无效。' },
       { status: 403 },
     );
   try {
@@ -112,7 +112,7 @@ export async function handleContentAction(
         };
     if (body instanceof JsonBodyError) {
       return NextResponse.json(
-        { message: 'Invalid content action.' },
+        { message: '内容操作无效。' },
         { status: body.status },
       );
     }
@@ -168,7 +168,7 @@ export async function handleContentAction(
           : null;
     if (!result)
       return NextResponse.json(
-        { message: 'Invalid content action.' },
+        { message: '内容操作无效。' },
         { status: 400 },
       );
     return NextResponse.json(
@@ -179,22 +179,22 @@ export async function handleContentAction(
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
       return NextResponse.json(
-        { message: 'Authentication is required.' },
+        { message: '请先登录。' },
         { status: 401 },
       );
     if (error instanceof VerificationRequiredError)
       return NextResponse.json(
-        { message: 'A verified account is required.' },
+        { message: '需要已验证且状态正常的账号。' },
         { status: 403 },
       );
     if (error instanceof ContentNotFoundError)
       return NextResponse.json(
-        { message: 'Content was not found.' },
+        { message: '未找到该内容。' },
         { status: 404 },
       );
     if (error instanceof ContentConflictError)
       return NextResponse.json(
-        { message: 'Content state conflict.' },
+        { message: '内容状态已变化，请刷新后重试。' },
         { status: 409 },
       );
     if (error instanceof ContentBlockedError)
@@ -213,7 +213,7 @@ export async function handleContentAction(
         { status: 400 },
       );
     return NextResponse.json(
-      { message: 'Unable to update content.' },
+      { message: '暂时无法更新内容，请稍后重试。' },
       { status: 500 },
     );
   }

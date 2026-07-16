@@ -20,6 +20,12 @@ function targetHref(
       : `/campus-work/${id}`;
 }
 
+const targetLabels = {
+  JOB_POST: '校园工作',
+  MARKETPLACE_ITEM: '二手物品',
+  RESOURCE: '学习资源',
+} as const;
+
 export default async function FavouritesPage({
   searchParams,
 }: {
@@ -38,9 +44,9 @@ export default async function FavouritesPage({
     return (
       <main className="page-shell">
         <section className="empty-state">
-          <p className="eyebrow">Verified campus account required</p>
-          <h1>Sign in to view your favourites</h1>
-          <Link href="/auth/sign-in">Go to sign in</Link>
+          <p className="eyebrow">需要验证身份</p>
+          <h1>登录后查看收藏</h1>
+          <Link href="/auth/sign-in">前往登录</Link>
         </section>
       </main>
     );
@@ -49,36 +55,36 @@ export default async function FavouritesPage({
     <main className="page-shell">
       <header className="section-masthead">
         <div>
-          <p className="eyebrow">Personal reading list</p>
-          <h1>My favourites</h1>
+          <p className="eyebrow">个人收藏</p>
+          <h1>我的收藏</h1>
         </div>
       </header>
       {result.items.length === 0 ? (
         <section className="empty-state">
-          <h2>No saved content yet</h2>
+          <h2>还没有收藏内容</h2>
           <p>在已发布的学习资源、二手物品或校园工作详情中添加收藏。</p>
-          <Link href="/resources">Browse resources</Link>
+          <Link href="/resources">浏览学习资源</Link>
         </section>
       ) : (
-        <section className="favourite-grid" aria-label="Saved campus content">
+        <section className="favourite-grid" aria-label="已收藏的校园内容">
           {result.items.map(({ item, targetId, targetType }) => (
             <article key={`${targetType}:${targetId}`}>
-              <p className="eyebrow">{targetType.replaceAll('_', ' ')}</p>
+              <p className="eyebrow">{targetLabels[targetType]}</p>
               <h2>{String(item.title)}</h2>
               <p>{String(item.summary ?? item.description ?? '')}</p>
               <Link href={targetHref(targetType, targetId)}>
-                View published item
+                查看已发布内容
               </Link>
             </article>
           ))}
         </section>
       )}
-      <nav className="pagination" aria-label="Favourites pages">
+      <nav className="pagination" aria-label="收藏分页">
         {result.page > 1 ? (
-          <Link href={`/me/favourites?page=${result.page - 1}`}>Previous</Link>
+          <Link href={`/me/favourites?page=${result.page - 1}`}>上一页</Link>
         ) : null}
         {result.hasNext ? (
-          <Link href={`/me/favourites?page=${result.page + 1}`}>Next</Link>
+          <Link href={`/me/favourites?page=${result.page + 1}`}>下一页</Link>
         ) : null}
       </nav>
     </main>

@@ -8,8 +8,11 @@ import {
   UserStatus,
 } from '../generated/prisma/client';
 import { createDbClient } from '../lib/db';
-import { campusWorkPresetTags } from './seed-data';
 import { seedForumCategories } from './seed-data';
+import {
+  blockedWordDefaults,
+  presetTagDefaults,
+} from './default-content-data';
 
 const passwordHash =
   '$2b$12$3PhfWpsS2TCwMa.ASaQKOeM.A7RZOc4xS5b07a0PWAZDvQkQ9t6Mi';
@@ -33,7 +36,7 @@ async function main() {
 
     await seedForumCategories(db, campus.id);
 
-    for (const preset of campusWorkPresetTags) {
+    for (const preset of presetTagDefaults) {
       await db.tagDefinition.upsert({
         where: {
           campusId_scope_slug: {
@@ -43,17 +46,37 @@ async function main() {
           },
         },
         update: {
-          isActive: preset.isActive,
-          isPreset: preset.isPreset,
+          isActive: true,
+          isPreset: true,
           label: preset.label,
         },
         create: {
           campusId: campus.id,
-          isActive: preset.isActive,
-          isPreset: preset.isPreset,
+          isActive: true,
+          isPreset: true,
           label: preset.label,
           scope: preset.scope,
           slug: preset.slug,
+        },
+      });
+    }
+
+    for (const word of blockedWordDefaults) {
+      await db.blockedWord.upsert({
+        where: {
+          campusId_normalized: {
+            campusId: campus.id,
+            normalized: word.normalized,
+          },
+        },
+        update: {},
+        create: {
+          campusId: campus.id,
+          category: word.category,
+          enabled: true,
+          normalized: word.normalized,
+          original: word.original,
+          reason: word.reason,
         },
       });
     }

@@ -11,6 +11,7 @@ import { isSameOriginAuthRequest } from '@/lib/auth/request-security';
 import { getDb } from '@/lib/db';
 import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 import { TagValidationError } from '@/lib/validation/tags';
+import { toContentValidationError } from '@/lib/validation/content-errors';
 
 import {
   type ContentAdapter,
@@ -65,7 +66,7 @@ export async function handleCreateContent<T>(
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
-        { message: 'Invalid content details.' },
+        toContentValidationError(parsed.error),
         { status: 400 },
       );
     }
@@ -128,7 +129,7 @@ export async function handleCreateContent<T>(
     }
     if (error instanceof TagValidationError) {
       return NextResponse.json(
-        { message: 'Invalid content details.' },
+        toContentValidationError(error),
         { status: 400 },
       );
     }

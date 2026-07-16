@@ -67,6 +67,11 @@ describe('content creation routes', () => {
       { create: vi.fn(), resolveUser: async () => user },
     );
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      code: 'CONTENT_VALIDATION_FAILED',
+      fieldErrors: { form: ['提交内容包含不支持的字段。'] },
+      message: '请检查标出的内容后重试。',
+    });
   });
 
   it('passes server-owned identity into successful resource creation', async () => {

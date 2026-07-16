@@ -11,6 +11,30 @@ import {
 } from '@/lib/validation/content';
 
 describe('content validation', () => {
+  it('accepts a text-only resource with an empty summary', () => {
+    expect(
+      createResourceSchema.safeParse({
+        assetIds: [],
+        customTags: [],
+        presetTagIds: [],
+        summary: '',
+        title: '课程提示',
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts a short resource summary without requiring twenty characters', () => {
+    expect(
+      createResourceSchema.safeParse({
+        assetIds: [],
+        customTags: [],
+        presetTagIds: [],
+        summary: '重点',
+        title: '课程提示',
+      }).success,
+    ).toBe(true);
+  });
+
   it.each([
     '<img src=x onerror=alert(1)>',
     '<!--comment-->',

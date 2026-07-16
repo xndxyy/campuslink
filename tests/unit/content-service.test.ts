@@ -413,7 +413,7 @@ describe('content service', () => {
     );
   });
 
-  it('rejects a resource without a document with the exact domain message', async () => {
+  it('accepts an image-only resource without a document', async () => {
     const { serviceAdapter } = createAdapter([
       {
         id: 'image_1',
@@ -430,7 +430,19 @@ describe('content service', () => {
         ...resourceInput,
         assetIds: ['image_1'],
       }),
-    ).rejects.toThrow('Resource requires a document');
+    ).resolves.toMatchObject({ id: 'resource_1', status: 'PENDING' });
+  });
+
+  it('accepts a text-only resource without attachments', async () => {
+    const { serviceAdapter } = createAdapter([]);
+
+    await expect(
+      createResource(serviceAdapter, actor, {
+        ...resourceInput,
+        assetIds: [],
+        summary: '',
+      }),
+    ).resolves.toMatchObject({ id: 'resource_1', status: 'PENDING' });
   });
 
   it('rejects a marketplace item without an image', async () => {

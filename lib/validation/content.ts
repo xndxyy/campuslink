@@ -24,12 +24,15 @@ export function plainText(min: number, max: number, label: string) {
 
 const assetIds = z
   .array(z.string().trim().min(1).max(128))
-  .min(1)
   .max(8)
   .refine(
     (values) => new Set(values).size === values.length,
     'Asset IDs must be unique',
   );
+
+const requiredAssetIds = assetIds.refine((values) => values.length > 0, {
+  message: 'At least one asset is required',
+});
 
 const presetTagIds = z
   .array(z.string().trim().min(1).max(191))
@@ -105,7 +108,7 @@ export const createResourceSchema = z
   .object({
     assetIds,
     ...tagSelectionShape,
-    summary: plainText(20, 5_000, 'Summary'),
+    summary: plainText(0, 5_000, 'Summary'),
     title: plainText(3, 200, 'Title'),
   })
   .strict()
@@ -113,7 +116,7 @@ export const createResourceSchema = z
 
 export const createMarketplaceItemSchema = z
   .object({
-    assetIds,
+    assetIds: requiredAssetIds,
     condition: z.enum(marketplaceConditions),
     contact: plainText(3, 300, 'Contact preference'),
     ...tagSelectionShape,
@@ -141,7 +144,7 @@ export const createCampusWorkSchema = z
 export const updateResourceSchema = z
   .object({
     ...tagSelectionShape,
-    summary: plainText(20, 5_000, 'Summary'),
+    summary: plainText(0, 5_000, 'Summary'),
     title: plainText(3, 200, 'Title'),
   })
   .strict()

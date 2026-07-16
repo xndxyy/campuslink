@@ -354,9 +354,6 @@ export async function createResource(
       ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'],
       policy,
     );
-    if (!assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT')) {
-      throw new ContentConflictError('Resource requires a document');
-    }
   }
   const assessment = await prepareContentPublishing(
     actor,
@@ -380,9 +377,6 @@ export async function createResource(
       ['RESOURCE_DOCUMENT', 'RESOURCE_IMAGE'],
       policy,
     );
-    if (!assets.some((asset) => asset.kind === 'RESOURCE_DOCUMENT')) {
-      throw new ContentConflictError('Resource requires a document');
-    }
     const created = await tx.resource.create({
       data: {
         authorId: actor.id,
@@ -1014,22 +1008,12 @@ export async function submitOwnedDraft(
   if (!delegate.updateMany) throw new Error('Unsupported adapter');
   const ownerField = kind === 'marketplace' ? 'sellerId' : 'authorId';
   const assetInvariant =
-    kind === 'resource'
+    kind === 'resource' && requireCleanDocuments(policy)
       ? {
           assets: {
-            ...(requireCleanDocuments(policy)
-              ? {
-                  none: {
-                    kind: 'RESOURCE_DOCUMENT',
-                    scanStatus: { not: 'CLEAN' },
-                  },
-                }
-              : {}),
-            some: {
+            none: {
               kind: 'RESOURCE_DOCUMENT',
-              ownerId: actor.id,
-              ...(requireCleanDocuments(policy) ? { scanStatus: 'CLEAN' } : {}),
-              status: 'READY',
+              scanStatus: { not: 'CLEAN' },
             },
           },
         }

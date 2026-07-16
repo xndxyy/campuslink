@@ -34,19 +34,32 @@ export function SubmissionForm({
     'idle',
   );
   const [message, setMessage] = useState('');
+  const [customTagError, setCustomTagError] = useState('');
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
-    setState('pending');
     setMessage('');
+    setCustomTagError('');
     const values = Object.fromEntries(new FormData(form));
     const body: Record<string, unknown> = { ...values };
     if (kind === 'resource' || kind === 'marketplace') body.assetIds = assetIds;
     body.presetTagIds = tagSelection.presetTagIds;
-    body.customTags = tagSelection.customTags
+    const customTags = tagSelection.customTags
       .map((tag) => tag.trim())
       .filter(Boolean);
+    if (new Set(customTags).size !== customTags.length) {
+      const duplicateMessage = '自定义标签不能重复，请修改第二个标签。';
+      setState('error');
+      setMessage(duplicateMessage);
+      setCustomTagError(duplicateMessage);
+      form
+        .querySelector<HTMLInputElement>('[data-custom-tag-index="1"]')
+        ?.focus();
+      return;
+    }
+    body.customTags = customTags;
+    setState('pending');
     const endpoint =
       kind === 'resource'
         ? 'resources'
@@ -63,6 +76,19 @@ export function SubmissionForm({
         string,
         unknown
       > | null;
+      if (!response.ok)
+        if (
+          result?.fieldErrors &&
+          typeof result.fieldErrors === 'object' &&
+          Array.isArray(
+            (result.fieldErrors as Record<string, unknown>).customTags,
+          )
+        ) {
+          const [firstError] = (
+            result.fieldErrors as Record<string, unknown[]>
+          ).customTags;
+          if (typeof firstError === 'string') setCustomTagError(firstError);
+        }
       if (!response.ok)
         throw new Error(
           contentMutationErrorMessage(result, '提交失败，请稍后重试。'),
@@ -92,11 +118,11 @@ export function SubmissionForm({
         <input name="title" required minLength={3} maxLength={200} />
       </label>
       <label>
-        {kind === 'resource' ? '内容摘要' : '详细说明'}
+        {kind === 'resource' ? '内容说明（可选）' : '详细说明'}
         <textarea
           name={kind === 'resource' ? 'summary' : 'description'}
-          required
-          minLength={20}
+          required={kind !== 'resource'}
+          minLength={kind === 'resource' ? undefined : 20}
           maxLength={5000}
           rows={8}
         />
@@ -109,7 +135,11 @@ export function SubmissionForm({
       ) : null}
       <TagSelector
         availableTags={availableTags}
-        onChange={setTagSelection}
+        customError={customTagError}
+        onChange={(selection) => {
+          setCustomTagError('');
+          setTagSelection(selection);
+        }}
         value={tagSelection}
       />
       {kind === 'marketplace' ? (

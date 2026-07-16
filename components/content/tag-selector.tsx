@@ -38,11 +38,13 @@ export function mergeAvailablePresetTags(
 
 export function TagSelector({
   availableTags,
+  customError,
   historicalTags = [],
   onChange,
   value,
 }: {
   availableTags: AvailableTag[];
+  customError?: string;
   historicalTags?: ContentTag[];
   onChange: (selection: TagSelection) => void;
   value: TagSelection;
@@ -108,7 +110,9 @@ export function TagSelector({
           <label key={index}>
             自定义标签 {index + 1}
             <input
+              aria-invalid={customError ? true : undefined}
               aria-describedby={limitHelpId}
+              data-custom-tag-index={index}
               disabled={!label.trim() && selectedCount >= 5}
               maxLength={32}
               onChange={(event) => updateCustomTag(index, event.target.value)}
@@ -117,6 +121,11 @@ export function TagSelector({
             />
           </label>
         ))}
+        {customError ? (
+          <p className="form-error" role="alert">
+            {customError}
+          </p>
+        ) : null}
         <p className="tag-selector-help">最多添加 2 个自定义标签。</p>
       </div>
       {inactiveHistoricalTags.length > 0 ? (

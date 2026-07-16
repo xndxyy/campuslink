@@ -23,6 +23,7 @@ import {
   updateResourceSchema,
 } from '@/lib/validation/content';
 import { TagValidationError } from '@/lib/validation/tags';
+import { toContentValidationError } from '@/lib/validation/content-errors';
 import {
   ContentBlockedError,
   createConfiguredPublishingPolicy,
@@ -88,7 +89,7 @@ export async function handleContentAction(
       body?.action === 'edit' ? editSchema.safeParse(body.data) : null;
     if (parsedEdit && !parsedEdit.success) {
       return NextResponse.json(
-        { message: 'Invalid content details.' },
+        toContentValidationError(parsedEdit.error),
         { status: 400 },
       );
     }
@@ -155,7 +156,7 @@ export async function handleContentAction(
       );
     if (error instanceof TagValidationError)
       return NextResponse.json(
-        { message: 'Invalid content details.' },
+        toContentValidationError(error),
         { status: 400 },
       );
     return NextResponse.json(

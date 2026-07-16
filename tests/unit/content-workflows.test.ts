@@ -177,19 +177,12 @@ describe('owned content workflows', () => {
     });
   });
 
-  it('resubmits a resource only when a ready owned document remains attached', async () => {
+  it('resubmits a text-only resource without requiring an attachment', async () => {
     const { db, updateMany } = adapter();
     await submitOwnedDraft(db, actor, 'resource', 'resource_1');
     expect(updateMany).toHaveBeenCalledWith({
       data: { status: 'PENDING' },
       where: {
-        assets: {
-          some: {
-            kind: 'RESOURCE_DOCUMENT',
-            ownerId: actor.id,
-            status: 'READY',
-          },
-        },
         authorId: actor.id,
         id: 'resource_1',
         status: 'DRAFT',
@@ -197,7 +190,7 @@ describe('owned content workflows', () => {
     });
   });
 
-  it('requires every attached document to be clean in production resubmission', async () => {
+  it('rejects any attached unclean document in production resubmission', async () => {
     const { db, updateMany } = adapter();
     await submitOwnedDraft(db, actor, 'resource', 'resource_1', {
       requireCleanDocuments: true,
@@ -209,12 +202,6 @@ describe('owned content workflows', () => {
           none: {
             kind: 'RESOURCE_DOCUMENT',
             scanStatus: { not: 'CLEAN' },
-          },
-          some: {
-            kind: 'RESOURCE_DOCUMENT',
-            ownerId: actor.id,
-            scanStatus: 'CLEAN',
-            status: 'READY',
           },
         },
         authorId: actor.id,

@@ -45,17 +45,30 @@ export function EditContentForm({
   }));
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
+  const [customTagError, setCustomTagError] = useState('');
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
+    const form = event.currentTarget;
     setMessage('');
+    setCustomTagError('');
     const values: Record<string, unknown> = Object.fromEntries(
-      new FormData(event.currentTarget),
+      new FormData(form),
     );
     values.presetTagIds = tagSelection.presetTagIds;
-    values.customTags = tagSelection.customTags
+    const customTags = tagSelection.customTags
       .map((value) => value.trim())
       .filter(Boolean);
+    if (new Set(customTags).size !== customTags.length) {
+      const duplicateMessage = '自定义标签不能重复，请修改第二个标签。';
+      setMessage(duplicateMessage);
+      setCustomTagError(duplicateMessage);
+      form
+        .querySelector<HTMLInputElement>('[data-custom-tag-index="1"]')
+        ?.focus();
+      return;
+    }
+    values.customTags = customTags;
+    setPending(true);
     const endpoint =
       kind === 'resource'
         ? 'resources'
@@ -68,9 +81,13 @@ export function EditContentForm({
       method: 'PATCH',
     });
     const body = (await response.json().catch(() => null)) as {
+      fieldErrors?: Record<string, string[]>;
       message?: string;
     } | null;
-    if (!response.ok) setMessage(body?.message ?? '保存失败，请重试。');
+    if (!response.ok) {
+      setCustomTagError(body?.fieldErrors?.customTags?.[0] ?? '');
+      setMessage(body?.message ?? '保存失败，请重试。');
+    }
     else {
       setMessage('已保存为草稿。');
       router.push('/me/submissions');
@@ -95,11 +112,11 @@ export function EditContentForm({
         <input defaultValue={String(item.title ?? '')} name="title" required />
       </label>
       <label>
-        {kind === 'resource' ? '内容摘要' : '详细说明'}
+        {kind === 'resource' ? '内容说明（可选）' : '详细说明'}
         <textarea
           defaultValue={String(item.summary ?? item.description ?? '')}
           name={kind === 'resource' ? 'summary' : 'description'}
-          required
+          required={kind !== 'resource'}
           rows={8}
         />
       </label>
@@ -143,8 +160,12 @@ export function EditContentForm({
       ) : null}
       <TagSelector
         availableTags={availableTags}
+        customError={customTagError}
         historicalTags={historicalTags}
-        onChange={setTagSelection}
+        onChange={(selection) => {
+          setCustomTagError('');
+          setTagSelection(selection);
+        }}
         value={tagSelection}
       />
       {kind === 'campus-work' ? (

@@ -51,17 +51,11 @@ export async function handleAnnouncementPost(
     const actor = await actorForRequest(dependencies);
     const body = await readInput(request);
     if (body instanceof JsonBodyError) {
-      return adminJson(
-        { message: '公告请求无效。' },
-        { status: body.status },
-      );
+      return adminJson({ message: '公告请求无效。' }, { status: body.status });
     }
     const parsed = announcementInput.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '公告请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '公告请求无效。' }, { status: 400 });
     }
     const result = dependencies.create
       ? await dependencies.create(actor, parsed.data)
@@ -87,17 +81,11 @@ export async function handleAnnouncementDelete(
     const actor = await actorForRequest(dependencies);
     const body = await readInput(request);
     if (body instanceof JsonBodyError) {
-      return adminJson(
-        { message: '公告请求无效。' },
-        { status: body.status },
-      );
+      return adminJson({ message: '公告请求无效。' }, { status: body.status });
     }
     const parsed = deletionInput.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '公告请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '公告请求无效。' }, { status: 400 });
     }
     const result = dependencies.remove
       ? await dependencies.remove(actor, parsed.data.id)

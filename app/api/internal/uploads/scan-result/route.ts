@@ -47,10 +47,7 @@ export async function handleAssetScanCallback(
     ? authorization.slice('Bearer '.length)
     : '';
   if (!token || !secureEqual(token, secret)) {
-    return NextResponse.json(
-      { message: '身份验证失败。' },
-      { status: 401 },
-    );
+    return NextResponse.json({ message: '身份验证失败。' }, { status: 401 });
   }
 
   let body: unknown;
@@ -64,10 +61,7 @@ export async function handleAssetScanCallback(
   }
   const parsed = scanResultSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { message: '扫描结果无效。' },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: '扫描结果无效。' }, { status: 400 });
   }
 
   try {

@@ -7,7 +7,10 @@ for (const viewport of [
   test(`keeps the approved homepage copy and footer layout on ${viewport.name}`, async ({
     page,
   }) => {
-    await page.setViewportSize({ height: viewport.height, width: viewport.width });
+    await page.setViewportSize({
+      height: viewport.height,
+      width: viewport.width,
+    });
     await page.goto('/');
 
     await expect(
@@ -34,7 +37,9 @@ for (const viewport of [
       };
     });
 
-    expect(layout.footerBottom).toBeGreaterThanOrEqual(layout.viewportHeight - 1);
+    expect(layout.footerBottom).toBeGreaterThanOrEqual(
+      layout.viewportHeight - 1,
+    );
     expect(layout.footerTop).toBeGreaterThanOrEqual(layout.mainBottom - 1);
     expect(layout.overflow).toBeLessThanOrEqual(1);
   });

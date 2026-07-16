@@ -11,9 +11,7 @@ export default async function VerifyPage({ searchParams }: VerifyPageProps) {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 p-6">
       <section className="w-full max-w-md rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-        <h1 className="text-2xl font-bold text-slate-950">
-          验证邮箱
-        </h1>
+        <h1 className="text-2xl font-bold text-slate-950">验证邮箱</h1>
         {sent ? (
           <p
             className="mt-4 rounded-md bg-blue-50 p-3 text-sm text-blue-900"

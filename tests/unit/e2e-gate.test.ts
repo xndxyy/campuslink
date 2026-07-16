@@ -46,4 +46,28 @@ describe('E2E environment gate', () => {
       shouldRunSharedAccountE2e({ ...complete(), CI: 'true' }),
     ).toThrow('CI requires shared-account E2E fixtures');
   });
+
+  it('requires AI administration keys for the publishing-governance workflow', () => {
+    const shouldRunPublishingGovernanceE2e = (
+      e2eEnvironment as unknown as {
+        shouldRunPublishingGovernanceE2e?: (
+          environment: Record<string, string | undefined>,
+        ) => boolean;
+      }
+    ).shouldRunPublishingGovernanceE2e;
+    expect(typeof shouldRunPublishingGovernanceE2e).toBe('function');
+    if (!shouldRunPublishingGovernanceE2e) return;
+    expect(shouldRunPublishingGovernanceE2e(complete())).toBe(false);
+    expect(() =>
+      shouldRunPublishingGovernanceE2e({ ...complete(), CI: 'true' }),
+    ).toThrow('CI requires publishing-governance E2E fixtures');
+    expect(
+      shouldRunPublishingGovernanceE2e({
+        ...complete(),
+        AI_ALLOWED_HOSTS: 'api.openai.com',
+        AI_CONFIG_ENCRYPTION_KEY_V1:
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      }),
+    ).toBe(true);
+  });
 });

@@ -60,10 +60,7 @@ export async function handleModerationMutation(
     }
     const parsed = mutationSchema.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '内容审核请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '内容审核请求无效。' }, { status: 400 });
     }
     const actor = { campusId: user.campusId, id: user.id, role: user.role };
     const result = dependencies.mutate
@@ -96,10 +93,7 @@ export async function GET(request: Request) {
       Object.fromEntries(new URL(request.url).searchParams),
     );
     if (!parsed.success) {
-      return adminJson(
-        { message: '审核队列请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '审核队列请求无效。' }, { status: 400 });
     }
     const items = await listModerationContent(
       getDb() as unknown as ModerationAdapter,

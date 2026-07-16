@@ -156,7 +156,7 @@ async function signIn(
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
 }
 
@@ -183,7 +183,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
       .locator('input[type="file"]')
       .first()
       .setInputFiles(path.resolve('tests/fixtures/resource.pdf'));
-    await expect(page.getByText('Upload is ready.')).toBeVisible();
+    await expect(page.getByText('文件上传完成。')).toBeVisible();
     await page.locator('button[type="submit"]').last().click();
     await expect(page.locator('[aria-live="polite"]').last()).toContainText(
       '审核',
@@ -203,7 +203,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
     await page
       .locator('input[type="file"]')
       .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
-    await expect(page.getByText('Upload is ready.')).toBeVisible();
+    await expect(page.getByText('文件上传完成。')).toBeVisible();
     await page.locator('button[type="submit"]').last().click();
     await expect(page.locator('[aria-live="polite"]').last()).toContainText(
       '审核',
@@ -227,7 +227,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
     for (const title of [resourceTitle, marketplaceTitle, campusWorkTitle]) {
       const row = page.locator('article').filter({ hasText: title }).first();
       await expect(row).toBeVisible();
-      await expect(row).toContainText('PENDING');
+      await expect(row).toContainText('待审核');
     }
 
     const campusWorkRows = await publisher.db.query<{
@@ -358,7 +358,7 @@ test('unverified account is denied sign-in', async ({ page }) => {
   await page
     .locator('input[name="password"]')
     .fill(process.env.E2E_UNVERIFIED_PASSWORD!);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).toHaveURL(/auth\/sign-in\?error=/);
 });
 
@@ -405,9 +405,9 @@ test('owner edits a provisioned rejected record and resubmits it', async ({
     const row = page
       .locator('article')
       .filter({ hasText: `Revised rejected ${kind}` });
-    await expect(row).toContainText('DRAFT');
+    await expect(row).toContainText('草稿');
     await row.getByRole('button', { name: '重新提交' }).click();
-    await expect(row).toContainText('PENDING');
+    await expect(row).toContainText('待审核');
   } finally {
     if (originalRejectedResource) {
       await db.query(

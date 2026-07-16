@@ -35,7 +35,10 @@ function rateLimited(
   retryAfterSeconds: number,
 ): NextResponse {
   const response = json
-    ? NextResponse.json({ message: '操作过于频繁，请稍后再试。' }, { status: 429 })
+    ? NextResponse.json(
+        { message: '操作过于频繁，请稍后再试。' },
+        { status: 429 },
+      )
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/sign-up?error=rate-limit'),
         303,
@@ -71,10 +74,7 @@ export async function POST(request: Request) {
   const parsed = signUpSchema.safeParse(body);
   if (!parsed.success) {
     return json
-      ? NextResponse.json(
-          { message: '注册信息无效。' },
-          { status: 400 },
-        )
+      ? NextResponse.json({ message: '注册信息无效。' }, { status: 400 })
       : NextResponse.redirect(
           getApplicationRedirectUrl('/auth/sign-up?error=invalid'),
           303,

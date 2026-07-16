@@ -98,9 +98,7 @@ describeWithDatabase('password authentication flow', () => {
     if (!verificationUrl) {
       throw new Error('Test mailer did not receive the replacement link.');
     }
-    const replacementToken = new URL(verificationUrl).searchParams.get(
-      'token',
-    );
+    const replacementToken = new URL(verificationUrl).searchParams.get('token');
     if (!replacementToken) {
       throw new Error('Replacement link did not contain a token.');
     }

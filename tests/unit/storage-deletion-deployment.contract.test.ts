@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -227,5 +227,15 @@ describe('queued storage deletion deployment contract', () => {
     expect(checklist).toContain('deferred');
     expect(checklist).toContain('oldestPendingAgeSeconds');
     expect(checklist).toMatch(/1 小时|3600 秒/);
+  });
+
+  it('restarts the application before restoring the maintenance timer', () => {
+    const deliveryPath = resolve(root, 'docs/DELIVERY.md');
+    expect(existsSync(deliveryPath)).toBe(true);
+    if (!existsSync(deliveryPath)) return;
+    const delivery = read('docs/DELIVERY.md');
+    expect(delivery.indexOf('systemctl restart campuslink\n')).toBeLessThan(
+      delivery.indexOf('systemctl restart campuslink-upload-cleanup.timer'),
+    );
   });
 });

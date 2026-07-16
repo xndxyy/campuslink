@@ -87,8 +87,7 @@ export function EditContentForm({
     if (!response.ok) {
       setCustomTagError(body?.fieldErrors?.customTags?.[0] ?? '');
       setMessage(body?.message ?? '保存失败，请重试。');
-    }
-    else {
+    } else {
       setMessage('已保存为草稿。');
       router.push('/me/submissions');
       router.refresh();

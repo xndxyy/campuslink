@@ -127,7 +127,7 @@ test('verified member favourites, reports, and requests marketplace contact', as
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(reporterEmail);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
   const sessionCookie = (await page.context().cookies()).find(
     (cookie) =>
@@ -148,22 +148,20 @@ test('verified member favourites, reports, and requests marketplace contact', as
   sessionId = session.rows[0]!.id;
 
   await page.goto(`/marketplace/${targetId}`);
-  const favourite = page.getByRole('button', { name: 'Add favourite' });
+  const favourite = page.getByRole('button', { name: '收藏' });
   await favourite.click();
-  await expect(
-    page.getByRole('button', { name: 'Remove favourite' }),
-  ).toBeVisible();
-  await page.getByRole('button', { name: 'Remove favourite' }).click();
-  await expect(
-    page.getByRole('button', { name: 'Add favourite' }),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: '取消收藏' })).toBeVisible();
+  await page.getByRole('button', { name: '取消收藏' }).click();
+  await expect(page.getByRole('button', { name: '收藏' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Report content' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Report this content' });
-  await dialog.getByLabel('Reason').selectOption('MISLEADING');
-  await dialog.getByLabel('Optional details').fill(reportDetails);
-  await dialog.getByRole('button', { name: 'Submit report' }).click();
-  await expect(page.getByText(/Report received/)).toBeVisible();
+  await page.getByRole('button', { name: '举报内容' }).click();
+  const dialog = page.getByRole('dialog', { name: '举报此内容' });
+  await dialog.getByLabel('举报原因').selectOption('MISLEADING');
+  await dialog.getByLabel('补充说明（可选）').fill(reportDetails);
+  await dialog.getByRole('button', { name: '提交举报' }).click();
+  await expect(
+    page.getByText('举报已提交，感谢你帮助维护校园社区。'),
+  ).toBeVisible();
   const report = await db.query<{ id: string }>(
     `SELECT id FROM "Report"
      WHERE "reporterId" = $1 AND "targetType" = 'MARKETPLACE_ITEM'
@@ -174,7 +172,7 @@ test('verified member favourites, reports, and requests marketplace contact', as
   reportId = report.rows[0]!.id;
 
   await expect(page.locator('.revealed-contact')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Request contact' }).click();
+  await page.getByRole('button', { name: '查看联系方式' }).click();
   await expect(page.locator('.revealed-contact')).toBeVisible();
   const auditResult = await db.query<{ id: string }>(
     `SELECT id FROM "AuditLog"

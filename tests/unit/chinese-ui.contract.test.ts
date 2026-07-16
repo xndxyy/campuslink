@@ -56,7 +56,9 @@ function visibleEnglish(path: string) {
     }
     if (
       ts.isJsxAttribute(node) &&
-      ['aria-label', 'placeholder', 'title'].includes(node.name.getText(file)) &&
+      ['aria-label', 'placeholder', 'title'].includes(
+        node.name.getText(file),
+      ) &&
       node.initializer &&
       ts.isStringLiteral(node.initializer)
     ) {

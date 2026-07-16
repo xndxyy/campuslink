@@ -21,14 +21,11 @@ export function CampusSettingsForm({ name }: { name: string }) {
         method: 'POST',
       });
       const result = (await response.json()) as { message?: string };
-      if (!response.ok)
-        throw new Error(result.message ?? '设置更新失败。');
+      if (!response.ok) throw new Error(result.message ?? '设置更新失败。');
       setMessage('校区设置已更新并写入审计日志。');
       router.refresh();
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : '设置更新失败。',
-      );
+      setMessage(error instanceof Error ? error.message : '设置更新失败。');
     } finally {
       setPending(false);
     }

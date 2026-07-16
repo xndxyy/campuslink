@@ -216,48 +216,55 @@ describe('content creation routes', () => {
     ['resource', 'resources'],
     ['marketplace', 'marketplace'],
     ['campus-work', 'campus-work'],
-  ] as const)('deletes owned %s content through a same-origin request', async (kind, endpoint) => {
-    const remove = vi.fn(async () => ({
-      archived: false,
-      deleted: true,
-      id: 'content_1',
-    }));
-    const deleteRequest = new Request(
-      `http://localhost/api/${endpoint}/content_1`,
-      {
-        headers: {
-          origin: new URL(process.env.APP_URL ?? 'http://localhost:3000')
-            .origin,
+  ] as const)(
+    'deletes owned %s content through a same-origin request',
+    async (kind, endpoint) => {
+      const remove = vi.fn(async () => ({
+        archived: false,
+        deleted: true,
+        id: 'content_1',
+      }));
+      const deleteRequest = new Request(
+        `http://localhost/api/${endpoint}/content_1`,
+        {
+          headers: {
+            origin: new URL(process.env.APP_URL ?? 'http://localhost:3000')
+              .origin,
+          },
+          method: 'DELETE',
         },
-        method: 'DELETE',
-      },
-    );
+      );
 
-    const response = await handleContentDelete(
-      deleteRequest,
-      kind,
-      'content_1',
-      { adapter: {} as ContentAdapter, remove, resolveUser: async () => user },
-    );
+      const response = await handleContentDelete(
+        deleteRequest,
+        kind,
+        'content_1',
+        {
+          adapter: {} as ContentAdapter,
+          remove,
+          resolveUser: async () => user,
+        },
+      );
 
-    expect(response.status).toBe(200);
-    expect(remove).toHaveBeenCalledWith(
-      expect.anything(),
-      {
-        campusId: user.campusId,
-        id: user.id,
-        role: user.role,
-      },
-      kind,
-      'content_1',
-    );
-    await expect(response.json()).resolves.toStrictEqual({
-      archived: false,
-      deleted: true,
-      id: 'content_1',
-      message: '内容已永久删除。',
-    });
-  });
+      expect(response.status).toBe(200);
+      expect(remove).toHaveBeenCalledWith(
+        expect.anything(),
+        {
+          campusId: user.campusId,
+          id: user.id,
+          role: user.role,
+        },
+        kind,
+        'content_1',
+      );
+      await expect(response.json()).resolves.toStrictEqual({
+        archived: false,
+        deleted: true,
+        id: 'content_1',
+        message: '内容已永久删除。',
+      });
+    },
+  );
 
   it('explains evidence retention after an owner deletion request', async () => {
     const response = await handleContentDelete(

@@ -3,8 +3,11 @@ import { existsSync } from 'node:fs';
 
 const requiredReleaseFiles = [
   'prisma/migrations/20260713220000_contract_legacy_content/migration.sql',
+  'prisma/migrations/20260717100000_seed_publishing_defaults/migration.sql',
+  'prisma/migrations/20260717110000_add_owner_deletion_requests/migration.sql',
   'tests/e2e/authorization.spec.ts',
   'tests/e2e/moderation-ai.spec.ts',
+  'tests/e2e/publishing-governance.spec.ts',
 ] as const;
 
 for (const path of requiredReleaseFiles) {

@@ -69,6 +69,7 @@ describe('release contract', () => {
       '.github/workflows/ci.yml',
       'scripts/verify-release.ts',
       'scripts/provision-e2e.ts',
+      'docs/DELIVERY.md',
       'docs/deployment.md',
       'docs/operations.md',
       'docs/security.md',
@@ -94,6 +95,35 @@ describe('release contract', () => {
     expect(releaseScript).toContain('process.env.npm_execpath');
     expect(releaseScript).toContain('spawnSync(process.execPath');
     expect(releaseScript).not.toContain('shell:');
+  });
+
+  it('documents the production deployment order and read-only governance checks', () => {
+    const delivery = read('docs/DELIVERY.md');
+    const orderedCommands = [
+      'npm ci',
+      'npm run db:generate',
+      'npm run build',
+      'npm run db:migrate:deploy',
+      'npm prune --omit=dev',
+      'systemctl restart campuslink',
+      'systemctl restart campuslink-upload-cleanup.timer',
+    ];
+    let previous = -1;
+    for (const command of orderedCommands) {
+      const index = delivery.indexOf(command);
+      expect(index, command).toBeGreaterThan(previous);
+      previous = index;
+    }
+    expect(delivery).toContain('不得运行 `prisma db seed`');
+    expect(delivery).toContain('prisma migrate status');
+    expect(delivery).toMatch(/GROUP BY\s+scope/i);
+    expect(delivery).toMatch(/"BlockedWord"[\s\S]*enabled\s*=\s*true/i);
+    expect(delivery).toContain('systemctl is-active campuslink');
+    expect(delivery).toContain(
+      'systemctl is-active campuslink-upload-cleanup.timer',
+    );
+    expect(delivery).toContain('https://swuerlink.top/');
+    expect(delivery).toContain('https://swuerlink.top/auth/sign-in');
   });
 
   it('documents open registration against the active default CampusLink community', () => {
@@ -173,8 +203,11 @@ describe('release contract', () => {
     const releaseScript = read('scripts/verify-release.ts');
     for (const path of [
       'prisma/migrations/20260713220000_contract_legacy_content/migration.sql',
+      'prisma/migrations/20260717100000_seed_publishing_defaults/migration.sql',
+      'prisma/migrations/20260717110000_add_owner_deletion_requests/migration.sql',
       'tests/e2e/authorization.spec.ts',
       'tests/e2e/moderation-ai.spec.ts',
+      'tests/e2e/publishing-governance.spec.ts',
     ]) {
       expect(releaseScript, path).toContain(path);
     }

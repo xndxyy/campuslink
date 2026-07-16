@@ -126,8 +126,7 @@ async function handleFavouriteMutation(
     if (body instanceof JsonBodyError)
       return json({ message: '收藏信息无效。' }, body.status);
     const parsed = favouriteSchema.safeParse(body);
-    if (!parsed.success)
-      return json({ message: '收藏信息无效。' }, 400);
+    if (!parsed.success) return json({ message: '收藏信息无效。' }, 400);
     const actor = { campusId: user.campusId, id: user.id };
     const mutate =
       dependencies.mutate ??
@@ -180,8 +179,7 @@ export async function handleReportPost(
     if (body instanceof JsonBodyError)
       return json({ message: '举报信息无效。' }, body.status);
     const parsed = reportSchema.safeParse(body);
-    if (!parsed.success)
-      return json({ message: '举报信息无效。' }, 400);
+    if (!parsed.success) return json({ message: '举报信息无效。' }, 400);
     const actor = {
       campusId: user.campusId,
       emailVerifiedAt: user.emailVerifiedAt,
@@ -241,11 +239,9 @@ export async function handleMarketplaceContactPost(
       `email:${user.email.toLowerCase()}`,
     );
     if (!rate.allowed) {
-      return json(
-        { message: '查看联系方式过于频繁，请稍后再试。' },
-        429,
-        { 'Retry-After': String(rate.retryAfterSeconds) },
-      );
+      return json({ message: '查看联系方式过于频繁，请稍后再试。' }, 429, {
+        'Retry-After': String(rate.retryAfterSeconds),
+      });
     }
     const actor = { campusId: user.campusId, id: user.id };
     const result = dependencies.contact

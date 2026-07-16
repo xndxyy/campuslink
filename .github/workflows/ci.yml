@@ -37,6 +37,8 @@ jobs:
           - 8025:8025
     env:
       ALLOW_DESTRUCTIVE_E2E: 'true'
+      AI_ALLOWED_HOSTS: api.openai.com
+      AI_CONFIG_ENCRYPTION_KEY_V1: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       APP_URL: http://127.0.0.1:3000
       DATABASE_URL: postgresql://campuslink:campuslink_test_password@127.0.0.1:5432/campuslink_test
       E2E_PUBLISHED_MARKETPLACE_ID: e2e-published-marketplace

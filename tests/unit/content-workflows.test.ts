@@ -274,7 +274,15 @@ describe('owned content workflows', () => {
       expect(db.favourite.deleteMany).toHaveBeenCalledWith({
         where: { targetId: 'resource_1', targetType },
       });
-      expect(db[kind === 'resource' ? 'resource' : kind === 'marketplace' ? 'marketplaceItem' : 'campusWorkPost'].deleteMany).toHaveBeenCalledWith({
+      expect(
+        db[
+          kind === 'resource'
+            ? 'resource'
+            : kind === 'marketplace'
+              ? 'marketplaceItem'
+              : 'campusWorkPost'
+        ].deleteMany,
+      ).toHaveBeenCalledWith({
         where: {
           campusId: actor.campusId,
           id: 'resource_1',

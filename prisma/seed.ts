@@ -9,10 +9,7 @@ import {
 } from '../generated/prisma/client';
 import { createDbClient } from '../lib/db';
 import { seedForumCategories } from './seed-data';
-import {
-  blockedWordDefaults,
-  presetTagDefaults,
-} from './default-content-data';
+import { blockedWordDefaults, presetTagDefaults } from './default-content-data';
 
 const passwordHash =
   '$2b$12$3PhfWpsS2TCwMa.ASaQKOeM.A7RZOc4xS5b07a0PWAZDvQkQ9t6Mi';

@@ -24,7 +24,10 @@ describeWithDatabase('owned content deletion', () => {
     role: 'STUDENT' as const,
   });
 
-  async function createResourceFixture(status: 'DRAFT' | 'PENDING' | 'PUBLISHED' | 'REJECTED' | 'HIDDEN' | 'ARCHIVED') {
+  async function createResourceFixture(
+    status:
+      'DRAFT' | 'PENDING' | 'PUBLISHED' | 'REJECTED' | 'HIDDEN' | 'ARCHIVED',
+  ) {
     const id = `delete-resource-${randomUUID()}`;
     const storageKey = `deletion-test/${randomUUID()}.pdf`;
     storageKeys.push(storageKey);
@@ -86,10 +89,16 @@ describeWithDatabase('owned content deletion', () => {
     try {
       if (campusId) {
         await db.report.deleteMany({ where: { campusId } });
-        await db.favourite.deleteMany({ where: { userId: { in: [ownerId, otherId] } } });
-        await db.asset.deleteMany({ where: { ownerId: { in: [ownerId, otherId] } } });
+        await db.favourite.deleteMany({
+          where: { userId: { in: [ownerId, otherId] } },
+        });
+        await db.asset.deleteMany({
+          where: { ownerId: { in: [ownerId, otherId] } },
+        });
         await db.resource.deleteMany({ where: { campusId } });
-        await db.storageDeletionJob.deleteMany({ where: { storageKey: { in: storageKeys } } });
+        await db.storageDeletionJob.deleteMany({
+          where: { storageKey: { in: storageKeys } },
+        });
         await db.user.deleteMany({ where: { campusId } });
         await db.campus.delete({ where: { id: campusId } });
       }
@@ -98,7 +107,14 @@ describeWithDatabase('owned content deletion', () => {
     }
   });
 
-  it.each(['DRAFT', 'PENDING', 'PUBLISHED', 'REJECTED', 'HIDDEN', 'ARCHIVED'] as const)(
+  it.each([
+    'DRAFT',
+    'PENDING',
+    'PUBLISHED',
+    'REJECTED',
+    'HIDDEN',
+    'ARCHIVED',
+  ] as const)(
     'deletes an owned resource in %s state when there is no active report',
     async (status) => {
       const fixture = await createResourceFixture(status);
@@ -109,10 +125,18 @@ describeWithDatabase('owned content deletion', () => {
         fixture.id,
       );
 
-      expect(result).toEqual({ archived: false, deleted: true, id: fixture.id });
-      await expect(db.resource.findUnique({ where: { id: fixture.id } })).resolves.toBeNull();
+      expect(result).toEqual({
+        archived: false,
+        deleted: true,
+        id: fixture.id,
+      });
       await expect(
-        db.storageDeletionJob.count({ where: { storageKey: fixture.storageKey } }),
+        db.resource.findUnique({ where: { id: fixture.id } }),
+      ).resolves.toBeNull();
+      await expect(
+        db.storageDeletionJob.count({
+          where: { storageKey: fixture.storageKey },
+        }),
       ).resolves.toBe(1);
     },
   );
@@ -138,12 +162,16 @@ describeWithDatabase('owned content deletion', () => {
     );
 
     expect(result).toEqual({ archived: true, deleted: false, id: fixture.id });
-    await expect(db.resource.findUnique({ where: { id: fixture.id } })).resolves.toMatchObject({
+    await expect(
+      db.resource.findUnique({ where: { id: fixture.id } }),
+    ).resolves.toMatchObject({
       ownerDeletionRequestedAt: expect.any(Date),
       status: 'ARCHIVED',
     });
     await expect(
-      db.storageDeletionJob.count({ where: { storageKey: fixture.storageKey } }),
+      db.storageDeletionJob.count({
+        where: { storageKey: fixture.storageKey },
+      }),
     ).resolves.toBe(0);
   });
 
@@ -159,7 +187,9 @@ describeWithDatabase('owned content deletion', () => {
       ),
     ).rejects.toBeInstanceOf(ContentNotFoundError);
     await expect(
-      db.storageDeletionJob.count({ where: { storageKey: fixture.storageKey } }),
+      db.storageDeletionJob.count({
+        where: { storageKey: fixture.storageKey },
+      }),
     ).resolves.toBe(0);
   });
 });

@@ -133,10 +133,7 @@ export async function handleTagPost(
     }
     const parsed = mutationSchema.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '标签管理请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '标签管理请求无效。' }, { status: 400 });
     }
     const { action, ...input } = parsed.data;
     let result: unknown;

@@ -30,10 +30,7 @@ export async function POST(request: Request) {
   const json = wantsJson(request);
   if (!isSameOriginAuthRequest(request)) {
     return json
-      ? NextResponse.json(
-          { message: '请求来源无效。' },
-          { status: 403 },
-        )
+      ? NextResponse.json({ message: '请求来源无效。' }, { status: 403 })
       : NextResponse.redirect(
           getApplicationRedirectUrl('/auth/verify?error=origin'),
           303,

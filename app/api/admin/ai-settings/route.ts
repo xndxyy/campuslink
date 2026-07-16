@@ -80,10 +80,7 @@ export async function handleAiSettingsPost(
       !parsed.success ||
       parsed.data.reviewThreshold >= parsed.data.blockThreshold
     )
-      return adminJson(
-        { message: 'AI 设置请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: 'AI 设置请求无效。' }, { status: 400 });
     if (dependencies.save)
       return adminJson(await dependencies.save(actor(user), parsed.data));
     const encryption = loadAiEncryptionKey();

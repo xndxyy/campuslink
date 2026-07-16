@@ -322,7 +322,7 @@ async function signIn(
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
   const sessionCookie = (await page.context().cookies()).find(
     (cookie) =>
@@ -359,38 +359,38 @@ test('run-scoped moderator executes the complete content and report lifecycle', 
   await signIn(page, moderatorEmail, moderatorId);
   await page.goto('/admin/moderation?status=PENDING');
   const pendingRow = page.locator('tr').filter({ hasText: pendingTitle });
-  await pendingRow.getByRole('button', { name: 'Approve' }).click();
-  const approveDialog = page.getByRole('dialog', { name: 'Approve' });
+  await pendingRow.getByRole('button', { name: '通过' }).click();
+  const approveDialog = page.getByRole('dialog', { name: '通过' });
   await approveDialog
-    .getByLabel('Decision reason')
+    .getByLabel('审核原因')
     .fill('Run-scoped review confirms this resource meets campus policy.');
-  await approveDialog.getByRole('button', { name: 'Confirm Approve' }).click();
+  await approveDialog.getByRole('button', { name: '确认通过' }).click();
 
   const rejectedRow = page.locator('tr').filter({ hasText: rejectedTitle });
-  await rejectedRow.getByRole('button', { name: 'Reject' }).click();
-  const rejectDialog = page.getByRole('dialog', { name: 'Reject' });
+  await rejectedRow.getByRole('button', { name: '拒绝' }).click();
+  const rejectDialog = page.getByRole('dialog', { name: '拒绝' });
   await rejectDialog
-    .getByLabel('Decision reason')
+    .getByLabel('审核原因')
     .fill('Run-scoped review found required attribution was missing.');
-  await rejectDialog.getByRole('button', { name: 'Confirm Reject' }).click();
+  await rejectDialog.getByRole('button', { name: '确认拒绝' }).click();
 
   await page.goto('/admin/moderation?status=HIDDEN');
   const hiddenRow = page.locator('tr').filter({ hasText: hiddenTitle });
-  await hiddenRow.getByRole('button', { name: 'Restore' }).click();
-  const restoreDialog = page.getByRole('dialog', { name: 'Restore' });
+  await hiddenRow.getByRole('button', { name: '恢复' }).click();
+  const restoreDialog = page.getByRole('dialog', { name: '恢复' });
   await restoreDialog
-    .getByLabel('Decision reason')
+    .getByLabel('审核原因')
     .fill('Run-scoped follow-up confirms the corrected resource is safe.');
-  await restoreDialog.getByRole('button', { name: 'Confirm Restore' }).click();
+  await restoreDialog.getByRole('button', { name: '确认恢复' }).click();
 
   await page.goto('/admin/reports');
   const report = page.locator('article').filter({ hasText: reportDetails });
-  await report.getByRole('button', { name: 'Review report' }).click();
-  let reportDialog = page.getByRole('dialog', { name: 'Resolve report' });
+  await report.getByRole('button', { name: '处理举报' }).click();
+  let reportDialog = page.getByRole('dialog', { name: '处理举报' });
   await reportDialog
-    .getByLabel('Resolution reason')
+    .getByLabel('处理原因')
     .fill('Run-scoped triage assigns this report for complete review.');
-  await reportDialog.getByRole('button', { name: 'Record outcome' }).click();
+  await reportDialog.getByRole('button', { name: '记录处理结果' }).click();
   await expect
     .poll(async () => {
       const result = await db!.query<{ status: string }>(
@@ -405,16 +405,14 @@ test('run-scoped moderator executes the complete content and report lifecycle', 
   const triagedReport = page
     .locator('article')
     .filter({ hasText: reportDetails });
-  await triagedReport.getByRole('button', { name: 'Review report' }).click();
-  reportDialog = page.getByRole('dialog', { name: 'Resolve report' });
-  await reportDialog.getByLabel('Outcome').selectOption('RESOLVE');
+  await triagedReport.getByRole('button', { name: '处理举报' }).click();
+  reportDialog = page.getByRole('dialog', { name: '处理举报' });
+  await reportDialog.getByLabel('处理方式').selectOption('RESOLVE');
   await reportDialog
-    .getByLabel('Resolution reason')
+    .getByLabel('处理原因')
     .fill('Run-scoped review confirms prohibited material must be hidden.');
-  await reportDialog
-    .getByLabel('Hide the published target when resolving')
-    .check();
-  await reportDialog.getByRole('button', { name: 'Record outcome' }).click();
+  await reportDialog.getByLabel('确认举报时隐藏已发布内容').check();
+  await reportDialog.getByRole('button', { name: '记录处理结果' }).click();
 
   await expect
     .poll(async () => {
@@ -526,12 +524,12 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
     .toBe('1');
 
   await page.goto('/admin/settings');
-  await expect(page.getByLabel('Allowed email domain')).toHaveCount(0);
-  await page.getByLabel('Campus name').fill(`${campusName} Updated`);
+  await expect(page.getByLabel('允许邮箱域名')).toHaveCount(0);
+  await page.getByLabel('校区名称').fill(`${campusName} Updated`);
   await page
-    .getByLabel('Change reason')
+    .getByLabel('变更原因')
     .fill('Run-scoped administrator verifies isolated campus settings.');
-  await page.getByRole('button', { name: 'Save audited settings' }).click();
+  await page.getByRole('button', { name: '保存设置' }).click();
   await expect
     .poll(async () => {
       const result = await db!.query<{ name: string }>(
@@ -547,5 +545,5 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
   );
   await expect(page.locator('input[name="actor"]')).toHaveValue(adminId);
   await expect(page.getByText('USER_ROLE_CHANGED').first()).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Next page' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '下一页' })).toBeVisible();
 });

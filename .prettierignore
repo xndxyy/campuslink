@@ -3,6 +3,7 @@ node_modules
 coverage
 playwright-report
 test-results
+.superpowers
 design
 docs
 README.md

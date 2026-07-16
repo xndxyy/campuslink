@@ -663,10 +663,7 @@ async function findRetainedReportTarget(
             ? 'forum'
             : null;
   if (!kind) return null;
-  const delegate = contentDelegate(
-    adapter,
-    targetType as ContentSubjectType,
-  );
+  const delegate = contentDelegate(adapter, targetType as ContentSubjectType);
   const target = await delegate.findFirst({
     select: {
       ...(kind === 'resource' || kind === 'marketplace'

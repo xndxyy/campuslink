@@ -43,10 +43,7 @@ export async function handleStorageDeletions(
     dependencies.secret ?? process.env.UPLOAD_CLEANUP_SECRET;
   const secret = configuredSecret?.trim();
   if (!secret || secret.length < 32) {
-    return json(
-      { message: '存储清理任务暂时不可用。' },
-      503,
-    );
+    return json({ message: '存储清理任务暂时不可用。' }, 503);
   }
   const authorization = request.headers.get('authorization');
   const token = authorization?.startsWith('Bearer ')

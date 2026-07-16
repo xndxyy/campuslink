@@ -144,10 +144,7 @@ export async function handleUserMutation(
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '用户管理请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '用户管理请求无效。' }, { status: 400 });
     }
     const actor = actorFrom(user);
     let result: unknown;

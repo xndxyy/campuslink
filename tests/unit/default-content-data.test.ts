@@ -16,9 +16,7 @@ const migration = readFileSync(
 
 describe('production publishing defaults', () => {
   it('defines unique preset slugs for all content scopes', () => {
-    const keys = presetTagDefaults.map(
-      (item) => `${item.scope}:${item.slug}`,
-    );
+    const keys = presetTagDefaults.map((item) => `${item.scope}:${item.slug}`);
 
     expect(new Set(keys).size).toBe(keys.length);
     expect(new Set(presetTagDefaults.map((item) => item.scope))).toEqual(

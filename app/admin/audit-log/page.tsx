@@ -142,8 +142,7 @@ export default async function AuditLogPage({
               <span>
                 {entityLabels[String(record.subjectType ?? 'SYSTEM')] ??
                   String(record.subjectType ?? 'SYSTEM')}{' '}
-                ·{' '}
-                {String(record.subjectId ?? '—')}
+                · {String(record.subjectId ?? '—')}
               </span>
               <pre>{JSON.stringify(record.details ?? {}, null, 2)}</pre>
             </li>

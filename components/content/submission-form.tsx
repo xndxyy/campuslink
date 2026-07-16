@@ -84,9 +84,8 @@ export function SubmissionForm({
             (result.fieldErrors as Record<string, unknown>).customTags,
           )
         ) {
-          const [firstError] = (
-            result.fieldErrors as Record<string, unknown[]>
-          ).customTags;
+          const [firstError] = (result.fieldErrors as Record<string, unknown[]>)
+            .customTags;
           if (typeof firstError === 'string') setCustomTagError(firstError);
         }
       if (!response.ok)

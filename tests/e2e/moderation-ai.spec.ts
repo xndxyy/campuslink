@@ -136,7 +136,7 @@ async function signIn(page: import('@playwright/test').Page) {
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
 }
 

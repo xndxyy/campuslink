@@ -27,17 +27,11 @@ export async function POST(request: Request) {
     const user = await requireRole(['ADMIN']);
     const body = await readBoundedJson(request).catch((error) => error);
     if (body instanceof JsonBodyError) {
-      return adminJson(
-        { message: '校区设置无效。' },
-        { status: body.status },
-      );
+      return adminJson({ message: '校区设置无效。' }, { status: body.status });
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '校区设置无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '校区设置无效。' }, { status: 400 });
     }
     const result = await updateCampusConfig(
       getDb() as unknown as AdministrationAdapter,

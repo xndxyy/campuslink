@@ -29,10 +29,7 @@ export async function handleCompleteUpload(
   dependencies: CompleteUploadRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return NextResponse.json(
-      { message: '请求来源无效。' },
-      { status: 403 },
-    );
+    return NextResponse.json({ message: '请求来源无效。' }, { status: 403 });
   }
   if (!(
     request.headers.get('content-type')?.includes('application/json') ?? false
@@ -67,10 +64,7 @@ export async function handleCompleteUpload(
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
-      return NextResponse.json(
-        { message: '请先登录。' },
-        { status: 401 },
-      );
+      return NextResponse.json({ message: '请先登录。' }, { status: 401 });
     }
     if (
       error instanceof VerificationRequiredError ||

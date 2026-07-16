@@ -272,7 +272,7 @@ describe('scoped tag schema contract', () => {
 describe('campus-work preset seed contract', () => {
   it('imports and iterates the shared pure preset data', () => {
     expect(seedSource).toMatch(
-      /import \{[\s\S]*presetTagDefaults,[\s\S]*\} from ['"]\.\/default-content-data['"]/,
+      /import\s*\{[^}]*\bpresetTagDefaults\b[^}]*\}\s*from ['"]\.\/default-content-data['"]/,
     );
     expect(seedSource).not.toMatch(/const presetTagDefaults\s*=/);
     expect(seedSource).toMatch(/for \(const preset of presetTagDefaults\)/);

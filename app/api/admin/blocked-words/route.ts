@@ -95,10 +95,7 @@ export async function handleBlockedWordPost(
       );
     const parsed = mutation.safeParse(body);
     if (!parsed.success)
-      return adminJson(
-        { message: '屏蔽词管理请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '屏蔽词管理请求无效。' }, { status: 400 });
     if (parsed.data.action === 'CREATE')
       return adminJson(
         dependencies.create

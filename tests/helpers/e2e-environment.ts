@@ -28,6 +28,12 @@ export const requiredAiModerationE2eEnvironment = [
   'E2E_AI_MODEL',
 ] as const;
 
+export const requiredPublishingGovernanceE2eEnvironment = [
+  ...requiredE2eEnvironment,
+  'AI_CONFIG_ENCRYPTION_KEY_V1',
+  'AI_ALLOWED_HOSTS',
+] as const;
+
 type Environment = Record<string, string | undefined>;
 
 export function hasCompleteE2eEnvironment(environment: Environment) {
@@ -59,6 +65,20 @@ export function shouldRunSharedAccountE2e(environment: Environment) {
   if (inCi) {
     throw new Error(
       `CI requires shared-account E2E fixtures. Missing: ${missing.join(', ')}`,
+    );
+  }
+  return false;
+}
+
+export function shouldRunPublishingGovernanceE2e(environment: Environment) {
+  const missing = requiredPublishingGovernanceE2eEnvironment.filter(
+    (name) => !environment[name]?.trim(),
+  );
+  if (missing.length === 0) return true;
+  const inCi = ['true', '1', 'yes'].includes(environment.CI ?? '');
+  if (inCi) {
+    throw new Error(
+      `CI requires publishing-governance E2E fixtures. Missing: ${missing.join(', ')}`,
     );
   }
   return false;

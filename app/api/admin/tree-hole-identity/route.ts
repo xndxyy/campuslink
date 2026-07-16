@@ -52,10 +52,7 @@ export async function handleTreeHoleIdentityPost(
     }
     const parsed = revealSchema.safeParse(body);
     if (!parsed.success) {
-      return adminJson(
-        { message: '树洞身份核验请求无效。' },
-        { status: 400 },
-      );
+      return adminJson({ message: '树洞身份核验请求无效。' }, { status: 400 });
     }
     const actor: TreeHoleIdentityActor = {
       campusId: user.campusId,

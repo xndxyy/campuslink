@@ -34,15 +34,12 @@ export function ReportActionForm({
         method: 'POST',
       });
       const result = (await response.json()) as { message?: string };
-      if (!response.ok)
-        throw new Error(result.message ?? '举报处理失败。');
+      if (!response.ok) throw new Error(result.message ?? '举报处理失败。');
       setMessage('举报处理结果已记录。');
       dialog.current?.close();
       router.refresh();
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : '举报处理失败。',
-      );
+      setMessage(error instanceof Error ? error.message : '举报处理失败。');
     } finally {
       setPending(false);
     }

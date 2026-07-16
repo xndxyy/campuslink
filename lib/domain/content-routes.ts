@@ -42,16 +42,10 @@ export async function handleCreateContent<T>(
   dependencies: CreateRouteDependencies<T> = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return NextResponse.json(
-      { message: '请求来源无效。' },
-      { status: 403 },
-    );
+    return NextResponse.json({ message: '请求来源无效。' }, { status: 403 });
   }
   if (!request.headers.get('content-type')?.includes('application/json')) {
-    return NextResponse.json(
-      { message: '内容信息无效。' },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: '内容信息无效。' }, { status: 400 });
   }
 
   try {
@@ -65,10 +59,9 @@ export async function handleCreateContent<T>(
     }
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        toContentValidationError(parsed.error),
-        { status: 400 },
-      );
+      return NextResponse.json(toContentValidationError(parsed.error), {
+        status: 400,
+      });
     }
     const actor = {
       campusId: user.campusId,
@@ -99,10 +92,7 @@ export async function handleCreateContent<T>(
     return NextResponse.json(response, { status: 201 });
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
-      return NextResponse.json(
-        { message: '请先登录。' },
-        { status: 401 },
-      );
+      return NextResponse.json({ message: '请先登录。' }, { status: 401 });
     }
     if (error instanceof VerificationRequiredError) {
       return NextResponse.json(
@@ -128,10 +118,9 @@ export async function handleCreateContent<T>(
       );
     }
     if (error instanceof TagValidationError) {
-      return NextResponse.json(
-        toContentValidationError(error),
-        { status: 400 },
-      );
+      return NextResponse.json(toContentValidationError(error), {
+        status: 400,
+      });
     }
     return NextResponse.json(
       { message: '暂时无法创建内容，请稍后重试。' },

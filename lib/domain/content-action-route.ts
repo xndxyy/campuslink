@@ -98,10 +98,7 @@ export async function handleContentAction(
   dependencies: ContentActionDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request))
-    return NextResponse.json(
-      { message: '请求来源无效。' },
-      { status: 403 },
-    );
+    return NextResponse.json({ message: '请求来源无效。' }, { status: 403 });
   try {
     const user = await requireVerifiedUser(dependencies.resolveUser);
     const body = (await readBoundedJson(request).catch((error) => error)) as
@@ -141,10 +138,9 @@ export async function handleContentAction(
     const parsedEdit =
       body?.action === 'edit' ? editSchema.safeParse(body.data) : null;
     if (parsedEdit && !parsedEdit.success) {
-      return NextResponse.json(
-        toContentValidationError(parsedEdit.error),
-        { status: 400 },
-      );
+      return NextResponse.json(toContentValidationError(parsedEdit.error), {
+        status: 400,
+      });
     }
     const result = parsedEdit?.success
       ? await (dependencies.edit ?? editOwnedContent)(
@@ -167,10 +163,7 @@ export async function handleContentAction(
             )
           : null;
     if (!result)
-      return NextResponse.json(
-        { message: '内容操作无效。' },
-        { status: 400 },
-      );
+      return NextResponse.json({ message: '内容操作无效。' }, { status: 400 });
     return NextResponse.json(
       result.status === 'PENDING'
         ? { ...result, message: '内容正在人工审核。' }
@@ -178,20 +171,14 @@ export async function handleContentAction(
     );
   } catch (error) {
     if (error instanceof AuthenticationRequiredError)
-      return NextResponse.json(
-        { message: '请先登录。' },
-        { status: 401 },
-      );
+      return NextResponse.json({ message: '请先登录。' }, { status: 401 });
     if (error instanceof VerificationRequiredError)
       return NextResponse.json(
         { message: '需要已验证且状态正常的账号。' },
         { status: 403 },
       );
     if (error instanceof ContentNotFoundError)
-      return NextResponse.json(
-        { message: '未找到该内容。' },
-        { status: 404 },
-      );
+      return NextResponse.json({ message: '未找到该内容。' }, { status: 404 });
     if (error instanceof ContentConflictError)
       return NextResponse.json(
         { message: '内容状态已变化，请刷新后重试。' },
@@ -208,10 +195,9 @@ export async function handleContentAction(
         { status: 400 },
       );
     if (error instanceof TagValidationError)
-      return NextResponse.json(
-        toContentValidationError(error),
-        { status: 400 },
-      );
+      return NextResponse.json(toContentValidationError(error), {
+        status: 400,
+      });
     return NextResponse.json(
       { message: '暂时无法更新内容，请稍后重试。' },
       { status: 500 },

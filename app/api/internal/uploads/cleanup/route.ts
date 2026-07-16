@@ -36,10 +36,7 @@ export async function handleUploadCleanup(
     ? authorization.slice('Bearer '.length)
     : '';
   if (!token || !secureEqual(token, secret)) {
-    return NextResponse.json(
-      { message: '身份验证失败。' },
-      { status: 401 },
-    );
+    return NextResponse.json({ message: '身份验证失败。' }, { status: 401 });
   }
 
   try {

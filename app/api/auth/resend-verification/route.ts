@@ -35,7 +35,10 @@ function rateLimited(
   retryAfterSeconds: number,
 ): NextResponse {
   const response = json
-    ? NextResponse.json({ message: '操作过于频繁，请稍后再试。' }, { status: 429 })
+    ? NextResponse.json(
+        { message: '操作过于频繁，请稍后再试。' },
+        { status: 429 },
+      )
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/verify?error=rate-limit'),
         303,
@@ -48,10 +51,7 @@ export async function POST(request: Request) {
   const json = wantsJson(request);
   if (!isSameOriginAuthRequest(request)) {
     return json
-      ? NextResponse.json(
-          { message: '请求来源无效。' },
-          { status: 403 },
-        )
+      ? NextResponse.json({ message: '请求来源无效。' }, { status: 403 })
       : NextResponse.redirect(
           getApplicationRedirectUrl('/auth/verify?error=origin'),
           303,

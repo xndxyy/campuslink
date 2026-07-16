@@ -83,9 +83,7 @@ export default async function ReportsPage() {
                   String(report.targetType)}{' '}
                 · {String(report.targetId)}
               </h3>
-              <p>
-                {String(report.details ?? '举报人未提供补充说明。')}
-              </p>
+              <p>{String(report.details ?? '举报人未提供补充说明。')}</p>
               <Link
                 href={targetHref(
                   String(report.targetType),

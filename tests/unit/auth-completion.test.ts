@@ -147,8 +147,8 @@ describe('link-holder credential completion', () => {
           }
           return { count: 0 };
         }),
-        findUnique: vi.fn(async ({ where }) =>
-          tokens.get(where.tokenHash) ?? null,
+        findUnique: vi.fn(
+          async ({ where }) => tokens.get(where.tokenHash) ?? null,
         ),
       },
     };

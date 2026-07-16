@@ -143,7 +143,7 @@ async function signIn(page: import('@playwright/test').Page) {
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(adminEmail);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
   const cookie = (await page.context().cookies()).find(
     (item) =>
@@ -172,7 +172,7 @@ test('administrator publishes, pins, previews, and permanently deletes an announ
   await page
     .getByLabel('公告封面图')
     .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
-  await expect(page.getByText('Upload is ready.')).toBeVisible();
+  await expect(page.getByText('文件上传完成。')).toBeVisible();
   await page.getByRole('button', { name: '发布公告' }).click();
   await expect(page.getByText('公告已发布。')).toBeVisible();
   await expect(page.getByText(title, { exact: true })).toBeVisible();

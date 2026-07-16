@@ -11,9 +11,7 @@ describe('Chinese authentication experience', () => {
   const signUp = source('../../app/auth/sign-up/page.tsx');
   const signIn = source('../../app/auth/sign-in/page.tsx');
   const verify = source('../../app/auth/verify/page.tsx');
-  const resend = source(
-    '../../components/auth/resend-verification-form.tsx',
-  );
+  const resend = source('../../components/auth/resend-verification-form.tsx');
   const routes = [
     source('../../app/api/auth/sign-up/route.ts'),
     source('../../app/api/auth/sign-in/route.ts'),

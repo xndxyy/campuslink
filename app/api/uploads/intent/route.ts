@@ -36,16 +36,10 @@ export async function handleUploadIntent(
   dependencies: UploadIntentRouteDependencies = {},
 ) {
   if (!isSameOriginAuthRequest(request)) {
-    return NextResponse.json(
-      { message: '请求来源无效。' },
-      { status: 403 },
-    );
+    return NextResponse.json({ message: '请求来源无效。' }, { status: 403 });
   }
   if (!jsonRequest(request)) {
-    return NextResponse.json(
-      { message: '上传信息无效。' },
-      { status: 400 },
-    );
+    return NextResponse.json({ message: '上传信息无效。' }, { status: 400 });
   }
 
   try {
@@ -59,16 +53,10 @@ export async function handleUploadIntent(
     }
     const parsed = uploadIntentSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        { message: '上传信息无效。' },
-        { status: 400 },
-      );
+      return NextResponse.json({ message: '上传信息无效。' }, { status: 400 });
     }
     if (!canCreateUploadIntent(user.role, parsed.data.kind)) {
-      return NextResponse.json(
-        { message: '权限不足。' },
-        { status: 403 },
-      );
+      return NextResponse.json({ message: '权限不足。' }, { status: 403 });
     }
 
     const result = await (dependencies.createIntent ?? createUploadIntent)(
@@ -78,10 +66,7 @@ export async function handleUploadIntent(
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     if (error instanceof AuthenticationRequiredError) {
-      return NextResponse.json(
-        { message: '请先登录。' },
-        { status: 401 },
-      );
+      return NextResponse.json({ message: '请先登录。' }, { status: 401 });
     }
     if (error instanceof VerificationRequiredError) {
       return NextResponse.json(

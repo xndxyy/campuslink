@@ -21,10 +21,7 @@ export async function POST(request: Request) {
     request.headers.get('content-type')?.includes('application/json') ?? false;
   if (!isSameOriginAuthRequest(request)) {
     return json
-      ? NextResponse.json(
-          { message: '请求来源无效。' },
-          { status: 403 },
-        )
+      ? NextResponse.json({ message: '请求来源无效。' }, { status: 403 })
       : NextResponse.redirect(getApplicationRedirectUrl('/?error=origin'), 303);
   }
 

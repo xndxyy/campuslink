@@ -1045,11 +1045,10 @@ export async function purgeContentRecord(
         (asset): asset is { id: string; status: string; storageKey: string } =>
           Boolean(
             asset &&
-              typeof asset === 'object' &&
-              typeof (asset as { id?: unknown }).id === 'string' &&
-              typeof (asset as { status?: unknown }).status === 'string' &&
-              typeof (asset as { storageKey?: unknown }).storageKey ===
-                'string',
+            typeof asset === 'object' &&
+            typeof (asset as { id?: unknown }).id === 'string' &&
+            typeof (asset as { status?: unknown }).status === 'string' &&
+            typeof (asset as { storageKey?: unknown }).storageKey === 'string',
           ),
       )
     : [];

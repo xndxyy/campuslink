@@ -285,9 +285,7 @@ export function FileUploader({
             return 'concluded';
           }
           if (!response.ok) {
-            throw new Error(
-              await responseMessage(response, '无法完成上传。'),
-            );
+            throw new Error(await responseMessage(response, '无法完成上传。'));
           }
           const completed = (await response.json()) as {
             assetId?: unknown;
@@ -339,9 +337,7 @@ export function FileUploader({
           });
           if (!isCurrent()) return;
           if (!response.ok) {
-            throw new Error(
-              await responseMessage(response, '无法开始上传。'),
-            );
+            throw new Error(await responseMessage(response, '无法开始上传。'));
           }
           const intent = parseIntentResponse(await response.json());
           if (!intent || intent.contentType !== validation.data.contentType) {
@@ -389,10 +385,7 @@ export function FileUploader({
           error instanceof UploadCancelledError ||
           (error instanceof DOMException && error.name === 'AbortError')
         ) {
-          finishAttempt(
-            'cancelled',
-            '上传已取消，重试时会继续当前任务。',
-          );
+          finishAttempt('cancelled', '上传已取消，重试时会继续当前任务。');
         } else {
           finishAttempt(
             'error',

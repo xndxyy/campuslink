@@ -25,8 +25,8 @@ describe('engagement live E2E isolation contract', () => {
   });
 
   it('exercises both favourite states through the real browser flow', () => {
-    expect(source).toContain("name: 'Add favourite'");
-    expect(source).toContain("name: 'Remove favourite'");
+    expect(source).toContain("name: '收藏'");
+    expect(source).toContain("name: '取消收藏'");
     expect(source).not.toMatch(/Report received\|open report already exists/);
   });
 

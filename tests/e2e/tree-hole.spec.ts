@@ -48,7 +48,7 @@ async function signIn(
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
 }
 
@@ -95,7 +95,7 @@ test('anonymous and unverified visitors cannot discover tree-hole pages', async 
   await page
     .locator('input[name="password"]')
     .fill(process.env.E2E_UNVERIFIED_PASSWORD!);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).toHaveURL(/auth\/sign-in\?error=/);
   const unverified = await page.request.get('/api/forum/posts?view=tree-hole');
   expect(unverified.status()).toBe(401);

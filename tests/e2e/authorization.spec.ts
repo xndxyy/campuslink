@@ -31,7 +31,7 @@ async function signIn(
   await page.goto('/auth/sign-in');
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: '登录' }).click();
   await expect(page).not.toHaveURL(/auth\/sign-in/);
 }
 
@@ -74,10 +74,8 @@ test('keyboard navigation opens the unified publish center', async ({
   await expect(publishLink).toBeFocused();
   await page.keyboard.press('Enter');
 
-  await expect(page).toHaveURL('/submit');
-  await expect(
-    page.getByRole('heading', { name: '选择发布类型' }),
-  ).toBeVisible();
+  await expect(page).toHaveURL('/submit/resource');
+  await expect(page.getByRole('heading', { name: '发布内容' })).toBeVisible();
 });
 
 test('mobile header keeps all shared navigation links visible and focusable', async ({

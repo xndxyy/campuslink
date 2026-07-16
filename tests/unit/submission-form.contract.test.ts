@@ -11,6 +11,12 @@ const publishTypeSource = readSource(
   '../../components/content/publish-type-list.tsx',
 );
 const publishPageSource = readSource('../../app/submit/page.tsx');
+const publishTabsSource = readSource(
+  '../../components/content/publish-category-tabs.tsx',
+);
+const submissionShellSource = readSource(
+  '../../components/content/submission-page-shell.tsx',
+);
 const categoryStripSource = readSource(
   '../../components/home/category-strip.tsx',
 );
@@ -32,6 +38,7 @@ const marketplacePageSource = readSource(
 const campusWorkPageSource = readSource(
   '../../app/submit/campus-work/page.tsx',
 );
+const forumPageSource = readSource('../../app/submit/forum/page.tsx');
 
 describe('submission form async event safety', () => {
   it('captures the form before awaiting and resets the captured element', () => {
@@ -113,11 +120,31 @@ describe('unified publish navigation contract', () => {
     ]);
   });
 
-  it('renders the publish choices from the shared list component', () => {
-    expect(publishTypeSource).toContain('export function PublishTypeList');
-    expect(publishTypeSource).toContain('publishTypes.map');
-    expect(publishPageSource).toContain('import { PublishTypeList }');
-    expect(publishPageSource).toContain('<PublishTypeList />');
+  it('renders category tabs above the shared form slot', () => {
+    expect(publishTabsSource).toContain('export function PublishCategoryTabs');
+    expect(publishTabsSource).toContain('publishTypes.map');
+    expect(submissionShellSource).toContain('<PublishCategoryTabs');
+    expect(submissionShellSource.indexOf('<PublishCategoryTabs')).toBeLessThan(
+      submissionShellSource.indexOf('{children}'),
+    );
+    expect(publishPageSource).toContain("redirect('/submit/resource')");
+  });
+
+  it('removes the four obsolete submit-page descriptions', () => {
+    const pages = [
+      resourcePageSource,
+      marketplacePageSource,
+      campusWorkPageSource,
+      forumPageSource,
+    ].join('\n');
+    for (const copy of [
+      '上传至少一份文档。所有内容在公开前都会由校园审核员检查。',
+      '清楚描述物品与取货区域。联系方式只保存于受保护记录，不会公开展示。',
+      '说明工作内容、地点、报酬与联系方法，标签最多选择五个。',
+      '使用真实校园昵称参与公开讨论，帖子支持评论、点赞与举报。',
+    ]) {
+      expect(pages).not.toContain(copy);
+    }
   });
 
   it('defines the exact four-section home navigation strip', () => {

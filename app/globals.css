@@ -356,8 +356,7 @@ h2 {
   padding-bottom: 2.5rem;
   border-bottom: 5px solid var(--navy);
 }
-.section-masthead h1,
-.form-page h1 {
+.section-masthead h1 {
   font-size: clamp(2.8rem, 6vw, 5.5rem);
   margin: 0;
   line-height: 1;
@@ -628,13 +627,68 @@ select {
   font-weight: 800;
 }
 .form-page {
-  display: grid;
-  grid-template-columns: minmax(250px, 380px) 1fr;
-  gap: clamp(3rem, 8vw, 8rem);
+  display: block;
+  max-width: 1180px;
 }
-.form-page header p:not(.eyebrow) {
-  line-height: 1.8;
+.publish-workspace-header {
+  padding-bottom: 1.5rem;
+  border-bottom: 5px solid var(--navy);
+}
+.publish-workspace-header h1 {
+  margin: 0;
+  font-size: 2.8rem;
+  line-height: 1.1;
+}
+.publish-category-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  background: white;
+}
+.publish-category-tabs a {
+  min-width: 0;
+  min-height: 5rem;
+  padding: 0.9rem;
+  display: grid;
+  align-content: center;
+  gap: 0.3rem;
+  border-right: 1px solid var(--line);
+}
+.publish-category-tabs a:last-child {
+  border-right: 0;
+}
+.publish-category-tabs a[aria-current='page'] {
+  background: var(--navy);
+  color: white;
+}
+.publish-category-tabs strong,
+.publish-category-tabs span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.publish-category-tabs strong {
+  font-size: 0.95rem;
+}
+.publish-category-tabs span {
   color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.publish-category-tabs a[aria-current='page'] span {
+  color: #c8d6e5;
+}
+.publish-form-area {
+  width: min(900px, 100%);
+  margin: 2rem auto 0;
+}
+.publish-form-heading {
+  margin-bottom: 1.25rem;
+}
+.publish-form-heading h2 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.2;
 }
 .submission-form {
   background: rgba(255, 255, 255, 0.88);
@@ -2179,6 +2233,21 @@ select {
   .section-masthead,
   .form-page {
     grid-template-columns: 1fr;
+  }
+  .publish-category-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .publish-category-tabs a {
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .publish-category-tabs a:nth-child(even) {
+    border-right: 0;
+  }
+  .publish-category-tabs a:last-child {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-bottom: 0;
   }
   .notice-card {
     grid-template-columns: 2.5rem 1fr;

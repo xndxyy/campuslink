@@ -1,4 +1,5 @@
 import { SubmissionForm } from '@/components/content/submission-form';
+import { SubmissionPageShell } from '@/components/content/submission-page-shell';
 import { requireVerifiedPageUser } from '@/lib/auth/page-access';
 import { getDb } from '@/lib/db';
 import { listAvailableTags, type TagAdapter } from '@/lib/domain/tags';
@@ -17,13 +18,12 @@ export default async function SubmitResourcePage() {
     'RESOURCE',
   );
   return (
-    <main className="page-shell form-page">
-      <header>
-        <p className="eyebrow">知识共享 / 01</p>
-        <h1>提交学习资源</h1>
-        <p>上传至少一份文档。所有内容在公开前都会由校园审核员检查。</p>
-      </header>
+    <SubmissionPageShell
+      activeHref="/submit/resource"
+      eyebrow="学习资源 / 01"
+      title="填写学习资源"
+    >
       <SubmissionForm availableTags={availableTags} kind="resource" />
-    </main>
+    </SubmissionPageShell>
   );
 }

@@ -1,4 +1,5 @@
 import { SubmissionForm } from '@/components/content/submission-form';
+import { SubmissionPageShell } from '@/components/content/submission-page-shell';
 import { requireVerifiedPageUser } from '@/lib/auth/page-access';
 import { getDb } from '@/lib/db';
 import { listAvailableTags, type TagAdapter } from '@/lib/domain/tags';
@@ -17,15 +18,12 @@ export default async function SubmitMarketplacePage() {
     'MARKETPLACE',
   );
   return (
-    <main className="page-shell form-page">
-      <header>
-        <p className="eyebrow">循环市集 / 02</p>
-        <h1>发布二手物品</h1>
-        <p>
-          清楚描述物品与取货区域。联系方式只保存于受保护记录，不会公开展示。
-        </p>
-      </header>
+    <SubmissionPageShell
+      activeHref="/submit/marketplace"
+      eyebrow="二手交易 / 02"
+      title="填写二手物品"
+    >
       <SubmissionForm availableTags={availableTags} kind="marketplace" />
-    </main>
+    </SubmissionPageShell>
   );
 }

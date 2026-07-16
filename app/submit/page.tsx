@@ -1,13 +1,5 @@
-import { PublishTypeList } from '@/components/content/publish-type-list';
+import { redirect } from 'next/navigation';
 
 export default function SubmitPage() {
-  return (
-    <main className="page-shell publish-center">
-      <header className="publish-masthead">
-        <p className="eyebrow">发布中心 / PUBLISH</p>
-        <h1>选择发布类型</h1>
-      </header>
-      <PublishTypeList />
-    </main>
-  );
+  redirect('/submit/resource');
 }

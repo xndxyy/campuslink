@@ -56,10 +56,7 @@ export default async function HomePage() {
               </Link>
             </div>
           )}
-          <p>
-            CampusLink
-            是面向西大学子的校园公共空间。公开内容经过审核，匿名树洞也为表达保留边界。
-          </p>
+          <p>CampusLink 是面向西大学子的校园公共空间。</p>
           <div className="hero-actions">
             <Link href="/resources">浏览校园内容</Link>
             <Link href="/submit">发布内容</Link>

@@ -160,6 +160,21 @@ describe('application layout contract', () => {
     }
   });
 
+  it('keeps only the approved homepage description and anchors short-page footers', () => {
+    expect(home).toContain(
+      'CampusLink 是面向西大学子的校园公共空间。',
+    );
+    expect(home).not.toContain(
+      '公开内容经过审核，匿名树洞也为表达保留边界。',
+    );
+    expect(globalStyles).toMatch(
+      /body\s*\{[\s\S]*?min-height:\s*100vh;[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;/,
+    );
+    expect(globalStyles).toMatch(
+      /#main-content\s*\{[\s\S]*?flex:\s*1 0 auto;/,
+    );
+  });
+
   it.each(brandAssets)('%s is a non-empty PNG asset', (fileName) => {
     const assetPath = fileURLToPath(
       new URL(`../../public/brand/${fileName}`, import.meta.url),

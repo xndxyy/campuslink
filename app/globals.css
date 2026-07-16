@@ -19,6 +19,9 @@ html {
   scroll-behavior: smooth;
 }
 body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
   margin: 0;
   color: var(--ink);
   background-color: var(--paper);
@@ -27,6 +30,9 @@ body {
     linear-gradient(90deg, rgba(7, 29, 61, 0.035) 1px, transparent 1px);
   background-size: 28px 28px;
   font-family: var(--sans);
+}
+#main-content {
+  flex: 1 0 auto;
 }
 a {
   color: inherit;

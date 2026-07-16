@@ -25,7 +25,7 @@ describe('auth mutation CSRF protection', () => {
 
       expect(response.status).toBe(403);
       await expect(response.json()).resolves.toEqual({
-        message: 'Invalid request origin.',
+        message: '请求来源无效。',
       });
     },
   );

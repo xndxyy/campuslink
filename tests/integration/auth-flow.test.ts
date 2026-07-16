@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   getSessionUserFromToken,
+  resendVerificationEmail,
   signInWithPassword,
   signUpWithPassword,
   verifyEmailToken,
@@ -93,11 +94,24 @@ describeWithDatabase('password authentication flow', () => {
       throw new Error('Verification link did not contain a token.');
     }
 
+    await resendVerificationEmail(email, { db, mailer });
+    if (!verificationUrl) {
+      throw new Error('Test mailer did not receive the replacement link.');
+    }
+    const replacementToken = new URL(verificationUrl).searchParams.get(
+      'token',
+    );
+    if (!replacementToken) {
+      throw new Error('Replacement link did not contain a token.');
+    }
     await expect(
       verifyEmailToken(verificationToken, 'SafeCampus!42', { db }),
+    ).resolves.toBe(false);
+    await expect(
+      verifyEmailToken(replacementToken, 'SafeCampus!42', { db }),
     ).resolves.toBe(true);
     await expect(
-      verifyEmailToken(verificationToken, 'SafeCampus!42', { db }),
+      verifyEmailToken(replacementToken, 'SafeCampus!42', { db }),
     ).resolves.toBe(false);
 
     const session = await signInWithPassword(

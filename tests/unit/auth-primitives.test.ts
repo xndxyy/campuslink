@@ -53,7 +53,7 @@ describe('credential primitives', () => {
     if (!result.success) {
       expect(result.error.issues).toContainEqual(
         expect.objectContaining({
-          message: 'Passwords do not match.',
+          message: '两次输入的密码不一致。',
           path: ['confirmPassword'],
         }),
       );

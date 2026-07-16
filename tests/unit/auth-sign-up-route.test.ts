@@ -31,7 +31,7 @@ describe('sign-up route', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      message: 'Invalid registration details.',
+      message: '注册信息无效。',
     });
   });
 
@@ -54,8 +54,7 @@ describe('sign-up route', () => {
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      message:
-        'If this address is eligible, check your e-mail for a verification link.',
+      message: '如果该邮箱可以注册，请查看收件箱中的验证邮件。',
     });
     expect(signUpWithPassword).toHaveBeenCalledWith({
       email: 'member@qq.com',

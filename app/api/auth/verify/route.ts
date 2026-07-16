@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   if (!isSameOriginAuthRequest(request)) {
     return json
       ? NextResponse.json(
-          { message: 'Invalid request origin.' },
+          { message: '请求来源无效。' },
           { status: 403 },
         )
       : NextResponse.redirect(
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   if (!rateLimit.allowed) {
     const response = json
       ? NextResponse.json(
-          { message: 'Please try again later.' },
+          { message: '操作过于频繁，请稍后再试。' },
           { status: 429 },
         )
       : NextResponse.redirect(
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
   const body = await getBody(request);
   if (body instanceof JsonBodyError) {
     return NextResponse.json(
-      { message: 'Verification link is invalid or expired.' },
+      { message: '验证链接无效或已过期。' },
       { status: body.status },
     );
   }
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return json
       ? NextResponse.json(
-          { message: 'Verification link is invalid or expired.' },
+          { message: '验证链接无效或已过期。' },
           { status: 400 },
         )
       : NextResponse.redirect(
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
   if (!verified) {
     return json
       ? NextResponse.json(
-          { message: 'Verification link is invalid or expired.' },
+          { message: '验证链接无效或已过期。' },
           { status: 400 },
         )
       : NextResponse.redirect(
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
   }
 
   return json
-    ? NextResponse.json({ message: 'E-mail verified.' })
+    ? NextResponse.json({ message: '邮箱验证成功。' })
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/sign-in?verified=1'),
         303,

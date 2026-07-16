@@ -22,7 +22,7 @@ function wantsJson(request: Request): boolean {
 
 function originFailure(request: Request, json: boolean): NextResponse {
   return json
-    ? NextResponse.json({ message: 'Invalid request origin.' }, { status: 403 })
+    ? NextResponse.json({ message: '请求来源无效。' }, { status: 403 })
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/sign-up?error=origin'),
         303,
@@ -35,7 +35,7 @@ function rateLimited(
   retryAfterSeconds: number,
 ): NextResponse {
   const response = json
-    ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
+    ? NextResponse.json({ message: '操作过于频繁，请稍后再试。' }, { status: 429 })
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/sign-up?error=rate-limit'),
         303,
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   const body = await getBody(request);
   if (body instanceof JsonBodyError) {
     return NextResponse.json(
-      { message: 'Invalid registration details.' },
+      { message: '注册信息无效。' },
       { status: body.status },
     );
   }
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return json
       ? NextResponse.json(
-          { message: 'Invalid registration details.' },
+          { message: '注册信息无效。' },
           { status: 400 },
         )
       : NextResponse.redirect(
@@ -88,10 +88,13 @@ export async function POST(request: Request) {
 
   try {
     await signUpWithPassword(parsed.data);
-  } catch {
+  } catch (error) {
+    console.error('Registration verification delivery failed.', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
     return json
       ? NextResponse.json(
-          { message: 'Unable to process registration. Please try again.' },
+          { message: '暂时无法处理注册，请稍后重试。' },
           { status: 503 },
         )
       : NextResponse.redirect(
@@ -103,8 +106,7 @@ export async function POST(request: Request) {
   return json
     ? NextResponse.json(
         {
-          message:
-            'If this address is eligible, check your e-mail for a verification link.',
+          message: '如果该邮箱可以注册，请查看收件箱中的验证邮件。',
         },
         { status: 202 },
       )

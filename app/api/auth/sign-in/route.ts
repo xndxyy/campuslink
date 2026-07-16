@@ -17,7 +17,7 @@ import { JsonBodyError, readBoundedJson } from '@/lib/security/request-body';
 export const runtime = 'nodejs';
 
 const rateLimiter = createEnvironmentRateLimiter();
-const genericFailure = { message: 'Invalid e-mail or password.' };
+const genericFailure = { message: '邮箱或密码错误。' };
 
 function wantsJson(request: Request): boolean {
   return (
@@ -37,7 +37,7 @@ function rateLimited(
   retryAfterSeconds: number,
 ): NextResponse {
   const response = json
-    ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
+    ? NextResponse.json({ message: '操作过于频繁，请稍后再试。' }, { status: 429 })
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/sign-in?error=rate-limit'),
         303,
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   if (!isSameOriginAuthRequest(request)) {
     return json
       ? NextResponse.json(
-          { message: 'Invalid request origin.' },
+          { message: '请求来源无效。' },
           { status: 403 },
         )
       : NextResponse.redirect(
@@ -95,7 +95,7 @@ export async function POST(request: Request) {
   }
 
   const response = json
-    ? NextResponse.json({ message: 'Signed in.' })
+    ? NextResponse.json({ message: '登录成功。' })
     : NextResponse.redirect(getApplicationRedirectUrl('/'), 303);
   response.cookies.set({
     ...getSessionCookieOptions(),

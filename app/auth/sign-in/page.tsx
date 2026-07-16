@@ -10,16 +10,16 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 p-6">
       <section className="w-full max-w-md rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-        <h1 className="text-2xl font-bold text-slate-950">Sign in</h1>
+        <h1 className="text-2xl font-bold text-slate-950">登录 CampusLink</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Sign in with your verified campus account.
+          使用已验证的邮箱和密码登录。
         </p>
         {verified ? (
           <p
             className="mt-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800"
             role="status"
           >
-            Your e-mail is verified. You can now sign in.
+            邮箱验证成功，现在可以登录。
           </p>
         ) : null}
         {error ? (
@@ -28,8 +28,8 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             role="alert"
           >
             {error === 'rate-limit'
-              ? 'Please wait a little before trying again.'
-              : 'Invalid e-mail or password.'}
+              ? '操作过于频繁，请稍后再试。'
+              : '邮箱或密码错误。'}
           </p>
         ) : null}
         <form
@@ -41,7 +41,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             className="block text-sm font-medium text-slate-800"
             htmlFor="email"
           >
-            E-mail
+            邮箱
           </label>
           <input
             autoComplete="email"
@@ -55,7 +55,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             className="block text-sm font-medium text-slate-800"
             htmlFor="password"
           >
-            Password
+            密码
           </label>
           <input
             autoComplete="current-password"
@@ -69,16 +69,16 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
             className="w-full rounded-md bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"
             type="submit"
           >
-            Sign in
+            登录
           </button>
         </form>
         <p className="mt-6 text-sm text-slate-600">
-          Need an account?{' '}
+          还没有账号？{' '}
           <Link
             className="font-semibold text-blue-700 hover:underline"
             href="/auth/sign-up"
           >
-            Sign up
+            注册
           </Link>
         </p>
       </section>

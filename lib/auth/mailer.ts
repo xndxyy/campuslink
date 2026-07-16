@@ -87,12 +87,29 @@ export function createEnvironmentMailer(): VerificationMailer {
       }
 
       const transport = nodemailer.createTransport(configuration);
+      const escapedUrl = verificationUrl
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
 
       await transport.sendMail({
         from: from ?? 'CampusLink <noreply@localhost>',
-        html: `<p>Verify your CampusLink e-mail address:</p><p><a href="${verificationUrl}">Verify e-mail</a></p>`,
-        subject: 'Verify your CampusLink e-mail address',
-        text: `Verify your CampusLink e-mail address: ${verificationUrl}`,
+        html: [
+          '<p>你好，</p>',
+          '<p>请点击下方按钮完成邮箱验证，并为 CampusLink 账号设置密码。</p>',
+          `<p><a href="${escapedUrl}">验证邮箱</a></p>`,
+          '<p>链接将在 24 小时后失效。若你多次申请验证，请使用最新一封邮件中的链接。</p>',
+          `<p>如果按钮无法打开，请在浏览器中访问：${escapedUrl}</p>`,
+          '<p>如果不是你本人发起的操作，可以忽略这封邮件。</p>',
+        ].join(''),
+        subject: '验证你的 CampusLink 邮箱',
+        text: [
+          '请完成邮箱验证并设置 CampusLink 账号密码。',
+          `验证链接：${verificationUrl}`,
+          '链接将在 24 小时后失效。若你多次申请验证，请使用最新一封邮件中的链接。',
+          '如果不是你本人发起的操作，可以忽略这封邮件。',
+        ].join('\n'),
         to: recipient,
       });
     },

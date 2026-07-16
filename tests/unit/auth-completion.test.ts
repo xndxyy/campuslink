@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   resendVerificationEmail,
@@ -71,6 +71,7 @@ describe('link-holder credential completion', () => {
   it('replaces a pending address token again after delivery fails', async () => {
     let createdTokens = 0;
     const transaction = {
+      $queryRawUnsafe: vi.fn(async () => [{ id: 'user_1' }]),
       user: {
         findUnique: async () => ({
           passwordHash: null,
@@ -109,5 +110,91 @@ describe('link-holder credential completion', () => {
     ).rejects.toThrow('SMTP unavailable');
 
     expect(createdTokens).toBe(2);
+  });
+
+  it('normalizes the address and invalidates the previous token when resending', async () => {
+    const tokens = new Map<
+      string,
+      { expires: Date; identifier: string; tokenHash: string }
+    >();
+    const transaction = {
+      $queryRawUnsafe: vi.fn(async () => [{ id: 'user_1' }]),
+      user: {
+        findUnique: vi.fn(async () => ({
+          passwordHash: null,
+          status: 'PENDING_VERIFICATION',
+        })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      verificationToken: {
+        create: vi.fn(async ({ data }) => {
+          tokens.set(data.tokenHash, data);
+          return data;
+        }),
+        deleteMany: vi.fn(async ({ where }) => {
+          if (where.identifier) {
+            let count = 0;
+            for (const [hash, record] of tokens) {
+              if (record.identifier === where.identifier) {
+                tokens.delete(hash);
+                count += 1;
+              }
+            }
+            return { count };
+          }
+          if (where.tokenHash && tokens.delete(where.tokenHash)) {
+            return { count: 1 };
+          }
+          return { count: 0 };
+        }),
+        findUnique: vi.fn(async ({ where }) =>
+          tokens.get(where.tokenHash) ?? null,
+        ),
+      },
+    };
+    const db = {
+      $transaction: async <T>(
+        callback: (value: typeof transaction) => Promise<T>,
+      ) => callback(transaction),
+    };
+    const urls: string[] = [];
+    const mailer = {
+      sendVerificationEmail: vi.fn(async ({ verificationUrl }) => {
+        urls.push(verificationUrl);
+      }),
+    };
+
+    await resendVerificationEmail('  Member@QQ.com ', {
+      appUrl: 'https://swuerlink.top',
+      db: db as never,
+      mailer,
+    });
+    await resendVerificationEmail('member@qq.com', {
+      appUrl: 'https://swuerlink.top',
+      db: db as never,
+      mailer,
+    });
+
+    const firstToken = new URL(urls[0]!).searchParams.get('token')!;
+    const secondToken = new URL(urls[1]!).searchParams.get('token')!;
+    await expect(
+      verifyEmailToken(firstToken, 'SafeCampus!42', { db: db as never }),
+    ).resolves.toBe(false);
+    await expect(
+      verifyEmailToken(secondToken, 'SafeCampus!42', { db: db as never }),
+    ).resolves.toBe(true);
+    expect(transaction.user.findUnique).toHaveBeenCalledWith({
+      select: { passwordHash: true, status: true },
+      where: { email: 'member@qq.com' },
+    });
+    expect(transaction.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('FOR UPDATE'),
+      'member@qq.com',
+    );
+    expect(
+      transaction.$queryRawUnsafe.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      transaction.verificationToken.deleteMany.mock.invocationCallOrder[0]!,
+    );
   });
 });

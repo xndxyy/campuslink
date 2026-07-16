@@ -10,10 +10,9 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 p-6">
       <section className="w-full max-w-md rounded-xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-        <h1 className="text-2xl font-bold text-slate-950">Create an account</h1>
+        <h1 className="text-2xl font-bold text-slate-950">注册 CampusLink</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Enter any valid email address. We will send a verification link before
-          you choose a password and activate the account.
+          填写任意有效邮箱。我们会先发送验证链接，验证后再设置密码并激活账号。
         </p>
         {error ? (
           <p
@@ -21,8 +20,10 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             role="alert"
           >
             {error === 'rate-limit'
-              ? 'Please wait a little before trying again.'
-              : 'Please check your registration details and try again.'}
+              ? '操作过于频繁，请稍后再试。'
+              : error === 'temporary'
+                ? '暂时无法发送验证邮件，请稍后重试。'
+                : '请检查注册信息后重试。'}
           </p>
         ) : null}
         <form
@@ -34,7 +35,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             className="block text-sm font-medium text-slate-800"
             htmlFor="name"
           >
-            Name
+            昵称
           </label>
           <input
             className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2"
@@ -47,7 +48,7 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             className="block text-sm font-medium text-slate-800"
             htmlFor="email"
           >
-            Email address
+            邮箱地址
           </label>
           <input
             autoComplete="email"
@@ -61,16 +62,16 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             className="w-full rounded-md bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800"
             type="submit"
           >
-            Send verification link
+            发送验证邮件
           </button>
         </form>
         <p className="mt-6 text-sm text-slate-600">
-          Already verified?{' '}
+          已完成验证？{' '}
           <Link
             className="font-semibold text-blue-700 hover:underline"
             href="/auth/sign-in"
           >
-            Sign in
+            登录
           </Link>
         </p>
       </section>

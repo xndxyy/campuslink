@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   if (!isSameOriginAuthRequest(request)) {
     return json
       ? NextResponse.json(
-          { message: 'Invalid request origin.' },
+          { message: '请求来源无效。' },
           { status: 403 },
         )
       : NextResponse.redirect(getApplicationRedirectUrl('/?error=origin'), 303);
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (!rateLimit.allowed) {
     const response = json
       ? NextResponse.json(
-          { message: 'Please try again later.' },
+          { message: '操作过于频繁，请稍后再试。' },
           { status: 429 },
         )
       : NextResponse.redirect(

@@ -9,6 +9,7 @@ import {
   createOpaqueToken,
   hashOpaqueToken,
   hashPassword,
+  resendVerificationSchema,
   verifyPassword,
 } from './credentials';
 import { createEnvironmentMailer, type VerificationMailer } from './mailer';
@@ -150,6 +151,9 @@ export async function resendVerificationEmail(
   email: string,
   dependencies: AuthDependencies = {},
 ): Promise<void> {
+  const parsedEmail = resendVerificationSchema.safeParse({ email });
+  if (!parsedEmail.success) return;
+  const normalizedEmail = parsedEmail.data.email;
   const db = dependencies.db ?? getDb();
   const now = dependencies.now ?? (() => new Date());
   const verificationToken = createOpaqueToken();
@@ -157,8 +161,18 @@ export async function resendVerificationEmail(
   const issuedAt = now();
 
   const reissued = await db.$transaction(async (transaction) => {
+    const locked = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id
+       FROM "User"
+       WHERE email = $1
+       FOR UPDATE`,
+      normalizedEmail,
+    );
+    if (locked.length !== 1 || typeof locked[0]?.id !== 'string') {
+      return false;
+    }
     const user = await transaction.user.findUnique({
-      where: { email },
+      where: { email: normalizedEmail },
       select: { passwordHash: true, status: true },
     });
 
@@ -167,12 +181,12 @@ export async function resendVerificationEmail(
     }
 
     await transaction.verificationToken.deleteMany({
-      where: { identifier: email },
+      where: { identifier: normalizedEmail },
     });
     await transaction.verificationToken.create({
       data: {
         expires: new Date(issuedAt.getTime() + verificationLifetimeMs),
-        identifier: email,
+        identifier: normalizedEmail,
         tokenHash: verificationTokenHash,
       },
     });
@@ -191,7 +205,7 @@ export async function resendVerificationEmail(
   await (
     dependencies.mailer ?? createEnvironmentMailer()
   ).sendVerificationEmail({
-    recipient: email,
+    recipient: normalizedEmail,
     verificationUrl: verificationUrl.toString(),
   });
 }

@@ -14,8 +14,7 @@ export const runtime = 'nodejs';
 
 const rateLimiter = createEnvironmentRateLimiter({ limit: 5 });
 const acknowledgement = {
-  message:
-    'If this address is pending verification, check your e-mail for a verification link.',
+  message: '如果该邮箱正在等待验证，请查看收件箱中的最新验证邮件。',
 };
 
 function wantsJson(request: Request): boolean {
@@ -36,7 +35,7 @@ function rateLimited(
   retryAfterSeconds: number,
 ): NextResponse {
   const response = json
-    ? NextResponse.json({ message: 'Please try again later.' }, { status: 429 })
+    ? NextResponse.json({ message: '操作过于频繁，请稍后再试。' }, { status: 429 })
     : NextResponse.redirect(
         getApplicationRedirectUrl('/auth/verify?error=rate-limit'),
         303,
@@ -50,7 +49,7 @@ export async function POST(request: Request) {
   if (!isSameOriginAuthRequest(request)) {
     return json
       ? NextResponse.json(
-          { message: 'Invalid request origin.' },
+          { message: '请求来源无效。' },
           { status: 403 },
         )
       : NextResponse.redirect(
@@ -85,10 +84,13 @@ export async function POST(request: Request) {
 
   try {
     await resendVerificationEmail(parsed.data.email);
-  } catch {
+  } catch (error) {
+    console.error('Verification email delivery failed.', {
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    });
     return json
       ? NextResponse.json(
-          { message: 'Unable to send a verification link. Please try again.' },
+          { message: '暂时无法发送验证邮件，请稍后重试。' },
           { status: 503 },
         )
       : NextResponse.redirect(

@@ -76,13 +76,13 @@ describe('authentication foundation', () => {
   });
 
   it('presents sign-up as open to any valid email address', () => {
-    expect(signUpPageSource).toContain('Email address');
+    expect(signUpPageSource).toContain('邮箱地址');
     expect(signUpPageSource).not.toMatch(/campus e-mail/i);
   });
 
   it('presents verification for any registered email address', () => {
-    expect(verifyPageSource).toContain('check your e-mail inbox');
-    expect(verifyPageSource).toContain('Enter your e-mail address');
+    expect(verifyPageSource).toContain('查看收件箱');
+    expect(verifyPageSource).toContain('<ResendVerificationForm');
     expect(verifyPageSource).not.toMatch(/campus (?:inbox|e-mail)/i);
   });
 

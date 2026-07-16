@@ -6,8 +6,7 @@ import { z } from 'zod';
 import { isPasswordValid } from './password';
 
 const passwordSchema = z.string().refine(isPasswordValid, {
-  message:
-    'Password must have at least 12 characters including upper- and lower-case letters, a number, and a symbol.',
+  message: '密码至少需要 12 个字符，并包含大小写字母、数字和符号。',
 });
 
 const normalizedEmailSchema = z.string().trim().toLowerCase().email();
@@ -26,7 +25,7 @@ export const verificationCompletionSchema = z
     token: z.string().trim().min(1).max(256),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match.',
+    message: '两次输入的密码不一致。',
     path: ['confirmPassword'],
   });
 

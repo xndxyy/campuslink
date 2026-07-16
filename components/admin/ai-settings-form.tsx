@@ -53,6 +53,11 @@ export function AiSettingsForm({ initial }: { initial: Settings }) {
         />
         启用 AI 审核
       </label>
+      <p className="admin-setting-note">
+        {form.enabled
+          ? 'AI 审核运行中：内容可能自动通过、转人工或被拦截。'
+          : 'AI 审核已暂停：屏蔽词仍会拦截，其余内容自动公开。'}
+      </p>
       <label>
         API 请求地址
         <input

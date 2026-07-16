@@ -285,20 +285,7 @@ export function createConfiguredPublishingPolicy(
       const localGate = (campusId: string, text: string) =>
         findBlockedWordForCampus(adapter as never, campusId, text);
       if (!config?.enabled) {
-        const prepared = await preparePublishingAssessmentBatch(
-          adapter,
-          input,
-          { localGate },
-        );
-        return prepared.outcome.kind === 'pass'
-          ? {
-              ...prepared,
-              outcome: {
-                kind: 'review' as const,
-                reasonZh: 'AI 自动审核未启用，内容已转入人工审核。',
-              },
-            }
-          : prepared;
+        return preparePublishingAssessmentBatch(adapter, input, { localGate });
       }
       let providerConfig:
         | {

@@ -60,7 +60,7 @@ describe('common content assessment', () => {
     expect(db.create).not.toHaveBeenCalled();
   });
 
-  it('routes ordinary content to manual review when AI is disabled', async () => {
+  it('auto-passes ordinary content when AI is disabled', async () => {
     const db = adapter();
     const productionAdapter = Object.assign(db.adapter, {
       aiModerationConfig: { findUnique: vi.fn(async () => null) },
@@ -79,10 +79,7 @@ describe('common content assessment', () => {
       ],
     });
 
-    expect(prepared.outcome).toStrictEqual({
-      kind: 'review',
-      reasonZh: 'AI 自动审核未启用，内容已转入人工审核。',
-    });
+    expect(prepared.outcome).toStrictEqual({ kind: 'pass' });
     expect(prepared.assessments).toHaveLength(0);
   });
 

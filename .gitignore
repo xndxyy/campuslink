@@ -7,5 +7,6 @@ test-results/
 !.env.example
 generated/
 .worktrees/
+.superpowers/
 *.log
 *.tsbuildinfo

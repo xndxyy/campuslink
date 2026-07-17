@@ -127,8 +127,10 @@ const routeUser = {
   status: 'ACTIVE' as const,
 };
 
-function contactRequest(origin = 'http://localhost:3000') {
-  return new Request('http://localhost/api/campus-work/work_1/contact', {
+const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+
+function contactRequest(origin = appUrl) {
+  return new Request(new URL('/api/campus-work/work_1/contact', appUrl), {
     headers: { origin },
     method: 'POST',
   });

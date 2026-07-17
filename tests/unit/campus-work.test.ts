@@ -651,11 +651,12 @@ describe('campus work public presentation', () => {
 describe('campus work owner action route', () => {
   it('uses campus-work validation and the complete verified server actor', async () => {
     const edit = vi.fn(async () => ({ id: 'work_1', status: 'DRAFT' }));
-    const request = new Request('http://localhost/api/campus-work/work_1', {
+    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+    const request = new Request(new URL('/api/campus-work/work_1', appUrl), {
       body: JSON.stringify({ action: 'edit', data: campusWorkInput }),
       headers: {
         'content-type': 'application/json',
-        origin: 'http://localhost:3000',
+        origin: appUrl,
       },
       method: 'PATCH',
     });

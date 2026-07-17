@@ -22,22 +22,28 @@ export default function RootLayout({
           跳到主要内容
         </a>
         <header className="site-header">
-          <SiteBrand />
-          <div className="header-navigation">
-            <nav aria-label="内容导航" className="product-navigation">
-              <Link href="/resources">学习资源</Link>
-              <Link href="/marketplace">二手交易</Link>
-              <Link href="/campus-work">校园工作</Link>
-              <Link href="/forum">校园论坛</Link>
-            </nav>
-            <nav aria-label="个人中心" className="account-navigation">
-              <Link href="/me/submissions">我的发布</Link>
-              <Link href="/me/favourites">我的收藏</Link>
-            </nav>
+          <div className="header-brand-row">
+            <div className="header-brand-inner">
+              <SiteBrand />
+              <Link className="header-action" href="/submit">
+                发布内容
+              </Link>
+            </div>
           </div>
-          <Link className="header-action" href="/submit">
-            发布内容
-          </Link>
+          <div className="header-navigation-row">
+            <div className="header-navigation">
+              <nav aria-label="内容导航" className="product-navigation">
+                <Link href="/resources">学习资源</Link>
+                <Link href="/marketplace">二手交易</Link>
+                <Link href="/campus-work">校园工作</Link>
+                <Link href="/forum">校园论坛</Link>
+              </nav>
+              <nav aria-label="个人中心" className="account-navigation">
+                <Link href="/me/submissions">我的发布</Link>
+                <Link href="/me/favourites">我的收藏</Link>
+              </nav>
+            </div>
+          </div>
         </header>
         <div id="main-content">{children}</div>
         <footer className="site-footer">

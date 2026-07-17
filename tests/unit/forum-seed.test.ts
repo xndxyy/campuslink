@@ -67,16 +67,34 @@ describe('forum category seed helper', () => {
       label: '管理员重命名',
       slug: 'campus-life',
     });
-    expect([...rows.values()]).toHaveLength(5);
+    expect([...rows.values()]).toHaveLength(7);
     expect(rows.get('campus_1:study-help')).toStrictEqual({
       campusId: 'campus_1',
       isActive: true,
       label: '学习互助',
       slug: 'study-help',
     });
-    expect(calls).toHaveLength(5);
-    expect(calls.every((call) => Object.keys(call.update).length === 0)).toBe(
-      true,
-    );
+    expect(rows.get('campus_1:help-and-advice')).toStrictEqual({
+      campusId: 'campus_1',
+      isActive: true,
+      label: '求助建议',
+      slug: 'help-and-advice',
+    });
+    expect(rows.get('campus_1:emotional-support')).toStrictEqual({
+      campusId: 'campus_1',
+      isActive: true,
+      label: '情感交流',
+      slug: 'emotional-support',
+    });
+    expect(calls).toHaveLength(7);
+    expect(calls.map((call) => call.update)).toStrictEqual([
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+      {},
+    ]);
   });
 });

@@ -55,6 +55,8 @@ export const forumCategorySeeds: readonly ForumCategorySeed[] = [
   { isActive: true, label: '学习互助', slug: 'study-help' },
   { isActive: true, label: '失物招领', slug: 'lost-and-found' },
   { isActive: true, label: '兴趣交流', slug: 'interests' },
+  { isActive: true, label: '求助建议', slug: 'help-and-advice' },
+  { isActive: true, label: '情感交流', slug: 'emotional-support' },
   { isActive: true, label: '其他', slug: 'other' },
 ];
 

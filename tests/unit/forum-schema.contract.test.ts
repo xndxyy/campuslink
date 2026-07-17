@@ -220,6 +220,8 @@ describe('forum persistence schema contract', () => {
 
   it('seeds the approved Chinese categories idempotently without sample posts', () => {
     for (const label of [
+      '求助建议',
+      '情感交流',
       '校园生活',
       '学习互助',
       '失物招领',

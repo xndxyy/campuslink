@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 
 for (const viewport of [
   { height: 900, name: 'desktop', width: 1440 },

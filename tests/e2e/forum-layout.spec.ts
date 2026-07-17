@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '../helpers/playwright-e2e';
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
 
 const layoutUrl = process.env.FORUM_LAYOUT_URL?.trim();

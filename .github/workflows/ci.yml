@@ -64,7 +64,7 @@ jobs:
       SMTP_PASSWORD: ci-mail-password
       SMTP_PORT: '1025'
       SMTP_USER: ci-mail-user
-      TRUST_PROXY: 'false'
+      TRUST_PROXY: 'true'
       UPLOAD_CLEANUP_SECRET: 0123456789abcdef0123456789abcdef
       UPLOAD_SCANNER_CALLBACK_SECRET: abcdef0123456789abcdef0123456789
     steps:

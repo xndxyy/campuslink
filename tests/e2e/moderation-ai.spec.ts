@@ -1,6 +1,6 @@
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { hash } from 'bcryptjs';
 import { Pool } from 'pg';
 

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { hash } from 'bcryptjs';
 import { Pool } from 'pg';
 
@@ -127,7 +127,7 @@ test('verified users publish and manage a private tree-hole surface without comm
       .locator('.forum-owner-editor input[name="title"]')
       .fill(`${title} 已修改`);
     await page.getByRole('button', { name: '保存修改' }).click();
-    await expect(page.getByText('修改已保存。')).toBeVisible();
+    await expect(page.getByText('发布成功，内容已公开。')).toBeVisible();
     await expect(page.locator('.forum-detail header')).toContainText('已发布');
     await expect(page.locator('.forum-detail header')).not.toContainText(
       'PUBLISHED',

@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { hash } from 'bcryptjs';
 import { Pool, type PoolClient } from 'pg';
 
@@ -215,6 +215,9 @@ test('administrator filters, pages, inspects, and force-signs-out a campus user'
   await expect(firstPageRows).toHaveCount(1);
   const firstPageUserId = await selectedUserId(firstPageRows.first());
   await page.getByRole('link', { name: '下一页' }).click();
+  await expect(page).toHaveURL((url) =>
+    Boolean(url.searchParams.get('cursor')),
+  );
 
   const searchParams = new URL(page.url()).searchParams;
   expect(searchParams.get('cursor')).toBeTruthy();
@@ -234,8 +237,8 @@ test('administrator filters, pages, inspects, and force-signs-out a campus user'
 
   await page.getByLabel('搜索姓名或邮箱').fill(targetEmail);
   await page.getByLabel('角色').selectOption('STUDENT');
-  await page.getByLabel('状态').selectOption('ACTIVE');
-  await page.getByLabel('验证状态').selectOption('true');
+  await page.locator('select[name="status"]').selectOption('ACTIVE');
+  await page.locator('select[name="verified"]').selectOption('true');
   await page.getByRole('button', { name: '应用筛选' }).click();
   await expect(page).toHaveURL(/search=target%40/);
   const row = page.locator('.admin-user-row').filter({ hasText: targetEmail });

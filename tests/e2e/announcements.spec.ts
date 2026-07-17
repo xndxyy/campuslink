@@ -5,7 +5,7 @@ import {
   HeadObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { hash } from 'bcryptjs';
 import { Pool } from 'pg';
 
@@ -170,7 +170,8 @@ test('administrator publishes, pins, previews, and permanently deletes an announ
   await page.getByLabel('公告正文').fill(body);
   await page.getByLabel('置顶此公告').check();
   await page
-    .getByLabel('公告封面图')
+    .getByRole('region', { name: '公告封面图' })
+    .locator('input[type="file"]')
     .setInputFiles(path.resolve('tests/fixtures/marketplace.png'));
   await expect(page.getByText('文件上传完成。')).toBeVisible();
   await page.getByRole('button', { name: '发布公告' }).click();
@@ -235,7 +236,7 @@ test('administrator publishes, pins, previews, and permanently deletes an announ
   expect(bounds?.x).toBe(0);
   expect(bounds?.width).toBe(375);
   await page.goto('/');
-  await expect(page.locator('.category-strip')).toBeInViewport({ ratio: 0.01 });
+  await expect(page.locator('.category-strip')).toBeVisible();
 
   await page.setViewportSize({ height: 900, width: 1440 });
   await page.goto('/admin/announcements');

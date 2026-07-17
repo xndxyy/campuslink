@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { hash } from 'bcryptjs';
 
+import { getDefaultCampusSlug } from '../lib/config';
 import { createDbClient } from '../lib/db';
 import { assertSafeDestructiveE2eEnvironment } from '../tests/helpers/e2e-database-safety';
 
@@ -45,8 +46,9 @@ async function main() {
     region: required('S3_REGION'),
   });
   try {
+    const campusSlug = getDefaultCampusSlug(process.env);
     const campus = await db.campus.upsert({
-      where: { slug: 'campuslink-e2e' },
+      where: { slug: campusSlug },
       update: {
         isActive: true,
         name: 'CampusLink E2E Campus',
@@ -54,7 +56,22 @@ async function main() {
       create: {
         isActive: true,
         name: 'CampusLink E2E Campus',
-        slug: 'campuslink-e2e',
+        slug: campusSlug,
+      },
+    });
+    await db.forumCategory.upsert({
+      where: {
+        campusId_slug: { campusId: campus.id, slug: 'general' },
+      },
+      update: {
+        isActive: true,
+        label: '综合交流',
+      },
+      create: {
+        campusId: campus.id,
+        isActive: true,
+        label: '综合交流',
+        slug: 'general',
       },
     });
     const [verifiedHash, unverifiedHash, sellerHash] = await Promise.all([

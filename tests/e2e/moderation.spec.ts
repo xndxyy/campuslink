@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { hash } from 'bcryptjs';
 import { Pool, type PoolClient } from 'pg';
 import { assertSafeDestructiveE2eEnvironment } from '../helpers/e2e-database-safety';
@@ -467,6 +467,7 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
     }
     await dialog.getByLabel('操作原因').fill(reason);
     await dialog.getByRole('button', { name: '确认执行' }).click();
+    await expect(dialog).not.toBeVisible();
   }
 
   await manageUser(
@@ -539,6 +540,19 @@ test('run-scoped administrator manages users, campus settings, audit filters, an
       return result.rows[0]?.name;
     })
     .toBe(`${campusName} Updated`);
+
+  await expect
+    .poll(async () => {
+      const result = await db!.query<{ count: string }>(
+        `SELECT count(*)::text FROM "AuditLog"
+         WHERE "campusId" = $1 AND "actorId" = $2
+           AND action = 'USER_ROLE_CHANGED'
+           AND "subjectType" = 'USER' AND "subjectId" = $3`,
+        [campusId, adminId, managedStudentId],
+      );
+      return result.rows[0]?.count;
+    })
+    .toBe('2');
 
   await page.goto(
     `/admin/audit-log?actor=${adminId}&event=USER_ROLE_CHANGED&entityType=USER&entityId=${managedStudentId}&pageSize=1`,

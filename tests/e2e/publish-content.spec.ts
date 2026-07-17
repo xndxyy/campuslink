@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { hash } from 'bcryptjs';
 import { Pool } from 'pg';
 import { assertSafeDestructiveE2eEnvironment } from '../helpers/e2e-database-safety';
@@ -186,7 +186,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
     await expect(page.getByText('文件上传完成。')).toBeVisible();
     await page.locator('button[type="submit"]').last().click();
     await expect(page.locator('[aria-live="polite"]').last()).toContainText(
-      '审核',
+      '已公开',
     );
 
     await page.goto('/submit/marketplace');
@@ -206,7 +206,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
     await expect(page.getByText('文件上传完成。')).toBeVisible();
     await page.locator('button[type="submit"]').last().click();
     await expect(page.locator('[aria-live="polite"]').last()).toContainText(
-      '审核',
+      '已公开',
     );
 
     await page.goto('/submit/campus-work');
@@ -221,20 +221,23 @@ test('verified student publishes resource, marketplace item, and campus work thr
       .getByLabel('自定义标签 1')
       .fill(publisher.customTags.campusWork.label);
     await page.locator('button[type="submit"]').click();
-    await expect(page.locator('[aria-live="polite"]')).toContainText('审核');
+    await expect(page.locator('[aria-live="polite"]').last()).toContainText(
+      '已公开',
+    );
 
     await page.goto('/me/submissions');
     for (const title of [resourceTitle, marketplaceTitle, campusWorkTitle]) {
       const row = page.locator('article').filter({ hasText: title }).first();
       await expect(row).toBeVisible();
-      await expect(row).toContainText('待审核');
+      await expect(row).toContainText('已发布');
     }
 
     const campusWorkRows = await publisher.db.query<{
       contact: string | null;
       id: string;
+      status: string;
     }>(
-      `SELECT id, contact
+      `SELECT id, contact, status::text
        FROM "CampusWorkPost"
        WHERE "authorId" = $1 AND title = $2 AND title LIKE $3`,
       [publisher.id, campusWorkTitle, `%${publisher.runId}%`],
@@ -245,16 +248,7 @@ test('verified student publishes resource, marketplace item, and campus work thr
       throw new Error('Run-scoped campus work contact is unavailable.');
     }
     expect(campusWork.contact).toBe(campusWorkContact);
-
-    const published = await publisher.db.query<{ id: string }>(
-      `UPDATE "CampusWorkPost"
-       SET status = 'PUBLISHED'
-       WHERE id = $1 AND "authorId" = $2 AND title = $3
-         AND status = 'PENDING'
-       RETURNING id`,
-      [campusWork.id, publisher.id, campusWorkTitle],
-    );
-    expect(published.rows).toEqual([{ id: campusWork.id }]);
+    expect(campusWork.status).toBe('PUBLISHED');
 
     const otherActors = await publisher.db.query<{
       campusId: string;
@@ -407,7 +401,7 @@ test('owner edits a provisioned rejected record and resubmits it', async ({
       .filter({ hasText: `Revised rejected ${kind}` });
     await expect(row).toContainText('草稿');
     await row.getByRole('button', { name: '重新提交' }).click();
-    await expect(row).toContainText('待审核');
+    await expect(row).toContainText('已发布');
   } finally {
     if (originalRejectedResource) {
       await db.query(

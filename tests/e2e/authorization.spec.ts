@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/playwright-e2e';
 import { Pool } from 'pg';
 
 import { shouldRunSharedAccountE2e } from '../helpers/e2e-environment';
@@ -67,9 +67,16 @@ test('anonymous mutations and private document reads do not reach protected data
 test('keyboard navigation opens the unified publish center', async ({
   page,
 }) => {
+  await signIn(
+    page,
+    process.env.E2E_VERIFIED_EMAIL!,
+    process.env.E2E_VERIFIED_PASSWORD!,
+  );
   await page.goto('/');
 
-  const publishLink = page.getByRole('link', { name: '发布内容' });
+  const publishLink = page
+    .getByRole('banner')
+    .getByRole('link', { exact: true, name: '发布内容' });
   await publishLink.focus();
   await expect(publishLink).toBeFocused();
   await page.keyboard.press('Enter');

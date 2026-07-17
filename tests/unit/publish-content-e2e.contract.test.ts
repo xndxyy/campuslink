@@ -104,15 +104,15 @@ describe('publish content live E2E navigation contract', () => {
   });
 
   it('publishes run-scoped campus work and verifies audited non-owner contact reveal', () => {
-    expect(source).toContain('SELECT id, contact');
+    expect(source).toContain('SELECT id, contact, status::text');
     expect(source).toContain('FROM "CampusWorkPost"');
     expect(source).toContain('"authorId" = $1');
     expect(source).toContain('title = $2');
     expect(source).toContain('publisher.runId');
-    expect(source).toContain('UPDATE "CampusWorkPost"');
+    expect(source).not.toContain('UPDATE "CampusWorkPost"');
     expect(source).not.toContain('"courseCode"');
     expect(source).not.toContain('"JobPost"');
-    expect(source).toContain("status = 'PUBLISHED'");
+    expect(source).toContain("expect(campusWork.status).toBe('PUBLISHED')");
     expect(source).toContain('page.context().clearCookies()');
     expect(source).toContain('process.env.E2E_OTHER_EMAIL!');
     expect(source).toContain('process.env.E2E_OTHER_PASSWORD!');

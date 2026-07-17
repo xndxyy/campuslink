@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { createS3UploadStorage } from '@/lib/storage/client';
+import { isTransactionConflict } from '@/lib/domain/transaction-errors';
 import {
   processStorageDeletionJob,
   type StorageDeletionAdapter,
@@ -88,16 +89,6 @@ function requireAdmin(actor: StaffActor) {
   if (actor.role !== 'ADMIN') throw new AnnouncementForbiddenError();
 }
 
-function isSerializationFailure(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
-  return (
-    candidate.code === 'P2034' ||
-    candidate.code === '40001' ||
-    candidate.meta?.code === '40001'
-  );
-}
-
 function isConstraintConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false;
   const code = (error as { code?: unknown }).code;
@@ -115,7 +106,7 @@ async function serializableTransaction<T>(
       });
     } catch (error) {
       if (error instanceof AnnouncementConflictError) throw error;
-      if (isSerializationFailure(error)) {
+      if (isTransactionConflict(error)) {
         if (attempt < 2) continue;
         throw new AnnouncementConflictError();
       }

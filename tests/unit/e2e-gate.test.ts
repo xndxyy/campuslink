@@ -47,7 +47,7 @@ describe('E2E environment gate', () => {
     ).toThrow('CI requires shared-account E2E fixtures');
   });
 
-  it('requires AI administration keys for the publishing-governance workflow', () => {
+  it('requires AI administration and anonymous identity keys for the publishing-governance workflow', () => {
     const shouldRunPublishingGovernanceE2e = (
       e2eEnvironment as unknown as {
         shouldRunPublishingGovernanceE2e?: (
@@ -67,6 +67,18 @@ describe('E2E environment gate', () => {
         AI_ALLOWED_HOSTS: 'api.openai.com',
         AI_CONFIG_ENCRYPTION_KEY_V1:
           'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      }),
+    ).toBe(false);
+    expect(
+      shouldRunPublishingGovernanceE2e({
+        ...complete(),
+        AI_ALLOWED_HOSTS: 'api.openai.com',
+        AI_CONFIG_ENCRYPTION_KEY_V1:
+          'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+        ANONYMOUS_FINGERPRINT_KEY:
+          'MjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjI=',
+        ANONYMOUS_IDENTITY_KEY_V1:
+          'MTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTE=',
       }),
     ).toBe(true);
   });

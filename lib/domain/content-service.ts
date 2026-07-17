@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ContentStatus } from './content-status';
 import { getDefaultCampusSlug } from '@/lib/config';
+import { isTransactionConflict } from '@/lib/domain/transaction-errors';
 import {
   ContentBlockedError,
   persistPreparedAssessmentBatch,
@@ -197,27 +198,46 @@ export class ContentNotFoundError extends Error {
 }
 
 function isRetryableTransactionError(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
   return (
-    candidate.code === 'P2002' ||
-    candidate.code === 'P2034' ||
-    candidate.code === '40001' ||
-    candidate.meta?.code === '40001'
+    (Boolean(error) &&
+      typeof error === 'object' &&
+      (error as { code?: unknown }).code === 'P2002') ||
+    isTransactionConflict(error)
   );
+}
+
+const CONTENT_TRANSACTION_MAX_ATTEMPTS = 5;
+const CONTENT_TRANSACTION_RETRY_BASE_MS = 50;
+
+function waitForContentTransactionRetry(attempt: number) {
+  const exponentialDelay = CONTENT_TRANSACTION_RETRY_BASE_MS * 2 ** attempt;
+  const jitter = Math.floor(Math.random() * exponentialDelay);
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, exponentialDelay + jitter);
+  });
 }
 
 async function serializableContentTransaction<T>(
   adapter: ContentAdapter,
   operation: (tx: ContentAdapter) => Promise<T>,
 ) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < CONTENT_TRANSACTION_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
     try {
       return await adapter.$transaction(operation, {
         isolationLevel: 'Serializable',
       });
     } catch (error) {
-      if (isRetryableTransactionError(error) && attempt < 2) continue;
+      if (
+        isRetryableTransactionError(error) &&
+        attempt < CONTENT_TRANSACTION_MAX_ATTEMPTS - 1
+      ) {
+        await waitForContentTransactionRetry(attempt);
+        continue;
+      }
       if (
         isRetryableTransactionError(error) ||
         error instanceof TagConflictError

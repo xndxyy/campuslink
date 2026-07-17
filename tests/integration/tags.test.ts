@@ -272,6 +272,7 @@ describeWithDatabase('governed tag persistence', () => {
       const plan = await db.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
         await tx.$executeRawUnsafe('SET LOCAL enable_bitmapscan = off');
+        await tx.$executeRawUnsafe('SET LOCAL enable_sort = off');
         return tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': string }>>(
           `EXPLAIN (COSTS OFF)
            SELECT "id", "label", "isActive", "isPreset"

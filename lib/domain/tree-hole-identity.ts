@@ -4,6 +4,7 @@ import {
   parseSerializedAnonymousIdentityEnvelope,
   type AnonymousIdentityKeyring,
 } from '@/lib/security/anonymous-identity';
+import { isTransactionConflict } from '@/lib/domain/transaction-errors';
 import { sanitizeAuditDetails } from './audit-details';
 
 type StaffRole = 'STUDENT' | 'MODERATOR' | 'ADMIN';
@@ -71,16 +72,6 @@ function boundedReason(value: unknown) {
   return trimmed;
 }
 
-function isSerializationFailure(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
-  return (
-    candidate.code === 'P2034' ||
-    candidate.code === '40001' ||
-    candidate.meta?.code === '40001'
-  );
-}
-
 async function serializableTransaction<T>(
   adapter: TreeHoleIdentityAdapter,
   operation: (tx: TreeHoleIdentityAdapter) => Promise<T>,
@@ -91,7 +82,7 @@ async function serializableTransaction<T>(
         isolationLevel: 'Serializable',
       });
     } catch (error) {
-      if (!isSerializationFailure(error) || attempt === 2) throw error;
+      if (!isTransactionConflict(error) || attempt === 2) throw error;
     }
   }
   throw new Error('Unreachable tree-hole identity transaction state.');

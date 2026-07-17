@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import { getDefaultCampusSlug } from '@/lib/config';
+import { isTransactionConflict } from '@/lib/domain/transaction-errors';
 import {
   ContentBlockedError,
   persistPreparedAssessmentBatch,
@@ -298,16 +299,6 @@ function kindForView(view: ForumView): ForumPostKind {
 
 type UniqueRetryScope = 'forum-like' | 'public-code';
 
-function isSerializationFailure(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
-  return (
-    candidate.code === 'P2034' ||
-    candidate.code === '40001' ||
-    candidate.meta?.code === '40001'
-  );
-}
-
 function matchesUniqueRetryScope(
   error: unknown,
   scope: UniqueRetryScope | undefined,
@@ -350,7 +341,7 @@ async function serializableForumTransaction<T>(
       });
     } catch (error) {
       const retryable =
-        isSerializationFailure(error) ||
+        isTransactionConflict(error) ||
         matchesUniqueRetryScope(error, uniqueRetryScope);
       if (retryable && attempt < 2) continue;
       if (retryable) throw new ForumConflictError();

@@ -32,6 +32,8 @@ export const requiredPublishingGovernanceE2eEnvironment = [
   ...requiredE2eEnvironment,
   'AI_CONFIG_ENCRYPTION_KEY_V1',
   'AI_ALLOWED_HOSTS',
+  'ANONYMOUS_IDENTITY_KEY_V1',
+  'ANONYMOUS_FINGERPRINT_KEY',
 ] as const;
 
 type Environment = Record<string, string | undefined>;

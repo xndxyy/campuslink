@@ -27,4 +27,20 @@ describe('AI settings UI', () => {
       '/admin/ai-settings',
     );
   });
+
+  it('does not submit the read-only API key suffix with mutable settings', () => {
+    const form = source('../../components/admin/ai-settings-form.tsx');
+
+    expect(form).not.toContain('JSON.stringify({ ...form');
+    for (const field of [
+      'baseUrl',
+      'blockThreshold',
+      'enabled',
+      'model',
+      'reviewThreshold',
+      'timeoutMs',
+    ]) {
+      expect(form).toContain(`${field}: form.${field}`);
+    }
+  });
 });

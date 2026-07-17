@@ -476,7 +476,33 @@ describe('audited tree-hole identity reveal', () => {
     expect(db.committedAudits).toHaveLength(1);
   });
 
-  it.each([{ code: '40001' }, { meta: { code: '40001' } }])(
+  it.each([
+    { code: '40001' },
+    { meta: { code: '40001' } },
+    {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: { originalCode: '40001' },
+        },
+      },
+    },
+    {
+      cause: {
+        kind: 'TransactionWriteConflict',
+        originalCode: '40001',
+      },
+      name: 'DriverAdapterError',
+    },
+    {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: { kind: 'TransactionWriteConflict' },
+        },
+      },
+    },
+  ])(
     'retries the complete transaction after serialization failure %j',
     async (serializationFailure) => {
       const db = retryingAdapter([serializationFailure, undefined]);

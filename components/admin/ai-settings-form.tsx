@@ -21,7 +21,16 @@ export function AiSettingsForm({ initial }: { initial: Settings }) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     const response = await fetch('/api/admin/ai-settings', {
-      body: JSON.stringify({ ...form, ...(apiKey ? { apiKey } : {}), reason }),
+      body: JSON.stringify({
+        ...(apiKey ? { apiKey } : {}),
+        baseUrl: form.baseUrl,
+        blockThreshold: form.blockThreshold,
+        enabled: form.enabled,
+        model: form.model,
+        reason,
+        reviewThreshold: form.reviewThreshold,
+        timeoutMs: form.timeoutMs,
+      }),
       headers: { 'content-type': 'application/json' },
       method: 'POST',
     });

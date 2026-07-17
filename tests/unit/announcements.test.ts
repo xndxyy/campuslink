@@ -202,7 +202,10 @@ describe('announcement creation', () => {
 
   it('retries recognized serialization failures and caps attempts at three', async () => {
     const db = adapter();
-    vi.mocked(db.$transaction).mockRejectedValueOnce({ code: 'P2034' });
+    vi.mocked(db.$transaction).mockRejectedValueOnce({
+      cause: { kind: 'TransactionWriteConflict' },
+      name: 'DriverAdapterError',
+    });
     await expect(
       createAnnouncement(db, admin, validInput),
     ).resolves.toMatchObject({
@@ -212,7 +215,10 @@ describe('announcement creation', () => {
 
     const exhausted = adapter();
     vi.mocked(exhausted.$transaction).mockRejectedValue({
-      meta: { code: '40001' },
+      code: 'P2010',
+      meta: {
+        driverAdapterError: { cause: { originalCode: '40001' } },
+      },
     });
     await expect(
       createAnnouncement(exhausted, admin, validInput),

@@ -46,7 +46,7 @@ function tagRecord(overrides: Partial<TagRecord> = {}): TagRecord {
   };
 }
 
-function isolatedResolutionAdapter(afterAttemptErrors: string[] = []) {
+function isolatedResolutionAdapter(afterAttemptErrors: unknown[] = []) {
   const rootSpies = adapter();
   const transaction = adapter();
   const transactionSpy = vi.fn();
@@ -60,8 +60,8 @@ function isolatedResolutionAdapter(afterAttemptErrors: string[] = []) {
     ) => {
       transactionSpy(operation, options);
       const result = await operation(transaction);
-      const code = errors.shift();
-      if (code) throw { code };
+      const error = errors.shift();
+      if (error) throw error;
       return result;
     },
   };
@@ -628,7 +628,19 @@ describe('atomic tag selection resolution', () => {
   });
 
   it('retries P2034 at most three times and rereads presets each time', async () => {
-    const db = isolatedResolutionAdapter(['P2034', 'P2034', 'P2034']);
+    const db = isolatedResolutionAdapter([
+      {
+        code: 'P2010',
+        meta: {
+          driverAdapterError: { cause: { originalCode: '40001' } },
+        },
+      },
+      {
+        cause: { kind: 'TransactionWriteConflict' },
+        name: 'DriverAdapterError',
+      },
+      { code: 'P2034' },
+    ]);
     db.transaction.tagDefinition.findMany.mockResolvedValue([
       tagRecord({ id: 'preset_1' }),
     ]);

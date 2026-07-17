@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
 import { hash } from 'bcryptjs';
@@ -68,6 +68,41 @@ async function expectFooterAtViewportBottom(page: Page) {
   expect(layout.footerBottom).toBeGreaterThanOrEqual(layout.viewportHeight - 1);
   expect(layout.footerTop).toBeGreaterThanOrEqual(layout.mainBottom - 1);
   expect(layout.overflow).toBeLessThanOrEqual(1);
+}
+
+async function expectStudentSessionActive(page: Page) {
+  const sessionCookie = (await page.context().cookies()).find(
+    (cookie) =>
+      cookie.name === 'campuslink-dev-session' ||
+      cookie.name === '__Host-campuslink-session',
+  );
+  if (!sessionCookie)
+    throw new Error('The student session cookie was not set.');
+  const sessionTokenHash = createHash('sha256')
+    .update(sessionCookie.value)
+    .digest('hex');
+  await expect
+    .poll(async () => {
+      const result = await db.query<{
+        active: boolean;
+        future: boolean;
+        total: number;
+        verified: boolean;
+      }>(
+        `SELECT
+           bool_and("User".status = 'ACTIVE') AS active,
+           bool_and("Session".expires > now()) AS future,
+           count(*)::int AS total,
+           bool_and("User"."emailVerifiedAt" IS NOT NULL) AS verified
+         FROM "Session"
+         JOIN "User" ON "User".id = "Session"."userId"
+         WHERE "Session"."sessionTokenHash" = $1
+           AND "Session"."userId" = $2`,
+        [sessionTokenHash, studentId],
+      );
+      return result.rows[0];
+    })
+    .toEqual({ active: true, future: true, total: 1, verified: true });
 }
 
 test.beforeAll(async () => {
@@ -167,6 +202,7 @@ test('验证中文发布、删除、治理开关和响应式首页', async ({ pa
   const resourceTitle = `文本学习资源 ${runId}`;
   await page.setViewportSize({ height: 900, width: 1440 });
   await signIn(page, studentEmail, studentPassword);
+  await expectStudentSessionActive(page);
 
   await page.goto('/submit/resource');
   const tabs = page.getByRole('navigation', { name: '发布分类' });
@@ -190,7 +226,7 @@ test('验证中文发布、删除、治理开关和响应式首页', async ({ pa
     '学习资源',
     '二手交易',
     '校园工作',
-    '校园论坛',
+    '普通论坛',
     '匿名树洞',
   ]) {
     await expect(tabs.getByText(label, { exact: true })).toBeVisible();
@@ -202,9 +238,9 @@ test('验证中文发布、删除、治理开关和响应式首页', async ({ pa
   await page.getByLabel('自定义标签 2').fill('重复标签');
   await page.getByRole('button', { name: '提交审核' }).click();
   await expect(
-    page.getByRole('alert', {
-      name: '自定义标签不能重复，请修改第二个标签。',
-    }),
+    page
+      .getByRole('alert')
+      .filter({ hasText: '自定义标签不能重复，请修改第二个标签。' }),
   ).toBeVisible();
   await expect(page.getByLabel('自定义标签 2')).toBeFocused();
 
@@ -212,8 +248,10 @@ test('验证中文发布、删除、治理开关和响应式首页', async ({ pa
   await page.getByLabel('自定义标签 2').clear();
   await page.getByRole('button', { name: '提交审核' }).click();
   await expect(page.getByText('发布成功，内容已公开。')).toBeVisible();
+  await expectStudentSessionActive(page);
 
   await page.goto('/me/submissions');
+  await expectStudentSessionActive(page);
   const resourceRow = page
     .locator('article')
     .filter({ hasText: resourceTitle });

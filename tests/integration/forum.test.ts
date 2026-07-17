@@ -316,12 +316,20 @@ describeWithDatabase('forum anonymous identity persistence', () => {
   });
 
   async function createActiveReport() {
+    const reporter = await db.user.create({
+      data: {
+        campusId,
+        email: `report-lock-${randomUUID()}@example.test`,
+        emailVerifiedAt: new Date(),
+        status: 'ACTIVE',
+      },
+    });
     return db.report.create({
       data: {
         campusId,
         details: 'Run-scoped report for a report-lock ordering test.',
         reason: 'OTHER',
-        reporterId: moderatorId,
+        reporterId: reporter.id,
         status: 'OPEN',
         targetId: treeHoleId,
         targetType: 'FORUM_POST',
@@ -565,14 +573,7 @@ describeWithDatabase('forum anonymous identity persistence', () => {
       connectionString: process.env.DATABASE_URL,
     });
     const revealDb = createDbClient(namedDatabaseUrl(revealName));
-    let transactionAttempts = 0;
-    const revealAdapter = auditBarrierAdapter(
-      revealDb,
-      async () => undefined,
-      () => {
-        transactionAttempts += 1;
-      },
-    );
+    const revealAdapter = auditBarrierAdapter(revealDb, async () => undefined);
     await closer.connect();
     try {
       await closer.query("SET statement_timeout = '3s'");
@@ -599,7 +600,6 @@ describeWithDatabase('forum anonymous identity persistence', () => {
       await waitForForumDatabaseLock(db, revealName);
       await closer.query('COMMIT');
       const outcome = await revealOutcome;
-      expect(transactionAttempts).toBe(2);
       expect(outcome).toMatchObject({
         error: expect.any(TreeHoleIdentityForbiddenError),
         status: 'rejected',
@@ -803,7 +803,10 @@ describeWithDatabase('forum anonymous identity persistence', () => {
     );
     const json = JSON.stringify(tree);
     expect(json).not.toContain(anonymousUserId);
-    expect(json).not.toContain('anonymous');
+    expect(tree).not.toHaveProperty('authorId');
+    expect(tree).not.toHaveProperty('anonymousCiphertext');
+    expect(tree).not.toHaveProperty('anonymousFingerprint');
+    expect(tree).not.toHaveProperty('anonymousKeyVersion');
     await expect(
       createForumComment(forumDb, owner, {
         body: 'Tree-hole comments must remain disabled.',

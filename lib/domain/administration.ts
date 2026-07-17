@@ -1,4 +1,5 @@
 import type { StaffActor, StaffRole } from './moderation';
+import { isTransactionConflict } from './transaction-errors';
 import { sanitizeAuditDetails } from './audit-details';
 
 export type ManagedUserStatus = 'PENDING_VERIFICATION' | 'ACTIVE' | 'SUSPENDED';
@@ -285,19 +286,6 @@ function adminReason(reason: string) {
   return value;
 }
 
-function isSerializationFailure(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as {
-    code?: unknown;
-    meta?: { code?: unknown };
-  };
-  return (
-    candidate.code === 'P2034' ||
-    candidate.code === '40001' ||
-    candidate.meta?.code === '40001'
-  );
-}
-
 async function serializableTransaction<T>(
   adapter: AdministrationAdapter,
   operation: (tx: AdministrationAdapter) => Promise<T>,
@@ -308,7 +296,7 @@ async function serializableTransaction<T>(
         isolationLevel: 'Serializable',
       });
     } catch (error) {
-      if (!isSerializationFailure(error)) throw error;
+      if (!isTransactionConflict(error)) throw error;
       if (attempt === 2) {
         throw new AdminConflictError('Concurrent administration change');
       }

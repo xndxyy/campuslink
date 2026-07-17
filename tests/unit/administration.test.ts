@@ -657,7 +657,23 @@ describe('administrator user controls', () => {
     expect(db.$transaction).toHaveBeenCalledTimes(2);
   });
 
-  it.each([{ code: 'P2034' }, { code: '40001' }, { meta: { code: '40001' } }])(
+  it.each([
+    { code: 'P2034' },
+    { code: '40001' },
+    { meta: { code: '40001' } },
+    {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: { originalCode: '40001' },
+        },
+      },
+    },
+    {
+      cause: { kind: 'TransactionWriteConflict' },
+      name: 'DriverAdapterError',
+    },
+  ])(
     'maps exhausted serialization failure %j to a safe conflict',
     async (error) => {
       const db = adapter();

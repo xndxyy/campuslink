@@ -91,6 +91,9 @@ describeWithStorage('direct storage uploads', () => {
     await db.asset.deleteMany({
       where: { ownerId: { in: [ownerId, otherOwnerId] } },
     });
+    await db.resourceTag.deleteMany({ where: { campusId } });
+    await db.resource.deleteMany({ where: { campusId } });
+    await db.tagDefinition.deleteMany({ where: { campusId } });
     await db.user.deleteMany({
       where: { id: { in: [ownerId, otherOwnerId] } },
     });

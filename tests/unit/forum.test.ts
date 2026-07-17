@@ -1540,24 +1540,40 @@ describe('forum likes', () => {
     expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it.each([{ code: 'P2034' }, { code: '40001' }, { meta: { code: '40001' } }])(
-    'always retries serialization failures %#',
-    async (failure) => {
-      const db = forumAdapter();
-      vi.mocked(db.forumLike.create).mockResolvedValue({
-        id: 'like_1',
-        postId: 'post_1',
-        userId: actor.id,
-      });
-      vi.mocked(db.$transaction)
-        .mockRejectedValueOnce(failure)
-        .mockImplementationOnce(async (operation) => operation(db));
-      await expect(
-        toggleForumLike(db, actor, { postId: 'post_1' }),
-      ).resolves.toStrictEqual({ liked: true, likeCount: 0 });
-      expect(db.$transaction).toHaveBeenCalledTimes(2);
+  it.each([
+    { code: 'P2034' },
+    { code: '40001' },
+    { meta: { code: '40001' } },
+    {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: { originalCode: '40001' },
+        },
+      },
     },
-  );
+    {
+      cause: {
+        kind: 'TransactionWriteConflict',
+        originalCode: '40001',
+      },
+      name: 'DriverAdapterError',
+    },
+  ])('always retries serialization failures %#', async (failure) => {
+    const db = forumAdapter();
+    vi.mocked(db.forumLike.create).mockResolvedValue({
+      id: 'like_1',
+      postId: 'post_1',
+      userId: actor.id,
+    });
+    vi.mocked(db.$transaction)
+      .mockRejectedValueOnce(failure)
+      .mockImplementationOnce(async (operation) => operation(db));
+    await expect(
+      toggleForumLike(db, actor, { postId: 'post_1' }),
+    ).resolves.toStrictEqual({ liked: true, likeCount: 0 });
+    expect(db.$transaction).toHaveBeenCalledTimes(2);
+  });
 
   it('allows likes on tree-hole posts without exposing identity or like users', async () => {
     const db = forumAdapter();

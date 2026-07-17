@@ -6,6 +6,7 @@ import {
   type TagScope,
   type TagSelectionInput,
 } from '@/lib/validation/tags';
+import { isTransactionConflict } from '@/lib/domain/transaction-errors';
 
 type Role = 'STUDENT' | 'MODERATOR' | 'ADMIN';
 
@@ -433,16 +434,6 @@ function isUniqueConflict(error: unknown) {
   );
 }
 
-function isSerializationFailure(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const candidate = error as { code?: unknown; meta?: { code?: unknown } };
-  return (
-    candidate.code === 'P2034' ||
-    candidate.code === '40001' ||
-    candidate.meta?.code === '40001'
-  );
-}
-
 function isAllowedAssessment(value: unknown) {
   if (value === true) return true;
   if (
@@ -522,12 +513,12 @@ export async function resolveContentTags(
       );
     } catch (error) {
       if (
-        (isUniqueConflict(error) || isSerializationFailure(error)) &&
+        (isUniqueConflict(error) || isTransactionConflict(error)) &&
         attempt < 2
       ) {
         continue;
       }
-      if (isUniqueConflict(error) || isSerializationFailure(error)) {
+      if (isUniqueConflict(error) || isTransactionConflict(error)) {
         throw new TagConflictError();
       }
       throw error;
@@ -547,8 +538,8 @@ async function serializable<T>(
       });
     } catch (error) {
       if (error instanceof TagConflictError) throw error;
-      if (isSerializationFailure(error) && attempt < 2) continue;
-      if (isSerializationFailure(error) || isUniqueConflict(error)) {
+      if (isTransactionConflict(error) && attempt < 2) continue;
+      if (isTransactionConflict(error) || isUniqueConflict(error)) {
         throw new TagConflictError();
       }
       throw error;

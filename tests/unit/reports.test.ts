@@ -119,7 +119,34 @@ describe('reports domain', () => {
     expect(db.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it.each([{ code: 'P2034' }, { code: '40001' }, { meta: { code: '40001' } }])(
+  it.each([
+    { code: 'P2034' },
+    { code: '40001' },
+    { meta: { code: '40001' } },
+    {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: { originalCode: '40001' },
+        },
+      },
+    },
+    {
+      cause: {
+        kind: 'TransactionWriteConflict',
+        originalCode: '40001',
+      },
+      name: 'DriverAdapterError',
+    },
+    {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: { kind: 'TransactionWriteConflict' },
+        },
+      },
+    },
+  ])(
     'retries the complete locked report transaction after %#',
     async (failure) => {
       const db = adapter();

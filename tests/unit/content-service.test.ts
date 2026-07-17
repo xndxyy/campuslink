@@ -692,9 +692,33 @@ describe('content service', () => {
     });
   });
 
-  it.each(['P2002', 'P2034'])(
+  it.each([
+    ['a unique conflict', { code: 'P2002' }],
+    ['a Prisma transaction conflict', { code: 'P2034' }],
+    [
+      'a wrapped PostgreSQL serialization failure',
+      {
+        code: 'P2010',
+        meta: {
+          driverAdapterError: {
+            cause: { originalCode: '40001' },
+          },
+        },
+      },
+    ],
+    [
+      'a direct driver transaction conflict',
+      {
+        cause: {
+          kind: 'TransactionWriteConflict',
+          originalCode: '40001',
+        },
+        name: 'DriverAdapterError',
+      },
+    ],
+  ] as const)(
     'restarts the entire Serializable create transaction after %s',
-    async (code) => {
+    async (_label, failure) => {
       const { adapter, serviceAdapter } = createAdapter([
         {
           id: 'doc_1',
@@ -710,7 +734,7 @@ describe('content service', () => {
         async <T>(operation: (tx: typeof adapter) => Promise<T>) => {
           attempts += 1;
           const result = await operation(adapter);
-          if (attempts === 1) throw { code };
+          if (attempts === 1) throw failure;
           return result;
         },
       );
@@ -724,6 +748,84 @@ describe('content service', () => {
       expect(adapter.asset.updateMany).toHaveBeenCalledTimes(2);
     },
   );
+
+  it('uses bounded backoff to survive three consecutive write conflicts', async () => {
+    vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const { adapter, serviceAdapter } = createAdapter([
+        {
+          id: 'doc_1',
+          kind: 'RESOURCE_DOCUMENT',
+          marketplaceItemId: null,
+          ownerId: actor.id,
+          resourceId: null,
+          status: 'READY',
+        },
+      ]);
+      let attempts = 0;
+      adapter.$transaction.mockImplementation(
+        async <T>(operation: (tx: typeof adapter) => Promise<T>) => {
+          attempts += 1;
+          const result = await operation(adapter);
+          if (attempts <= 3) throw { code: 'P2034' };
+          return result;
+        },
+      );
+
+      const outcome = createResource(serviceAdapter, actor, resourceInput);
+      await vi.advanceTimersByTimeAsync(349);
+      expect(adapter.$transaction).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(176);
+
+      await expect(outcome).resolves.toMatchObject({ status: 'PENDING' });
+      expect(adapter.$transaction).toHaveBeenCalledTimes(4);
+      expect(adapter.resource.create).toHaveBeenCalledTimes(4);
+      expect(random).toHaveBeenCalledTimes(3);
+    } finally {
+      random.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('maps the fifth consecutive write conflict after exactly five attempts', async () => {
+    vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const { adapter, serviceAdapter } = createAdapter([
+        {
+          id: 'doc_1',
+          kind: 'RESOURCE_DOCUMENT',
+          marketplaceItemId: null,
+          ownerId: actor.id,
+          resourceId: null,
+          status: 'READY',
+        },
+      ]);
+      adapter.$transaction.mockImplementation(
+        async <T>(operation: (tx: typeof adapter) => Promise<T>) => {
+          await operation(adapter);
+          throw {
+            cause: { kind: 'TransactionWriteConflict' },
+            name: 'DriverAdapterError',
+          };
+        },
+      );
+
+      const outcome = createResource(serviceAdapter, actor, resourceInput);
+      const assertion =
+        expect(outcome).rejects.toBeInstanceOf(ContentConflictError);
+      await vi.advanceTimersByTimeAsync(1_125);
+
+      await assertion;
+      expect(adapter.$transaction).toHaveBeenCalledTimes(5);
+      expect(adapter.resource.create).toHaveBeenCalledTimes(5);
+      expect(random).toHaveBeenCalledTimes(4);
+    } finally {
+      random.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 
   it('presents inactive historical tags to owners without using legacy resource tags', async () => {
     const { adapter, serviceAdapter } = createAdapter();

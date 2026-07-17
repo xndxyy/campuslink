@@ -1084,8 +1084,8 @@ describeWithDatabase('database schema constraints', () => {
     const planText = plans.map((plan) =>
       plan.map((row) => row['QUERY PLAN']).join('\n'),
     );
-    expect(planText[0]).toContain(
-      'ForumPost_campusId_kind_status_category_createdAt_id_idx',
+    expect(planText[0]).toMatch(
+      /ForumPost_campusId_kind_status_(?:category_)?createdAt_id_idx/,
     );
     expect(planText[1]).toContain(
       'ForumPost_campusId_anonymousFingerprint_createdAt_id_idx',

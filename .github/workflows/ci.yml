@@ -85,7 +85,10 @@ jobs:
       - name: Create storage bucket
         run: |
           for attempt in {1..30}; do
-            if docker run --rm --network host minio/mc:RELEASE.2025-08-13T08-35-41Z sh -c "mc alias set local http://127.0.0.1:9000 campuslink_minio campuslink_minio_test_password && mc mb --ignore-existing local/campuslink"; then
+            if docker run --rm --network host \
+              -e MC_HOST_local="http://${S3_ACCESS_KEY_ID}:${S3_SECRET_ACCESS_KEY}@127.0.0.1:9000" \
+              minio/mc:RELEASE.2025-08-13T08-35-41Z \
+              mb --ignore-existing local/campuslink; then
               exit 0
             fi
             sleep 2

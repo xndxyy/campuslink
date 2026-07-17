@@ -97,6 +97,16 @@ describe('release contract', () => {
     expect(releaseScript).not.toContain('shell:');
   });
 
+  it('creates the CI storage bucket through the minio mc entrypoint', () => {
+    const workflow = read('.github/workflows/ci.yml');
+
+    expect(workflow).toContain('-e MC_HOST_local=');
+    expect(workflow).toMatch(
+      /minio\/mc:[^\s]+\s+(?:\\\s*)?mb --ignore-existing local\/campuslink/,
+    );
+    expect(workflow).not.toMatch(/minio\/mc:[^\s]+\s+sh -c/);
+  });
+
   it('documents the production deployment order and read-only governance checks', () => {
     const delivery = read('docs/DELIVERY.md');
     const orderedCommands = [

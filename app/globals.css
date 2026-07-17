@@ -419,6 +419,29 @@ h2 {
   gap: 0.5rem;
   margin-top: 0.6rem;
 }
+.search-form .filter-row.marketplace-filter-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.search-form .marketplace-filter-row > *,
+.search-form .marketplace-filter-row input,
+.search-form .marketplace-filter-row select {
+  width: 100%;
+  min-width: 0;
+}
+.search-form .marketplace-filter-row label {
+  margin-bottom: 0;
+}
+.search-form .marketplace-filter-row label span {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+.filter-error {
+  margin: 0.65rem 0 0;
+  border-left: 3px solid #b42318;
+  color: #8f1d14;
+  padding: 0.5rem 0.75rem;
+  font-weight: 700;
+}
 .search-form input {
   flex: 1;
 }
@@ -2302,7 +2325,7 @@ select {
   .custom-tag-fields .tag-selector-help {
     grid-column: 1;
   }
-  .search-form .filter-row {
+  .search-form .filter-row:not(.marketplace-filter-row) {
     grid-template-columns: 1fr;
   }
   .site-footer {

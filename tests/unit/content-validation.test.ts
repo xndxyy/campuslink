@@ -249,4 +249,54 @@ describe('content validation', () => {
       contentListQuerySchema.parse({ search: 'a'.repeat(81) }),
     ).toThrow();
   });
+
+  it.each([
+    [{ minPrice: '0' }, { minPriceCents: 0 }],
+    [{ minPrice: '12.5' }, { minPriceCents: 1250 }],
+    [{ maxPrice: '12.50' }, { maxPriceCents: 1250 }],
+    [
+      { maxPrice: '100.00', minPrice: '19.99' },
+      { maxPriceCents: 10_000, minPriceCents: 1999 },
+    ],
+  ])('parses marketplace yuan filters into integer cents', (input, expected) => {
+    expect(contentListQuerySchema.parse(input)).toMatchObject(expected);
+  });
+
+  it.each(['-1', '1.001', 'not-a-price', '21474836.48'])(
+    'rejects invalid marketplace yuan filter %s',
+    (price) => {
+      expect(
+        contentListQuerySchema.safeParse({ minPrice: price }).success,
+      ).toBe(false);
+    },
+  );
+
+  it('rejects a maximum marketplace price below the minimum', () => {
+    const result = contentListQuerySchema.safeParse({
+      maxPrice: '9.99',
+      minPrice: '10.00',
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          message: '最高价不能低于最低价',
+          path: ['maxPrice'],
+        }),
+      );
+    }
+  });
+
+  it('treats empty marketplace price filters as absent', () => {
+    expect(
+      contentListQuerySchema.parse({ maxPrice: '', minPrice: '' }),
+    ).toEqual({ page: 1, pageSize: 12 });
+  });
+
+  it('rejects legacy browser price filter fields', () => {
+    expect(
+      contentListQuerySchema.safeParse({ minPriceCents: '1250' }).success,
+    ).toBe(false);
+  });
 });

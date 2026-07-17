@@ -82,7 +82,11 @@ export function PublicList({
             ) : null}
             {kind === 'marketplace' ? (
               <>
-                <select defaultValue={filters.condition ?? ''} name="condition">
+                <select
+                  aria-label="商品状态"
+                  defaultValue={filters.condition ?? ''}
+                  name="condition"
+                >
                   <option value="">全部状态</option>
                   <option value="NEW">全新</option>
                   <option value="LIKE_NEW">近乎全新</option>
@@ -91,6 +95,7 @@ export function PublicList({
                   <option value="POOR">明显磨损</option>
                 </select>
                 <input
+                  aria-label="标签"
                   defaultValue={filters.tag}
                   name="tag"
                   placeholder="标签"
@@ -98,6 +103,7 @@ export function PublicList({
                 <label>
                   <span>最低价（元）</span>
                   <input
+                    aria-label="最低价（元）"
                     defaultValue={filters.minPrice}
                     inputMode="decimal"
                     name="minPrice"
@@ -107,6 +113,7 @@ export function PublicList({
                 <label>
                   <span>最高价（元）</span>
                   <input
+                    aria-label="最高价（元）"
                     defaultValue={filters.maxPrice}
                     inputMode="decimal"
                     name="maxPrice"

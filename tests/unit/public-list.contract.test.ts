@@ -27,6 +27,18 @@ describe('public content list filter contract', () => {
     expect(marketplaceFilters).toContain('最低价（元）');
     expect(marketplaceFilters).toContain('最高价（元）');
     expect(marketplaceFilters?.match(/inputMode="decimal"/g)).toHaveLength(2);
+    expect(marketplaceFilters).toMatch(
+      /<select(?=[^>]*aria-label="商品状态")(?=[^>]*name="condition")[^>]*>/,
+    );
+    expect(marketplaceFilters).toMatch(
+      /<input(?=[^>]*aria-label="标签")(?=[^>]*name="tag")(?=[^>]*placeholder="标签")[^>]*\/>/,
+    );
+    expect(marketplaceFilters).toMatch(
+      /<input(?=[^>]*aria-label="最低价（元）")(?=[^>]*name="minPrice")(?=[^>]*placeholder="最低价（元）")[^>]*\/>/,
+    );
+    expect(marketplaceFilters).toMatch(
+      /<input(?=[^>]*aria-label="最高价（元）")(?=[^>]*name="maxPrice")(?=[^>]*placeholder="最高价（元）")[^>]*\/>/,
+    );
     expect(source).not.toMatch(/name="(?:minPriceCents|maxPriceCents)"/);
     expect(styles).toMatch(
       /\.search-form \.filter-row\.marketplace-filter-row\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,

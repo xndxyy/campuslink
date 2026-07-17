@@ -119,9 +119,13 @@ jobs:
           NEXT_PUBLIC_APP_URL: https://campus.example.test
           S3_ENDPOINT: https://objects.example.test
         run: |
-          npm start > /tmp/campuslink-next.log 2>&1 &
+          cleanup() {
+            kill -- "-$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          setsid npm start > /tmp/campuslink-next.log 2>&1 &
           server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          trap cleanup EXIT
           for attempt in {1..30}; do
             if curl --fail http://127.0.0.1:3000/auth/sign-in; then
               exit 0

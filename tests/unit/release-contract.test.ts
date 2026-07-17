@@ -107,6 +107,15 @@ describe('release contract', () => {
     expect(workflow).not.toMatch(/minio\/mc:[^\s]+\s+sh -c/);
   });
 
+  it('shuts down the complete CI smoke-test server process group', () => {
+    const workflow = read('.github/workflows/ci.yml');
+
+    expect(workflow).toContain('setsid npm start');
+    expect(workflow).toContain('kill -- "-$server_pid"');
+    expect(workflow).toContain('wait "$server_pid"');
+    expect(workflow).not.toContain('kill "$server_pid"');
+  });
+
   it('documents the production deployment order and read-only governance checks', () => {
     const delivery = read('docs/DELIVERY.md');
     const orderedCommands = [

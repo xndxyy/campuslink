@@ -109,6 +109,11 @@ describeWithDatabase('forum category defaults migration', () => {
       ]);
     } finally {
       try {
+        await client.query('ROLLBACK');
+      } catch {
+        // Continue cleanup if the session is already outside a transaction.
+      }
+      try {
         if (schemaCreated) {
           await client.query('RESET search_path');
           await client.query(`DROP SCHEMA "${temporarySchema}" CASCADE`);

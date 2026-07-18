@@ -1,9 +1,27 @@
 import { expect, test } from '../helpers/playwright-e2e';
 
 for (const viewport of [
-  { height: 900, minimumBrandLeft: 23, name: 'desktop', width: 1440 },
-  { height: 768, minimumBrandLeft: 23, name: 'tablet', width: 1024 },
-  { height: 844, minimumBrandLeft: 11, name: 'mobile', width: 390 },
+  {
+    height: 900,
+    maximumBrandLeft: null,
+    minimumBrandLeft: 23,
+    name: 'desktop',
+    width: 1440,
+  },
+  {
+    height: 768,
+    maximumBrandLeft: 25,
+    minimumBrandLeft: 23,
+    name: 'tablet',
+    width: 1024,
+  },
+  {
+    height: 844,
+    maximumBrandLeft: 13,
+    minimumBrandLeft: 11,
+    name: 'mobile',
+    width: 390,
+  },
 ]) {
   test(`keeps the approved homepage copy and footer layout on ${viewport.name}`, async ({
     page,
@@ -40,6 +58,9 @@ for (const viewport of [
       (link) => link.getBoundingClientRect().left,
     );
     expect(brandLeft).toBeGreaterThanOrEqual(viewport.minimumBrandLeft);
+    if (viewport.maximumBrandLeft !== null) {
+      expect(brandLeft).toBeLessThanOrEqual(viewport.maximumBrandLeft);
+    }
 
     if (viewport.name === 'mobile') {
       const scrollMetrics = await headerRegion.evaluate((region) => ({

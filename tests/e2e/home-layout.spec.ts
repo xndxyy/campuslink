@@ -1,8 +1,9 @@
 import { expect, test } from '../helpers/playwright-e2e';
 
 for (const viewport of [
-  { height: 900, name: 'desktop', width: 1440 },
-  { height: 844, name: 'mobile', width: 390 },
+  { height: 900, minimumBrandLeft: 23, name: 'desktop', width: 1440 },
+  { height: 768, minimumBrandLeft: 23, name: 'tablet', width: 1024 },
+  { height: 844, minimumBrandLeft: 11, name: 'mobile', width: 390 },
 ]) {
   test(`keeps the approved homepage copy and footer layout on ${viewport.name}`, async ({
     page,
@@ -31,6 +32,15 @@ for (const viewport of [
     );
     expect(new Set(entryTops).size).toBe(1);
 
+    const brandLink = headerRegion.getByRole('link', {
+      exact: true,
+      name: '西大同学 CampusLink 首页',
+    });
+    const brandLeft = await brandLink.evaluate(
+      (link) => link.getBoundingClientRect().left,
+    );
+    expect(brandLeft).toBeGreaterThanOrEqual(viewport.minimumBrandLeft);
+
     if (viewport.name === 'mobile') {
       const scrollMetrics = await headerRegion.evaluate((region) => ({
         clientWidth: region.clientWidth,
@@ -51,10 +61,6 @@ for (const viewport of [
 
       await headerRegion.evaluate((region) => {
         region.scrollLeft = 0;
-      });
-      const brandLink = headerRegion.getByRole('link', {
-        exact: true,
-        name: '西大同学 CampusLink 首页',
       });
       await brandLink.focus();
       await expect(brandLink).toBeFocused();

@@ -88,6 +88,7 @@ select:focus-visible {
   overscroll-behavior-x: contain;
   scrollbar-color: var(--line) transparent;
   scrollbar-width: thin;
+  scroll-padding-inline: 1.5rem;
   scroll-snap-type: x proximity;
 }
 .header-navigation {
@@ -2169,6 +2170,7 @@ select {
   }
   .header-scroll-region {
     padding-inline: 0;
+    scroll-padding-inline: 0.75rem;
   }
   .header-navigation {
     min-width: max(100%, 760px);

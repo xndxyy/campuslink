@@ -137,10 +137,16 @@ describe('application layout contract', () => {
       /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*1\.5rem;[\s\S]*?box-sizing:\s*border-box;/,
     );
     expect(globalStyles).toMatch(
+      /\.header-scroll-region\s*\{[\s\S]*?scroll-padding-inline:\s*1\.5rem;/,
+    );
+    expect(globalStyles).toMatch(
       /\.header-navigation\s*\{[\s\S]*?min-width:\s*min\(1180px,\s*100%\);/,
     );
     expect(mobileHeaderStyles).toMatch(
       /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*0;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.header-scroll-region\s*\{[\s\S]*?scroll-padding-inline:\s*0\.75rem;/,
     );
     for (const href of ['/me/submissions', '/me/favourites']) {
       expect(layout).toMatch(

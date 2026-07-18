@@ -30,8 +30,15 @@ export default function RootLayout({
                 <Link href="/marketplace">二手交易</Link>
                 <Link href="/campus-work">校园工作</Link>
                 <Link href="/forum">校园论坛</Link>
-                <Link href="/me/submissions">我的发布</Link>
-                <Link href="/me/favourites">我的收藏</Link>
+                <Link
+                  className="utility-navigation-link"
+                  href="/me/submissions"
+                >
+                  我的发布
+                </Link>
+                <Link className="utility-navigation-link" href="/me/favourites">
+                  我的收藏
+                </Link>
                 <Link className="header-action" href="/submit">
                   发布内容
                 </Link>

@@ -22,6 +22,10 @@ const focusRule =
   globalStyles.match(
     /a:focus-visible,[\s\S]*?select:focus-visible\s*\{[\s\S]*?\}/,
   )?.[0] ?? '';
+const mobileHeaderStyles = globalStyles.slice(
+  globalStyles.indexOf('@media (max-width: 900px)'),
+  globalStyles.indexOf('@media (max-width: 760px)'),
+);
 const siteBrandPath = fileURLToPath(
   new URL('../../components/brand/site-brand.tsx', import.meta.url),
 );
@@ -128,6 +132,23 @@ describe('application layout contract', () => {
     );
   });
 
+  it('keeps a stable desktop gutter and restores muted utility navigation', () => {
+    expect(globalStyles).toMatch(
+      /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*1\.5rem;[\s\S]*?box-sizing:\s*border-box;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*0;/,
+    );
+    for (const href of ['/me/submissions', '/me/favourites']) {
+      expect(layout).toMatch(
+        new RegExp(`className="utility-navigation-link"\\s+href="${href}"`),
+      );
+    }
+    expect(globalStyles).toMatch(
+      /\.utility-navigation-link\s*\{[\s\S]*?color:\s*var\(--muted\)\s*!important;/,
+    );
+  });
+
   it('exposes the four approved first-level product sections', () => {
     for (const [href, label] of [
       ['/resources', '学习资源'],
@@ -142,8 +163,12 @@ describe('application layout contract', () => {
   });
 
   it('keeps all navigation links in one scrollable mobile row', () => {
-    expect(layout).toContain('href="/me/submissions">我的发布</Link>');
-    expect(layout).toContain('href="/me/favourites">我的收藏</Link>');
+    expect(layout).toMatch(
+      /className="utility-navigation-link"\s+href="\/me\/submissions"\s*>/,
+    );
+    expect(layout).toMatch(
+      /className="utility-navigation-link"\s+href="\/me\/favourites"\s*>/,
+    );
     expect(siteBrand).toContain('site-brand-label-full');
     expect(siteBrand).toContain('site-brand-label-compact');
   });

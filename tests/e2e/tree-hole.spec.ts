@@ -115,7 +115,7 @@ test('verified users publish and manage a private tree-hole surface without comm
     await signIn(page, value.users[0]!.email, value.users[0]!.password);
     await page.goto('/forum?view=tree-hole');
     await page.getByRole('link', { name: '发布内容' }).click();
-    await expect(page).toHaveURL(/\/submit$/);
+    await expect(page).toHaveURL(/\/submit\/resource$/);
     await page.getByRole('link', { name: '匿名树洞' }).click();
     await expect(page).toHaveURL(/\/submit\/tree-hole$/);
     await page.locator('input[name="title"]').fill(title);

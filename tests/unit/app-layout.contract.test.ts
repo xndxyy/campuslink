@@ -136,6 +136,9 @@ describe('application layout contract', () => {
     expect(globalStyles).toMatch(
       /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*1\.5rem;[\s\S]*?box-sizing:\s*border-box;/,
     );
+    expect(globalStyles).toMatch(
+      /\.header-navigation\s*\{[\s\S]*?min-width:\s*min\(1180px,\s*100%\);/,
+    );
     expect(mobileHeaderStyles).toMatch(
       /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*0;/,
     );
@@ -145,6 +148,9 @@ describe('application layout contract', () => {
       );
     }
     expect(globalStyles).toMatch(
+      /\.utility-navigation-link\s*\{[\s\S]*?color:\s*var\(--muted\);/,
+    );
+    expect(globalStyles).not.toMatch(
       /\.utility-navigation-link\s*\{[\s\S]*?color:\s*var\(--muted\)\s*!important;/,
     );
   });

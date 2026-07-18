@@ -92,7 +92,7 @@ select:focus-visible {
 }
 .header-navigation {
   width: max-content;
-  min-width: min(1180px, calc(100% - 3rem));
+  min-width: min(1180px, 100%);
   min-height: 106px;
   margin: 0 auto;
   display: flex;
@@ -143,7 +143,7 @@ select:focus-visible {
   padding-left: 0;
 }
 .utility-navigation-link {
-  color: var(--muted) !important;
+  color: var(--muted);
 }
 .site-navigation a:hover {
   color: #087a35;

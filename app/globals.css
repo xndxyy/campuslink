@@ -148,6 +148,9 @@ select:focus-visible {
 .site-navigation a:hover {
   color: #087a35;
 }
+.site-navigation .header-action:hover {
+  color: var(--navy);
+}
 .header-action,
 .primary-link {
   background: var(--green);

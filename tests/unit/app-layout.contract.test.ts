@@ -155,6 +155,12 @@ describe('application layout contract', () => {
     );
   });
 
+  it('preserves publish action contrast when navigation links are hovered', () => {
+    expect(globalStyles).toMatch(
+      /\.site-navigation\s+\.header-action:hover\s*\{[\s\S]*?color:\s*var\(--navy\);/,
+    );
+  });
+
   it('exposes the four approved first-level product sections', () => {
     for (const [href, label] of [
       ['/resources', '学习资源'],

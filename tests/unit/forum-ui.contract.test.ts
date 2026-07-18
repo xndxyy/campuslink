@@ -35,6 +35,21 @@ describe('forum UI contract', () => {
     expect(list).toContain('buildForumHref');
   });
 
+  it('routes forum publishing through the global publishing center', () => {
+    const layout = source('app/layout.tsx');
+    const list = source('components/forum/forum-list.tsx');
+    expect(layout).toContain('className="header-action"');
+    expect(layout).toContain('href="/submit"');
+    for (const duplicateCta of [
+      '/submit/tree-hole',
+      '/submit/forum',
+      '发布讨论',
+      '发布树洞',
+    ]) {
+      expect(list).not.toContain(duplicateCta);
+    }
+  });
+
   it('authenticates tree-hole pages before domain reads and never renders comments there', () => {
     const listPage = source('app/forum/page.tsx');
     const detailPage = source('app/forum/[id]/page.tsx');

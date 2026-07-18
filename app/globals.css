@@ -1841,10 +1841,7 @@ select {
   padding-top: 3.5rem;
 }
 .forum-masthead {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2rem;
-  align-items: end;
+  display: block;
   padding-bottom: 1.7rem;
   border-bottom: 5px solid var(--navy);
 }
@@ -2209,16 +2206,12 @@ select {
   }
 }
 @media (max-width: 760px) {
-  .forum-masthead,
   .forum-submit-page {
     grid-template-columns: minmax(0, 1fr);
   }
   .forum-masthead h1,
   .forum-detail h1 {
     font-size: 2.5rem;
-  }
-  .forum-masthead .primary-link {
-    justify-self: start;
   }
   .forum-filter {
     grid-template-columns: minmax(0, 1fr);

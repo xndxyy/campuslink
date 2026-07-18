@@ -84,7 +84,11 @@ test('discussion publish, comment, like and report use the real product flow', a
   const title = `E2E 论坛讨论 ${value.runId}`;
   try {
     await signIn(page, value.users[0]!.email, value.users[0]!.password);
-    await page.goto('/submit/forum');
+    await page.goto('/forum');
+    await page.getByRole('link', { name: '发布内容' }).click();
+    await expect(page).toHaveURL(/\/submit$/);
+    await page.getByRole('link', { name: '普通论坛' }).click();
+    await expect(page).toHaveURL(/\/submit\/forum$/);
     await page.locator('input[name="title"]').fill(title);
     await page.locator('select[name="category"]').selectOption({ index: 1 });
     await page

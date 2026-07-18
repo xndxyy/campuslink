@@ -46,12 +46,6 @@ export function ForumList({
               : '公开讨论校园生活、学习经验与互助信息。'}
           </p>
         </div>
-        <Link
-          className="primary-link"
-          href={view === 'tree-hole' ? '/submit/tree-hole' : '/submit/forum'}
-        >
-          {view === 'tree-hole' ? '发布树洞' : '发布讨论'}
-        </Link>
       </header>
       <ForumTabs current={current} view={view} />
       <form action="/forum" className="forum-filter" method="get">

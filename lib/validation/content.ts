@@ -9,8 +9,7 @@ const yuanPricePattern = /^(?:0|[1-9]\d{0,7})(?:\.\d{1,2})?$/;
 
 export function yuanTextToCents(value: string): number {
   const [whole, fraction = ''] = value.split('.');
-  const cents =
-    BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, '0'));
+  const cents = BigInt(whole) * BigInt(100) + BigInt(fraction.padEnd(2, '0'));
   return Number(cents);
 }
 

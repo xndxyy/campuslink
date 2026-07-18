@@ -258,9 +258,12 @@ describe('content validation', () => {
       { maxPrice: '100.00', minPrice: '19.99' },
       { maxPriceCents: 10_000, minPriceCents: 1999 },
     ],
-  ])('parses marketplace yuan filters into integer cents', (input, expected) => {
-    expect(contentListQuerySchema.parse(input)).toMatchObject(expected);
-  });
+  ])(
+    'parses marketplace yuan filters into integer cents',
+    (input, expected) => {
+      expect(contentListQuerySchema.parse(input)).toMatchObject(expected);
+    },
+  );
 
   it.each(['-1', '1.001', 'not-a-price', '21474836.48'])(
     'rejects invalid marketplace yuan filter %s',

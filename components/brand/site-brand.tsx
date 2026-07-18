@@ -12,7 +12,10 @@ export function SiteBrand() {
         src="/brand/campuslink-mark-light.png"
         width={40}
       />
-      <span>西大同学 CampusLink</span>
+      <span className="site-brand-label-full">西大同学 CampusLink</span>
+      <span aria-hidden="true" className="site-brand-label-compact">
+        CampusLink
+      </span>
     </Link>
   );
 }

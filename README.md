@@ -8,6 +8,8 @@ blocked words, and configurable OpenAI-compatible AI assessment.
 For the complete Chinese project handoff, user guide, production deployment,
 rollback, backup, and risk register, see
 [`docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md`](docs/CAMPUSLINK_PROJECT_DELIVERY_GUIDE_ZH.md).
+For the current branch, verification evidence, production pause, and next
+steps, read [`docs/CAMPUSLINK_HANDOFF.md`](docs/CAMPUSLINK_HANDOFF.md) first.
 
 ## Prerequisites
 
@@ -16,7 +18,10 @@ private object storage.
 
 The imported Stitch pages live in `design/stitch-export/`. They are visual reference only; the application will be rebuilt as a typed, tested Next.js product.
 
-The validated design is in `docs/superpowers/specs/2026-07-12-campuslink-design.md` and the implementation plan is in `docs/superpowers/plans/2026-07-12-campuslink-product-platform.md`.
+The current navigation and publishing design is in
+`docs/superpowers/specs/2026-07-17-campuslink-single-row-navigation-forum-marketplace-design.md`.
+Earlier specifications and implementation plans under `docs/superpowers/` are
+historical decision records, not the current release status.
 
 Direct upload storage configuration for local MinIO and production Cloudflare
 R2 is documented in `docs/storage.md`.
@@ -26,7 +31,7 @@ R2 is documented in `docs/storage.md`.
 ```sh
 Copy-Item .env.example .env
 docker compose up -d postgres minio minio-init mailpit
-npm install
+npm ci
 npm run db:generate
 npm run db:migrate
 npm run db:seed

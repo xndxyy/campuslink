@@ -1,8 +1,27 @@
 import { expect, test } from '../helpers/playwright-e2e';
 
 for (const viewport of [
-  { height: 900, name: 'desktop', width: 1440 },
-  { height: 844, name: 'mobile', width: 390 },
+  {
+    height: 900,
+    maximumBrandLeft: null,
+    minimumBrandLeft: 23,
+    name: 'desktop',
+    width: 1440,
+  },
+  {
+    height: 768,
+    maximumBrandLeft: 25,
+    minimumBrandLeft: 23,
+    name: 'tablet',
+    width: 1024,
+  },
+  {
+    height: 844,
+    maximumBrandLeft: 13,
+    minimumBrandLeft: 11,
+    name: 'mobile',
+    width: 390,
+  },
 ]) {
   test(`keeps the approved homepage copy and footer layout on ${viewport.name}`, async ({
     page,
@@ -21,6 +40,54 @@ for (const viewport of [
     await expect(
       page.getByText('公开内容经过审核，匿名树洞也为表达保留边界。'),
     ).toHaveCount(0);
+
+    const headerRegion = page.locator('.header-scroll-region');
+    await expect(headerRegion).toBeVisible();
+    const headerEntries = headerRegion.locator('a');
+    await expect(headerEntries).toHaveCount(8);
+    const entryTops = await headerEntries.evaluateAll((links) =>
+      links.map((link) => Math.round(link.getBoundingClientRect().top)),
+    );
+    expect(new Set(entryTops).size).toBe(1);
+
+    const brandLink = headerRegion.getByRole('link', {
+      exact: true,
+      name: '西大同学 CampusLink 首页',
+    });
+    const brandLeft = await brandLink.evaluate(
+      (link) => link.getBoundingClientRect().left,
+    );
+    expect(brandLeft).toBeGreaterThanOrEqual(viewport.minimumBrandLeft);
+    if (viewport.maximumBrandLeft !== null) {
+      expect(brandLeft).toBeLessThanOrEqual(viewport.maximumBrandLeft);
+    }
+
+    if (viewport.name === 'mobile') {
+      const scrollMetrics = await headerRegion.evaluate((region) => ({
+        clientWidth: region.clientWidth,
+        scrollWidth: region.scrollWidth,
+      }));
+      expect(scrollMetrics.scrollWidth).toBeGreaterThan(
+        scrollMetrics.clientWidth,
+      );
+
+      const publishLink = headerRegion.getByRole('link', {
+        exact: true,
+        name: '发布内容',
+      });
+      await headerRegion.evaluate((region) => {
+        region.scrollLeft = region.scrollWidth;
+      });
+      await expect(publishLink).toBeInViewport();
+
+      await headerRegion.evaluate((region) => {
+        region.scrollLeft = 0;
+      });
+      await brandLink.focus();
+      await expect(brandLink).toBeFocused();
+      await expect(brandLink).toBeInViewport();
+      await expect(headerRegion).toHaveJSProperty('scrollLeft', 0);
+    }
 
     const layout = await page.evaluate(() => {
       const footer = document.querySelector('footer');

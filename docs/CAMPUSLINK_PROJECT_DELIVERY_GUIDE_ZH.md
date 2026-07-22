@@ -1,8 +1,10 @@
 # CampusLink 项目交付、使用与服务器部署手册
 
-> 版本日期：2026-07-15
+> 版本日期：2026-07-22
 > 适用对象：项目负责人、首次接手的开发者、服务器运维人员
 > 项目目录：`outputs/campuslink`
+
+> **当前状态入口：** 本手册包含大量稳定的部署与风险细节；当前分支、最新验证和生产暂停决策以 [`docs/CAMPUSLINK_HANDOFF.md`](CAMPUSLINK_HANDOFF.md) 为准。历史章节中的旧 Commit、旧测试计数和旧发布日期不代表当前 release。
 
 ## 1. 项目结论
 
@@ -10,24 +12,25 @@ CampusLink 是一个面向单校区的校园内容平台，覆盖学习资料、
 
 它不是只展示页面的原型，而是具备数据库、身份认证、权限控制、私有文件存储、恶意文件扫描门禁、自动化测试和生产部署约束的完整 Next.js 产品。
 
-当前发布验证结果：
+交付手册中的历史验证结果（请按当前 Commit 重新执行）：
 
-- 单元测试：99 个测试文件、1012 项通过。
-- PostgreSQL/MinIO/AI 集成测试：本机未提供完整 live 服务；显式本地 skip 模式发现 10 个文件、71 项待执行，结果为 `UNKNOWN`，不能记为通过。
-- Playwright 真实业务流程：本机未提供完整 live 服务；显式本地 skip 模式发现 21 项待执行，结果为 `UNKNOWN`，不能记为通过。
+- 单元测试：当前工作树包含 109 个单元测试文件；2026-07-19 交接记录包含 1105 项通过。
+- PostgreSQL/MinIO/AI 集成测试：缺少完整 live 服务时保持 `UNKNOWN`，不能记为通过。
+- Playwright 真实业务流程：缺少完整 live 服务时保持 `UNKNOWN`，不能记为通过。
 - 论坛桌面和手机几何回归：2 项通过，人工截图复核无重叠或横向溢出。
-- Prisma 迁移：21 个前向迁移；Schema validate 和 Client generate 通过，目标环境部署仍须执行 live 迁移验收。
+- Prisma：当前工作树包含 24 个 migration 目录；Schema validate 和 Client generate 通过，目标环境部署仍须执行 live 迁移验收。
 - ESLint、TypeScript、Prettier、Prisma Schema 校验和密钥扫描通过。
 - Next.js production build 通过，41/41 个页面完成构建。
 - 论坛与匿名树洞阶段的独立规格审查、代码质量审查通过，无 Critical 或 Important 问题。
 
-以上本地静态、单元和构建证据更新于 2026-07-15 19:34（Asia/Shanghai），绑定下表功能 Commit 和锁文件。live Integration/E2E 仍为 `UNKNOWN`，没有可公开引用的 CI Run 或已提交日志制品；第 7.4 节要求正式发布重新执行命令，并把完整日志、时间和制品哈希归档到发布系统。
+以上是历史证据摘要；正式发布必须在目标 Commit 上重新执行命令，并把完整日志、时间和制品哈希归档到发布系统。live Integration/E2E 在没有隔离服务和制品时仍为 `UNKNOWN`。
 
 本次功能验证绑定的代码基线：
 
 | 证据 | 值 |
 | --- | --- |
-| AI 审核功能基线 Commit | `200af9014448bffa4974f3a9b1aedded72ce2caf` |
+| 当前交接 Commit | `f182fc90634bff09c3db6fe94ad83830fdac63b8` |
+| 当前功能分支 | `codex/single-row-navigation-forum-marketplace` |
 | Phase 5 目标发布标签 | `community-expansion-phase-5`，仅在 live release verifier 全部通过后创建 |
 | CI Node | `22.12.0` |
 | 最终本地复核 Node/npm | `v24.14.1` / `11.11.0` |
@@ -35,7 +38,9 @@ CampusLink 是一个面向单校区的校园内容平台，覆盖学习资料、
 | MinIO 测试镜像 | `minio/minio:RELEASE.2025-09-07T16-13-09Z` |
 | `package-lock.json` SHA-256 | `650abe508bf1c25df3887ea92df0e79e7ddfe8e48e0a5740b3ae2deaa4c86e8f` |
 
-代码当前位于私有仓库的 `codex/community-expansion` 分支。AI 审核功能基线已由 Commit `200af9014448bffa4974f3a9b1aedded72ce2caf` 固定；`community-expansion-phase-5` 是通过完整 live 发布矩阵后才能创建的目标标签，不得用本地构建冒充 release verified。本地开发服务器默认使用 `http://127.0.0.1:3000`，正式发布仍应为目标 Commit 重新生成验证证据。
+当前代码位于 `codex/single-row-navigation-forum-marketplace` 分支，HEAD 为 `f182fc90634bff09c3db6fe94ad83830fdac63b8`。`community-expansion` 相关分支、Commit 和目标标签只作为历史发布材料保留；不得用本地构建冒充 release verified。本地开发服务器默认使用 `http://127.0.0.1:3000`，正式发布仍应为目标 Commit 重新生成验证证据。
+
+截至 2026-07-22，生产部署暂停。合规、验证邮件、运营治理、扫描 Worker 和 live 发布矩阵仍需完成；不要仅凭本手册的旧生产命令连接或修改线上环境。
 
 > **生产上线判定：** Web 应用已通过本地构建和单元测试，可以进入隔离预发布验证，但当前 live Integration/E2E 为 `UNKNOWN`，尚不满足第 11 节的生产放行条件。仓库还只实现了文件扫描回调和发布门禁，没有交付扫描 Worker；若要开放“学习资料文档”功能，扫描 Worker 是额外上线阻塞项。未接入时文档会停留在 `PENDING`，不能送审、发布或下载。二手交易、校园工作、论坛、树洞、公告、审核和用户治理不依赖扫描 Worker，但仍必须先通过 live 发布矩阵。
 
@@ -136,7 +141,7 @@ CampusLink 已形成从用户进入到平台治理的完整闭环：
 
 - TypeScript 严格类型检查。
 - Prisma Schema 和 21 个前向迁移。
-- 99 个单元测试文件、1012 项测试，包含 Task 6 收缩迁移契约。
+- 109 个单元测试文件、2026-07-19 交接记录包含 1105 项测试通过，包含收缩迁移契约。
 - PostgreSQL/MinIO/AI 集成测试定义，缺少 live 服务时失败关闭。
 - Playwright 端到端测试定义，缺少 live 服务时失败关闭。
 - 完整发布命令 `npm run verify:release`。
@@ -819,7 +824,7 @@ sudo systemctl is-enabled campuslink
 
 此时尚未创建或切换 `/srv/campuslink/current`，服务保持 `inactive` 是预期状态；不要把“未启动”误判为安装失败。第 9.1 节完成迁移和原子软链接切换后再执行 `systemctl start/restart` 与 `systemctl status`。
 
-不要在顺序部署命令中使用会一直阻塞的 `journalctl -f`。检查最近日志使用：
+不要在顺序部署命令中使用会一直阻塞的 `journalctl -f`。检查指定时间窗口内的日志使用：
 
 ```bash
 sudo journalctl -u campuslink -n 100 --no-pager
@@ -1593,7 +1598,7 @@ trap - EXIT
 chmod 600 "$BACKUP_FILE" "${BACKUP_FILE}.sha256"
 ```
 
-随后由备份平台 Agent、`rclone`、云厂商 CLI 或对象锁定服务把 `.age` 和 `.sha256` 一起上传到异地存储，并验证远端大小和校验和。保留策略自动删除过期副本，但最近一次已验证可恢复副本不得被生命周期规则提前删除。
+随后由备份平台 Agent、`rclone`、云厂商 CLI 或对象锁定服务把 `.age` 和 `.sha256` 一起上传到异地存储，并验证远端大小和校验和。保留策略自动删除过期副本，但最后一份经验证可恢复副本不得被生命周期规则提前删除。
 
 对象存储若支持版本控制、对象锁或跨账号复制，应启用合适策略；若 R2 套餐或所选供应商不提供满足要求的版本能力，就定期把对象和清单复制到独立备份 Bucket。备份账号不能与应用账号共用密钥。
 

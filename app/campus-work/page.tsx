@@ -15,18 +15,19 @@ export default async function CampusWorkPage({
       items: [],
       page: 1,
       pageSize: 12,
-      query: {},
+      filters: {},
       total: 0,
     };
   }
   return (
     <PublicList
       error={'error' in result ? result.error : undefined}
+      filterError={'filterError' in result ? result.filterError : undefined}
+      filters={result.filters}
       items={result.items}
       kind="campus-work"
       page={result.page}
       pageSize={result.pageSize}
-      query={result.query}
       total={result.total}
     />
   );

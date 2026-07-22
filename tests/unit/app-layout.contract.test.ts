@@ -93,20 +93,77 @@ describe('application layout contract', () => {
     );
   });
 
-  it('renders the approved two-tier shared header', () => {
-    const brandRow = layout.indexOf('className="header-brand-row"');
-    const navigationRow = layout.indexOf('className="header-navigation-row"');
-    const action = layout.indexOf('className="header-action"');
+  it('renders the approved single-row shared header in source order', () => {
+    const entries = [
+      '<SiteBrand />',
+      'href="/resources"',
+      'href="/marketplace"',
+      'href="/campus-work"',
+      'href="/forum"',
+      'href="/me/submissions"',
+      'href="/me/favourites"',
+      'className="header-action" href="/submit"',
+    ];
+    let previousIndex = -1;
+    for (const entry of entries) {
+      const currentIndex = layout.indexOf(entry);
+      expect(currentIndex, `missing ${entry}`).toBeGreaterThan(-1);
+      expect(currentIndex, `${entry} is out of order`).toBeGreaterThan(
+        previousIndex,
+      );
+      previousIndex = currentIndex;
+    }
 
-    expect(brandRow).toBeGreaterThan(-1);
-    expect(navigationRow).toBeGreaterThan(brandRow);
-    expect(action).toBeGreaterThan(brandRow);
-    expect(action).toBeLessThan(navigationRow);
+    expect(layout).toContain('className="header-scroll-region"');
+    expect(layout).toContain('aria-label="全站导航"');
+    expect(layout).not.toContain('header-brand-row');
+    expect(layout).not.toContain('header-navigation-row');
     expect(globalStyles).toMatch(
       /\.site-header\s*\{[^}]*border-top:\s*18px solid #171717;/,
     );
     expect(globalStyles).toMatch(
-      /\.header-brand-inner,[\s\S]*?\.header-navigation\s*\{[^}]*width:\s*min\(1180px, calc\(100% - 3rem\)\);/,
+      /\.header-scroll-region\s*\{[\s\S]*?overflow-x:\s*auto;/,
+    );
+    expect(globalStyles).toMatch(
+      /\.header-navigation\s*\{[\s\S]*?width:\s*max-content;[\s\S]*?display:\s*flex;[\s\S]*?flex-wrap:\s*nowrap;/,
+    );
+    expect(globalStyles).toMatch(
+      /\.site-navigation\s+a\s*\{[\s\S]*?white-space:\s*nowrap;[\s\S]*?flex:\s*0 0 auto;/,
+    );
+  });
+
+  it('keeps a stable desktop gutter and restores muted utility navigation', () => {
+    expect(globalStyles).toMatch(
+      /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*1\.5rem;[\s\S]*?box-sizing:\s*border-box;/,
+    );
+    expect(globalStyles).toMatch(
+      /\.header-scroll-region\s*\{[^}]*scroll-padding-inline:\s*1\.5rem;/,
+    );
+    expect(globalStyles).toMatch(
+      /\.header-navigation\s*\{[\s\S]*?min-width:\s*min\(1180px,\s*100%\);/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.header-scroll-region\s*\{[\s\S]*?padding-inline:\s*0;/,
+    );
+    expect(mobileHeaderStyles).toMatch(
+      /\.header-scroll-region\s*\{[^}]*scroll-padding-inline:\s*0\.75rem;/,
+    );
+    for (const href of ['/me/submissions', '/me/favourites']) {
+      expect(layout).toMatch(
+        new RegExp(`className="utility-navigation-link"\\s+href="${href}"`),
+      );
+    }
+    expect(globalStyles).toMatch(
+      /\.utility-navigation-link\s*\{[\s\S]*?color:\s*var\(--muted\);/,
+    );
+    expect(globalStyles).not.toMatch(
+      /\.utility-navigation-link\s*\{[\s\S]*?color:\s*var\(--muted\)\s*!important;/,
+    );
+  });
+
+  it('preserves publish action contrast when navigation links are hovered', () => {
+    expect(globalStyles).toMatch(
+      /\.site-navigation\s+\.header-action:hover\s*\{[\s\S]*?color:\s*var\(--navy\);/,
     );
   });
 
@@ -124,23 +181,14 @@ describe('application layout contract', () => {
   });
 
   it('keeps all navigation links in one scrollable mobile row', () => {
-    expect(layout).toContain('href="/me/submissions">我的发布</Link>');
-    expect(layout).toContain('href="/me/favourites">我的收藏</Link>');
-    expect(globalStyles).not.toMatch(
-      /\.account-navigation\s*\{[^}]*display:\s*none;/,
+    expect(layout).toMatch(
+      /className="utility-navigation-link"\s+href="\/me\/submissions"\s*>/,
     );
-    expect(mobileHeaderStyles).not.toMatch(
-      /\.header-navigation\s*\{[^}]*display:\s*none;/,
+    expect(layout).toMatch(
+      /className="utility-navigation-link"\s+href="\/me\/favourites"\s*>/,
     );
-    expect(mobileHeaderStyles).toMatch(
-      /\.header-navigation-row\s*\{[^}]*overflow-x:\s*auto;/,
-    );
-    expect(mobileHeaderStyles).toMatch(
-      /\.header-navigation\s*\{[^}]*width:\s*max-content;[^}]*min-width:\s*100%;/,
-    );
-    expect(mobileHeaderStyles).toMatch(
-      /\.site-header nav a\s*\{[^}]*min-height:\s*58px;/,
-    );
+    expect(siteBrand).toContain('site-brand-label-full');
+    expect(siteBrand).toContain('site-brand-label-compact');
   });
 
   it('loads the home announcement at request time and keeps the old recent-content area removed', () => {
